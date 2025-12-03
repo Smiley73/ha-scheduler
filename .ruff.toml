@@ -1,0 +1,10 @@
+[lint]
+select = [
+    "E",  # pycodestyle
+    "F",  # pyflakes
+    "I",  # isort
+]
+ignore = []
+
+[lint.per-file-ignores]
+"tests/*" = ["E501"]
