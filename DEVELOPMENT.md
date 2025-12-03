@@ -2,6 +2,42 @@
 
 This guide will help you set up your development environment and run tests for the Scheduler integration.
 
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Setting Up Your Development Environment](#setting-up-your-development-environment)
+  - [1. Clone the Repository](#1-clone-the-repository)
+  - [2. Create a Virtual Environment](#2-create-a-virtual-environment)
+  - [3. Install Dependencies](#3-install-dependencies)
+- [Running Tests](#running-tests)
+  - [Run All Tests](#run-all-tests)
+  - [Run Tests with Verbose Output](#run-tests-with-verbose-output)
+  - [Run Tests with Coverage Report](#run-tests-with-coverage-report)
+  - [Run Tests with Detailed Coverage](#run-tests-with-detailed-coverage-shows-missing-lines)
+  - [Run a Specific Test File](#run-a-specific-test-file)
+  - [Run a Specific Test Function](#run-a-specific-test-function)
+- [Code Quality Checks](#code-quality-checks)
+  - [Run Linting with Ruff](#run-linting-with-ruff)
+  - [Run Code Formatting with Black](#run-code-formatting-with-black)
+  - [Run Import Sorting with isort](#run-import-sorting-with-isort)
+- [Testing Locally in Home Assistant](#testing-locally-in-home-assistant)
+  - [Method 1: Symlink (Recommended for Development)](#method-1-symlink-recommended-for-development)
+  - [Method 2: Copy Files](#method-2-copy-files)
+  - [Adding the Integration](#adding-the-integration)
+- [Project Structure](#project-structure)
+- [Debugging Tips](#debugging-tips)
+  - [Enable Debug Logging](#enable-debug-logging)
+  - [View Logs](#view-logs)
+  - [Using pytest with pdb](#using-pytest-with-pdb)
+- [Continuous Integration](#continuous-integration)
+- [Making Changes](#making-changes)
+- [Troubleshooting](#troubleshooting)
+  - [Tests Fail with Import Errors](#tests-fail-with-import-errors)
+  - [Home Assistant Doesn't Detect the Integration](#home-assistant-doesnt-detect-the-integration)
+  - [Coverage Report Shows Missing Lines](#coverage-report-shows-missing-lines)
+- [Resources](#resources)
+- [Getting Help](#getting-help)
+
 ## Prerequisites
 
 - Python 3.13
@@ -20,8 +56,8 @@ cd ha-scheduler
 ### 2. Create a Virtual Environment
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
