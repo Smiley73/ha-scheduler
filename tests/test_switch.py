@@ -17,6 +17,8 @@ async def test_switch_services(hass: HomeAssistant, config_entry):
     state = hass.states.get(entity_id)
     assert state
     assert state.state == "off"
+    assert state.attributes["start_month"] == "january"
+    assert state.attributes["end_month"] == "december"
 
     await hass.services.async_call(
         SWITCH_DOMAIN,

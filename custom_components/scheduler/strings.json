@@ -2,18 +2,64 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Scheduler",
-        "description": "Configure your scheduler",
+        "title": "Set up Schedule",
+        "description": "Create a new schedule with a name and month range",
         "data": {
-          "name": "Name"
+          "name": "Schedule Name",
+          "start_month": "Start Month",
+          "end_month": "End Month"
+        },
+        "data_description": {
+          "start_month": "Select the month when the schedule starts",
+          "end_month": "Select the month when the schedule ends"
         }
       }
     },
     "error": {
+      "invalid_month_range": "Start month must be before or equal to end month",
       "unknown": "Unexpected error occurred"
     },
     "abort": {
       "already_configured": "Device is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Reconfigure Schedule",
+        "description": "Update your schedule settings",
+        "data": {
+          "name": "Schedule Name",
+          "start_month": "Start Month",
+          "end_month": "End Month"
+        },
+        "data_description": {
+          "start_month": "Select the month when the schedule starts",
+          "end_month": "Select the month when the schedule ends"
+        }
+      }
+    },
+    "error": {
+      "invalid_month_range": "Start month must be before or equal to end month",
+      "unknown": "Unexpected error occurred"
+    }
+  },
+  "selector": {
+    "month": {
+      "options": {
+        "january": "January",
+        "february": "February",
+        "march": "March",
+        "april": "April",
+        "may": "May",
+        "june": "June",
+        "july": "July",
+        "august": "August",
+        "september": "September",
+        "october": "October",
+        "november": "November",
+        "december": "December"
+      }
     }
   }
 }

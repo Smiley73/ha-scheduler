@@ -20,11 +20,11 @@ This guide will help you set up your development environment and run tests for t
   - [Run Linting with Ruff](#run-linting-with-ruff)
   - [Run Code Formatting with Black](#run-code-formatting-with-black)
   - [Run Import Sorting with isort](#run-import-sorting-with-isort)
-- [Testing Locally in Home Assistant](#testing-locally-in-home-assistant)
-  - [Method 1: Symlink (Recommended for Development)](#method-1-symlink-recommended-for-development)
-  - [Method 2: Copy Files](#method-2-copy-files)
+- [Running Home Assistant Locally](#running-home-assistant-locally)
+  - [Option 1: Local Development Instance (Recommended)](#option-1-local-development-instance-recommended)
+  - [Option 2: Using Existing Home Assistant Installation](#option-2-using-existing-home-assistant-installation)
   - [Adding the Integration](#adding-the-integration)
-- [Project Structure](#project-structure)
+  - [Hot Reloading During Development](#hot-reloading-during-development)
 - [Debugging Tips](#debugging-tips)
   - [Enable Debug Logging](#enable-debug-logging)
   - [View Logs](#view-logs)
@@ -139,9 +139,60 @@ isort --check-only custom_components/
 isort custom_components/
 ```
 
-## Testing Locally in Home Assistant
+## Running Home Assistant Locally
 
-### Method 1: Symlink (Recommended for Development)
+### Option 1: Local Development Instance (Recommended)
+
+Run a local Home Assistant instance in a separate virtual environment for development and testing.
+
+#### 1. Create a Separate Virtual Environment for Home Assistant
+
+```bash
+# Create a new directory for your HA development instance
+mkdir -p ~/ha-dev
+cd ~/ha-dev
+
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install Home Assistant
+pip install homeassistant
+```
+
+#### 2. Create Configuration Directory
+
+```bash
+# Create config directory
+mkdir -p config/custom_components
+
+# Symlink your integration
+ln -s /path/to/ha-scheduler/custom_components/scheduler config/custom_components/scheduler
+```
+
+#### 3. Start Home Assistant
+
+```bash
+# Start Home Assistant (will create default configuration on first run)
+hass -c config
+
+# Or run in verbose mode for debugging
+hass -c config --debug
+```
+
+#### 4. Access Home Assistant
+
+Open your browser and go to `http://localhost:8123`
+
+#### 5. Stop Home Assistant
+
+Press `Ctrl+C` in the terminal where Home Assistant is running.
+
+### Option 2: Using Existing Home Assistant Installation
+
+If you already have Home Assistant installed, you can test your integration there.
+
+#### Method A: Symlink (Recommended for Development)
 
 1. Locate your Home Assistant configuration directory (usually `~/.homeassistant` or `/config`)
 
@@ -153,7 +204,7 @@ ln -s /path/to/ha-scheduler/custom_components/scheduler ~/.homeassistant/custom_
 
 3. Restart Home Assistant
 
-### Method 2: Copy Files
+#### Method B: Copy Files
 
 1. Copy the integration to your Home Assistant custom_components directory:
 
@@ -170,35 +221,15 @@ cp -r custom_components/scheduler ~/.homeassistant/custom_components/
 3. Search for "Scheduler"
 4. Follow the configuration steps
 
-## Project Structure
+### Hot Reloading During Development
 
-```
-ha-scheduler/
-├── custom_components/
-│   └── scheduler/
-│       ├── __init__.py          # Integration setup
-│       ├── config_flow.py       # Configuration UI flow
-│       ├── const.py             # Constants
-│       ├── manifest.json        # Integration metadata
-│       ├── strings.json         # UI translations
-│       └── switch.py            # Switch platform
-├── tests/
-│   ├── __init__.py
-│   ├── conftest.py              # Test fixtures
-│   ├── test_config_flow.py      # Config flow tests
-│   ├── test_init.py             # Integration setup tests
-│   └── test_switch.py           # Switch platform tests
-├── .github/
-│   └── workflows/
-│       ├── lint.yml             # Linting workflow
-│       ├── test.yml             # Testing workflow
-│       └── validate.yml         # HACS validation workflow
-├── requirements.txt             # Runtime dependencies
-├── requirements_test.txt        # Test dependencies
-├── pytest.ini                   # Pytest configuration
-├── hacs.json                    # HACS metadata
-└── README.md                    # User documentation
-```
+When developing, you can reload your integration without restarting Home Assistant:
+
+1. Go to **Developer Tools** → **YAML**
+2. Click **Reload** next to "Custom Integrations" (if available)
+3. Or restart Home Assistant from **Settings** → **System** → **Restart**
+
+Note: Some changes (like manifest.json updates) require a full restart.
 
 ## Debugging Tips
 
