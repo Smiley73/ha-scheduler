@@ -576,3 +576,235 @@ async def test_options_flow_week_exception(hass: HomeAssistant, config_entry):
 
     assert result3["type"] == FlowResultType.FORM
     assert result3["errors"] == {"base": "unknown"}
+
+
+async def test_form_invalid_day_of_week_range(hass: HomeAssistant):
+    """Test we handle invalid day of week range in same-day scenario."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    # Note: Day of week wrap-around is actually valid (e.g., Fri-Mon)
+    # This test ensures the validation doesn't reject valid wrap-around ranges
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "5",  # Saturday
+            "end_day_of_week": "1",    # Tuesday (wrap around)
+            "start_week": 0,
+            "end_week": 4,
+        },
+    )
+
+    # This should succeed as wrap-around is valid
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_form_single_day_schedule(hass: HomeAssistant):
+    """Test schedule for a single day."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Single Day",
+            "schedule_type": "date",
+        },
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "6",
+            "end_month": "6",
+            "start_day": 15,
+            "end_day": 15,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["start_day"] == 15
+    assert result3["data"]["end_day"] == 15
+
+
+async def test_form_year_round_schedule(hass: HomeAssistant):
+    """Test year-round schedule (all months, all days)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Year Round",
+            "schedule_type": "date",
+        },
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 31,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["start_month"] == 1
+    assert result3["data"]["end_month"] == 12
+
+
+async def test_options_flow_change_schedule_type(hass: HomeAssistant):
+    """Test changing schedule type from date to week in options flow."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    # Start with date-based schedule
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Schedule",
+        data={
+            "name": "Test Schedule",
+            "start_month": 1,
+            "end_month": 12,
+            "schedule_type": "date",
+            "start_day": 1,
+            "end_day": 15,
+        },
+        entry_id="test_entry_id",
+        unique_id="test_unique_id",
+    )
+    
+    config_entry.add_to_hass(hass)
+
+    # Change to week-based
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Updated Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    assert result2["step_id"] == "week_config"
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "4",
+            "start_week": 0,
+            "end_week": 2,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert config_entry.data["schedule_type"] == "week"
+    # Old date fields should be removed
+    assert "start_day" not in config_entry.data
+    assert "end_day" not in config_entry.data
+
+
+async def test_form_last_day_of_month(hass: HomeAssistant):
+    """Test schedule ending on day 31."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "End of Month",
+            "schedule_type": "date",
+        },
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 25,
+            "end_day": 31,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["end_day"] == 31
+
+
+async def test_form_single_week_schedule(hass: HomeAssistant):
+    """Test schedule for a single week."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Single Week",
+            "schedule_type": "week",
+        },
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "6",
+            "end_month": "6",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 2,
+            "end_week": 2,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["start_week"] == 2
+    assert result3["data"]["end_week"] == 2
+
+
+async def test_options_flow_single_day_schedule(hass: HomeAssistant, config_entry):
+    """Test options flow with single day schedule."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Single Day Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "7",
+            "end_month": "7",
+            "start_day": 4,
+            "end_day": 4,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert config_entry.data["start_day"] == 4
+    assert config_entry.data["end_day"] == 4
