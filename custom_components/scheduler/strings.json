@@ -20,13 +20,15 @@
           "start_month": "Start Month",
           "end_month": "End Month",
           "start_day": "Start Day",
-          "end_day": "End Day"
+          "end_day": "End Day",
+          "additional_yaml": "Additional YAML Configuration"
         },
         "data_description": {
           "start_month": "Select the month when the schedule starts",
           "end_month": "Select the month when the schedule ends",
           "start_day": "Enter the starting day of the month (1-31)",
-          "end_day": "Enter the ending day of the month (1-31)"
+          "end_day": "Enter the ending day of the month (1-31)",
+          "additional_yaml": "Optional YAML configuration for advanced settings"
         }
       },
       "week_config": {
@@ -38,7 +40,8 @@
           "start_day_of_week": "Start Day of Week",
           "end_day_of_week": "End Day of Week",
           "start_week": "Start Week (0-4)",
-          "end_week": "End Week (0-4)"
+          "end_week": "End Week (0-4)",
+          "additional_yaml": "Additional YAML Configuration"
         },
         "data_description": {
           "start_month": "Select the month when the schedule starts",
@@ -46,7 +49,8 @@
           "start_day_of_week": "Select the starting day of the week",
           "end_day_of_week": "Select the ending day of the week",
           "start_week": "Enter the starting week number (0-4)",
-          "end_week": "Enter the ending week number (0-4)"
+          "end_week": "Enter the ending week number (0-4)",
+          "additional_yaml": "Optional YAML configuration for advanced settings"
         }
       }
     },
@@ -55,6 +59,7 @@
       "invalid_day_range": "Invalid day range provided",
       "invalid_day_of_week": "Day of week must be between 0 and 6",
       "invalid_week_range": "Invalid week range provided",
+      "invalid_yaml": "Invalid YAML format in additional configuration",
       "invalid_input": "Invalid input provided",
       "unknown": "Unexpected error occurred"
     },
@@ -83,13 +88,15 @@
           "start_month": "Start Month",
           "end_month": "End Month",
           "start_day": "Start Day",
-          "end_day": "End Day"
+          "end_day": "End Day",
+          "additional_yaml": "Additional YAML Configuration"
         },
         "data_description": {
           "start_month": "Select the month when the schedule starts",
           "end_month": "Select the month when the schedule ends",
           "start_day": "Enter the starting day of the month (1-31)",
-          "end_day": "Enter the ending day of the month (1-31)"
+          "end_day": "Enter the ending day of the month (1-31)",
+          "additional_yaml": "Optional YAML configuration for advanced settings"
         }
       },
       "week_config": {
@@ -101,7 +108,8 @@
           "start_day_of_week": "Start Day of Week",
           "end_day_of_week": "End Day of Week",
           "start_week": "Start Week (0-4)",
-          "end_week": "End Week (0-4)"
+          "end_week": "End Week (0-4)",
+          "additional_yaml": "Additional YAML Configuration"
         },
         "data_description": {
           "start_month": "Select the month when the schedule starts",
@@ -109,7 +117,8 @@
           "start_day_of_week": "Select the starting day of the week",
           "end_day_of_week": "Select the ending day of the week",
           "start_week": "Enter the starting week number (0-4)",
-          "end_week": "Enter the ending week number (0-4)"
+          "end_week": "Enter the ending week number (0-4)",
+          "additional_yaml": "Optional YAML configuration for advanced settings"
         }
       }
     },
@@ -118,6 +127,7 @@
       "invalid_day_range": "Invalid day range provided",
       "invalid_day_of_week": "Day of week must be between 0 and 6",
       "invalid_week_range": "Invalid week range provided",
+      "invalid_yaml": "Invalid YAML format in additional configuration",
       "invalid_input": "Invalid input provided",
       "unknown": "Unexpected error occurred"
     }

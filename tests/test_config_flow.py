@@ -51,6 +51,7 @@ async def test_form(hass: HomeAssistant):
         "end_month": 12,
         "start_day": 1,
         "end_day": 15,
+        "additional_yaml": "",
     }
 
 
@@ -155,6 +156,7 @@ async def test_options_flow(hass: HomeAssistant, config_entry):
         "end_month": 10,
         "start_day": 5,
         "end_day": 20,
+        "additional_yaml": "",
     }
 
 
@@ -808,3 +810,553 @@ async def test_options_flow_single_day_schedule(hass: HomeAssistant, config_entr
     assert result3["type"] == FlowResultType.CREATE_ENTRY
     assert config_entry.data["start_day"] == 4
     assert config_entry.data["end_day"] == 4
+
+
+async def test_form_date_with_valid_yaml(hass: HomeAssistant):
+    """Test date schedule with valid additional YAML."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    valid_yaml = "key1: value1\nkey2:\n  nested: value2\nlist:\n  - item1\n  - item2"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": valid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["additional_yaml"] == valid_yaml
+
+
+async def test_form_date_with_invalid_yaml(hass: HomeAssistant):
+    """Test date schedule with invalid YAML."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    invalid_yaml = """
+key1: value1
+  invalid indentation
+key2: [unclosed bracket
+"""
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": invalid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_form_date_with_empty_yaml(hass: HomeAssistant):
+    """Test date schedule with empty YAML (should be valid)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": "",
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["additional_yaml"] == ""
+
+
+async def test_form_week_with_valid_yaml(hass: HomeAssistant):
+    """Test week schedule with valid additional YAML."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Weekly Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    valid_yaml = "config:\n  enabled: true\n  priority: high"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "4",
+            "start_week": 0,
+            "end_week": 2,
+            "additional_yaml": valid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["additional_yaml"] == valid_yaml
+
+
+async def test_form_week_with_invalid_yaml(hass: HomeAssistant):
+    """Test week schedule with invalid YAML."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Weekly Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    invalid_yaml = """
+key: value
+  bad: indentation
+"""
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "4",
+            "start_week": 0,
+            "end_week": 2,
+            "additional_yaml": invalid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_options_flow_date_with_valid_yaml(hass: HomeAssistant, config_entry):
+    """Test options flow date schedule with valid YAML."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Updated Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    valid_yaml = "option1: value1\noption2: value2"
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "3",
+            "end_month": "10",
+            "start_day": 5,
+            "end_day": 20,
+            "additional_yaml": valid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert config_entry.data["additional_yaml"] == valid_yaml
+
+
+async def test_options_flow_date_with_invalid_yaml(hass: HomeAssistant, config_entry):
+    """Test options flow date schedule with invalid YAML."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Updated Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    invalid_yaml = "{ invalid: yaml: structure"
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "3",
+            "end_month": "10",
+            "start_day": 5,
+            "end_day": 20,
+            "additional_yaml": invalid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_options_flow_week_with_valid_yaml(hass: HomeAssistant, config_entry):
+    """Test options flow week schedule with valid YAML."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Updated Weekly Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    valid_yaml = "settings:\n  mode: advanced\n  timeout: 30"
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "3",
+            "end_month": "10",
+            "start_day_of_week": "1",
+            "end_day_of_week": "5",
+            "start_week": 1,
+            "end_week": 3,
+            "additional_yaml": valid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert config_entry.data["additional_yaml"] == valid_yaml
+
+
+async def test_options_flow_week_with_invalid_yaml(hass: HomeAssistant, config_entry):
+    """Test options flow week schedule with invalid YAML."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Updated Weekly Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    # Invalid YAML with improper indentation
+    invalid_yaml = "key: value\n  bad_indent: value2"
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "3",
+            "end_month": "10",
+            "start_day_of_week": "1",
+            "end_day_of_week": "5",
+            "start_week": 1,
+            "end_week": 3,
+            "additional_yaml": invalid_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_form_date_with_whitespace_only_yaml(hass: HomeAssistant):
+    """Test date schedule with whitespace-only YAML (should be valid)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": "   \n  \n  ",
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_form_week_with_complex_valid_yaml(hass: HomeAssistant):
+    """Test week schedule with complex valid YAML structure."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Complex Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    complex_yaml = "database:\n  host: localhost\n  port: 5432\n  credentials:\n    username: admin\n    password: secret\nfeatures:\n  - feature1\n  - feature2\n  - feature3\nsettings:\n  enabled: true\n  timeout: 60\n  retries: 3"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 0,
+            "end_week": 4,
+            "additional_yaml": complex_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["additional_yaml"] == complex_yaml
+
+
+async def test_form_date_with_simple_string_yaml(hass: HomeAssistant):
+    """Test date schedule with simple string YAML (should be invalid)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    # Simple string is not a valid YAML structure
+    simple_string = "just a simple string"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": simple_string,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_form_week_with_simple_number_yaml(hass: HomeAssistant):
+    """Test week schedule with simple number YAML (should be invalid)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    # Simple number is not a valid YAML structure
+    simple_number = "42"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 0,
+            "end_week": 4,
+            "additional_yaml": simple_number,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_options_flow_date_with_simple_string_yaml(hass: HomeAssistant, config_entry):
+    """Test options flow date schedule with simple string YAML (should be invalid)."""
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "name": "Updated Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    # Simple string is not a valid YAML structure
+    simple_string = "hello world"
+
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "3",
+            "end_month": "10",
+            "start_day": 5,
+            "end_day": 20,
+            "additional_yaml": simple_string,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_form_date_with_valid_list_yaml(hass: HomeAssistant):
+    """Test date schedule with valid list YAML."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    # Valid list structure
+    list_yaml = "- item1\n- item2\n- item3"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": list_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.CREATE_ENTRY
+    assert result3["data"]["additional_yaml"] == list_yaml
+
+
+async def test_form_week_with_boolean_yaml(hass: HomeAssistant):
+    """Test week schedule with simple boolean YAML (should be invalid)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "week",
+        },
+    )
+
+    # Simple boolean is not a valid YAML structure
+    simple_bool = "true"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 0,
+            "end_week": 4,
+            "additional_yaml": simple_bool,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}
+
+
+async def test_form_date_with_null_yaml(hass: HomeAssistant):
+    """Test date schedule with null YAML (should be invalid)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    result2 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "name": "Test Schedule",
+            "schedule_type": "date",
+        },
+    )
+
+    # null is not a valid YAML structure
+    null_yaml = "null"
+
+    result3 = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 15,
+            "additional_yaml": null_yaml,
+        },
+    )
+
+    assert result3["type"] == FlowResultType.FORM
+    assert result3["errors"] == {"base": "invalid_yaml"}

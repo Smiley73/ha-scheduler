@@ -537,3 +537,197 @@ async def test_binary_sensor_attributes_week_schedule(hass: HomeAssistant):
         # Should not have date-based attributes
         assert "start_day" not in state.attributes
         assert "end_day" not in state.attributes
+
+
+async def test_binary_sensor_with_additional_yaml_dict(hass: HomeAssistant):
+    """Test binary sensor with additional YAML config as dictionary."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Config Test",
+        data={
+            "name": "Config Test",
+            "start_month": 1,
+            "end_month": 12,
+            "schedule_type": "date",
+            "start_day": 1,
+            "end_day": 31,
+            "additional_yaml": "enabled: true\ntimeout: 30\nmode: advanced",
+        },
+        entry_id="test_config_dict",
+        unique_id="test_config_dict_unique",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.config_test"
+        state = hass.states.get(entity_id)
+        assert state
+        assert "config" in state.attributes
+        assert state.attributes["config"]["enabled"] is True
+        assert state.attributes["config"]["timeout"] == 30
+        assert state.attributes["config"]["mode"] == "advanced"
+
+
+async def test_binary_sensor_with_additional_yaml_list(hass: HomeAssistant):
+    """Test binary sensor with additional YAML config as list."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="List Config Test",
+        data={
+            "name": "List Config Test",
+            "start_month": 1,
+            "end_month": 12,
+            "schedule_type": "date",
+            "start_day": 1,
+            "end_day": 31,
+            "additional_yaml": "- item1\n- item2\n- item3",
+        },
+        entry_id="test_config_list",
+        unique_id="test_config_list_unique",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.list_config_test"
+        state = hass.states.get(entity_id)
+        assert state
+        assert "config" in state.attributes
+        assert state.attributes["config"] == ["item1", "item2", "item3"]
+
+
+async def test_binary_sensor_with_empty_additional_yaml(hass: HomeAssistant):
+    """Test binary sensor with empty additional YAML."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Empty Config Test",
+        data={
+            "name": "Empty Config Test",
+            "start_month": 1,
+            "end_month": 12,
+            "schedule_type": "date",
+            "start_day": 1,
+            "end_day": 31,
+            "additional_yaml": "",
+        },
+        entry_id="test_empty_config",
+        unique_id="test_empty_config_unique",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.empty_config_test"
+        state = hass.states.get(entity_id)
+        assert state
+        # Should not have config attribute when additional_yaml is empty
+        assert "config" not in state.attributes
+
+
+async def test_binary_sensor_with_nested_yaml_config(hass: HomeAssistant):
+    """Test binary sensor with nested YAML config."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    nested_yaml = """
+database:
+  host: localhost
+  port: 5432
+  credentials:
+    username: admin
+    password: secret
+features:
+  - feature1
+  - feature2
+settings:
+  enabled: true
+  timeout: 60
+"""
+    
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Nested Config Test",
+        data={
+            "name": "Nested Config Test",
+            "start_month": 1,
+            "end_month": 12,
+            "schedule_type": "week",
+            "start_day_of_week": 0,
+            "end_day_of_week": 6,
+            "start_week": 0,
+            "end_week": 4,
+            "additional_yaml": nested_yaml.strip(),
+        },
+        entry_id="test_nested_config",
+        unique_id="test_nested_config_unique",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.nested_config_test"
+        state = hass.states.get(entity_id)
+        assert state
+        assert "config" in state.attributes
+        assert state.attributes["config"]["database"]["host"] == "localhost"
+        assert state.attributes["config"]["database"]["port"] == 5432
+        assert state.attributes["config"]["database"]["credentials"]["username"] == "admin"
+        assert state.attributes["config"]["features"] == ["feature1", "feature2"]
+        assert state.attributes["config"]["settings"]["enabled"] is True
+        assert state.attributes["config"]["settings"]["timeout"] == 60
+
+
+async def test_binary_sensor_with_invalid_yaml_config(hass: HomeAssistant):
+    """Test binary sensor with invalid YAML config (should be ignored)."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Invalid Config Test",
+        data={
+            "name": "Invalid Config Test",
+            "start_month": 1,
+            "end_month": 12,
+            "schedule_type": "date",
+            "start_day": 1,
+            "end_day": 31,
+            "additional_yaml": "invalid: yaml: structure: [unclosed",
+        },
+        entry_id="test_invalid_config",
+        unique_id="test_invalid_config_unique",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        config_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.invalid_config_test"
+        state = hass.states.get(entity_id)
+        assert state
+        # Should not have config attribute when YAML is invalid
+        assert "config" not in state.attributes

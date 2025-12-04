@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 import voluptuous as vol
+import yaml
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
@@ -17,6 +18,8 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TemplateSelector,
+    TemplateSelectorConfig
 )
 
 from .const import DOMAIN, MONTH_NAMES, DAY_NAMES
@@ -107,6 +110,17 @@ def get_day_of_week_selector(hass: HomeAssistant, default: str) -> SelectSelecto
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input."""
+    # Validate additional_yaml if provided
+    additional_yaml = data.get("additional_yaml", "").strip()
+    if additional_yaml:
+        try:
+            parsed_yaml = yaml.safe_load(additional_yaml)
+            # Ensure it's a dict or list, not a simple scalar value
+            if not isinstance(parsed_yaml, (dict, list)):
+                raise ValueError("YAML must be a dictionary or list structure, not a simple value")
+        except yaml.YAMLError as err:
+            raise ValueError(f"Invalid YAML: {err}")
+    
     # Convert month strings to integers if needed
     start_month = data["start_month"]
     end_month = data["end_month"]
@@ -262,7 +276,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 error_msg = str(err).lower()
-                if "month" in error_msg and "day" not in error_msg:
+                if "yaml" in error_msg:
+                    errors["base"] = "invalid_yaml"
+                elif "month" in error_msg and "day" not in error_msg:
                     errors["base"] = "invalid_month_range"
                 elif "day" in error_msg:
                     errors["base"] = "invalid_day_range"
@@ -291,6 +307,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     mode=NumberSelectorMode.BOX,
                 )
             ),
+            vol.Optional("additional_yaml", default=""): TemplateSelector(
+                TemplateSelectorConfig()
+            ),
         })
 
         return self.async_show_form(
@@ -310,7 +329,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 error_msg = str(err).lower()
-                if "month" in error_msg and "day" not in error_msg:
+                if "yaml" in error_msg:
+                    errors["base"] = "invalid_yaml"
+                elif "month" in error_msg and "day" not in error_msg:
                     errors["base"] = "invalid_month_range"
                 elif "day of week" in error_msg:
                     errors["base"] = "invalid_day_of_week"
@@ -342,6 +363,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     max=4,
                     mode=NumberSelectorMode.BOX,
                 )
+            ),
+            vol.Optional("additional_yaml", default=""): TemplateSelector(
+                TemplateSelectorConfig()
             ),
         })
 
@@ -405,7 +429,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 error_msg = str(err).lower()
-                if "month" in error_msg and "day" not in error_msg:
+                if "yaml" in error_msg:
+                    errors["base"] = "invalid_yaml"
+                elif "month" in error_msg and "day" not in error_msg:
                     errors["base"] = "invalid_month_range"
                 elif "day" in error_msg:
                     errors["base"] = "invalid_day_range"
@@ -440,6 +466,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     mode=NumberSelectorMode.BOX,
                 )
             ),
+            vol.Optional("additional_yaml", default=current_data.get("additional_yaml", "")): TemplateSelector(
+                TemplateSelectorConfig()
+            ),
         })
 
         return self.async_show_form(
@@ -460,7 +489,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 error_msg = str(err).lower()
-                if "month" in error_msg and "day" not in error_msg:
+                if "yaml" in error_msg:
+                    errors["base"] = "invalid_yaml"
+                elif "month" in error_msg and "day" not in error_msg:
                     errors["base"] = "invalid_month_range"
                 elif "day of week" in error_msg:
                     errors["base"] = "invalid_day_of_week"
@@ -498,6 +529,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     max=4,
                     mode=NumberSelectorMode.BOX,
                 )
+            ),
+            vol.Optional("additional_yaml", default=current_data.get("additional_yaml", "")): TemplateSelector(
+                TemplateSelectorConfig()
             ),
         })
 
