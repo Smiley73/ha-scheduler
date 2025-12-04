@@ -19,112 +19,112 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
 )
 
-from .const import DOMAIN, MONTHS
+from .const import DOMAIN, MONTH_NAMES, DAY_NAMES
 
 _LOGGER = logging.getLogger(__name__)
 
-# Schedule type options
-SCHEDULE_TYPE_OPTIONS = [
-    SelectOptionDict(value="date", label="By Date"),
-    SelectOptionDict(value="week", label="By Week of Month"),
-]
 
-# Month options with proper labels
-MONTH_OPTIONS = [
-    SelectOptionDict(value=month, label=month.capitalize()) for month in MONTHS
-]
-
-# Day of week options
-DAY_OF_WEEK_OPTIONS = [
-    SelectOptionDict(value="0", label="Monday"),
-    SelectOptionDict(value="1", label="Tuesday"),
-    SelectOptionDict(value="2", label="Wednesday"),
-    SelectOptionDict(value="3", label="Thursday"),
-    SelectOptionDict(value="4", label="Friday"),
-    SelectOptionDict(value="5", label="Saturday"),
-    SelectOptionDict(value="6", label="Sunday"),
-]
+def _get_schedule_type_options(hass: HomeAssistant) -> list[SelectOptionDict]:
+    """Get schedule type options with translations."""
+    translations = hass.data.get("translations", {})
+    component_translations = translations.get(hass.config.language, {}).get(DOMAIN, {})
+    selector_translations = component_translations.get("selector", {}).get("schedule_type", {}).get("options", {})
+    
+    return [
+        SelectOptionDict(
+            value="date",
+            label=selector_translations.get("date", "By Date")
+        ),
+        SelectOptionDict(
+            value="week",
+            label=selector_translations.get("week", "By Week of Month")
+        ),
+    ]
 
 
-def get_month_selector(default: str) -> SelectSelector:
+def _get_month_options(hass: HomeAssistant) -> list[SelectOptionDict]:
+    """Get month options with translations (values are integers 1-12)."""
+    translations = hass.data.get("translations", {})
+    component_translations = translations.get(hass.config.language, {}).get(DOMAIN, {})
+    selector_translations = component_translations.get("selector", {}).get("month", {}).get("options", {})
+    
+    return [
+        SelectOptionDict(
+            value=str(i + 1),
+            label=selector_translations.get(MONTH_NAMES[i], MONTH_NAMES[i].capitalize())
+        )
+        for i in range(12)
+    ]
+
+
+def _get_day_of_week_options(hass: HomeAssistant) -> list[SelectOptionDict]:
+    """Get day of week options with translations (values are integers 0-6)."""
+    translations = hass.data.get("translations", {})
+    component_translations = translations.get(hass.config.language, {}).get(DOMAIN, {})
+    selector_translations = component_translations.get("selector", {}).get("day_of_week", {}).get("options", {})
+    
+    return [
+        SelectOptionDict(
+            value=str(i),
+            label=selector_translations.get(DAY_NAMES[i], DAY_NAMES[i].capitalize())
+        )
+        for i in range(7)
+    ]
+
+
+def get_month_selector(hass: HomeAssistant, default: str) -> SelectSelector:
     """Get a month selector with proper labels."""
     return SelectSelector(
         SelectSelectorConfig(
-            options=MONTH_OPTIONS,
+            options=_get_month_options(hass),
             mode=SelectSelectorMode.DROPDOWN,
         )
     )
 
 
-def get_schedule_type_selector(default: str) -> SelectSelector:
+def get_schedule_type_selector(hass: HomeAssistant, default: str) -> SelectSelector:
     """Get a schedule type selector."""
     return SelectSelector(
         SelectSelectorConfig(
-            options=SCHEDULE_TYPE_OPTIONS,
+            options=_get_schedule_type_options(hass),
             mode=SelectSelectorMode.DROPDOWN,
         )
     )
 
 
-def get_day_of_week_selector(default: str) -> SelectSelector:
+def get_day_of_week_selector(hass: HomeAssistant, default: str) -> SelectSelector:
     """Get a day of week selector."""
     return SelectSelector(
         SelectSelectorConfig(
-            options=DAY_OF_WEEK_OPTIONS,
+            options=_get_day_of_week_options(hass),
             mode=SelectSelectorMode.DROPDOWN,
         )
     )
 
 
-def get_data_schema(user_input: dict[str, Any] | None = None) -> vol.Schema:
-    """Get the data schema with all possible fields."""
-    # Include all fields, use Optional for conditional ones
-    schema_dict = {
-        vol.Required("name", default="My Schedule"): str,
-        vol.Required("start_month", default="january"): get_month_selector("january"),
-        vol.Required("end_month", default="december"): get_month_selector("december"),
-        vol.Required("schedule_type", default="date"): get_schedule_type_selector("date"),
-        vol.Optional("start_day", default=1): NumberSelector(
-            NumberSelectorConfig(
-                min=1,
-                max=31,
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
-        vol.Optional("end_day", default=31): NumberSelector(
-            NumberSelectorConfig(
-                min=1,
-                max=31,
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
-        vol.Optional("start_day_of_week", default="0"): get_day_of_week_selector("0"),
-        vol.Optional("end_day_of_week", default="6"): get_day_of_week_selector("6"),
-        vol.Optional("start_week", default=0): NumberSelector(
-            NumberSelectorConfig(
-                min=0,
-                max=4,
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
-        vol.Optional("end_week", default=4): NumberSelector(
-            NumberSelectorConfig(
-                min=0,
-                max=4,
-                mode=NumberSelectorMode.BOX,
-            )
-        ),
-    }
-    
-    return vol.Schema(schema_dict)
+
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input."""
-    start_month_idx = MONTHS.index(data["start_month"])
-    end_month_idx = MONTHS.index(data["end_month"])
-
-    if start_month_idx > end_month_idx:
+    # Convert month strings to integers if needed
+    start_month = data["start_month"]
+    end_month = data["end_month"]
+    
+    if isinstance(start_month, str):
+        start_month = int(start_month)
+        data["start_month"] = start_month
+    if isinstance(end_month, str):
+        end_month = int(end_month)
+        data["end_month"] = end_month
+    
+    if not isinstance(start_month, int) or not isinstance(end_month, int):
+        raise ValueError("Months must be integers")
+    if not 1 <= start_month <= 12:
+        raise ValueError("Start month must be between 1 and 12")
+    if not 1 <= end_month <= 12:
+        raise ValueError("End month must be between 1 and 12")
+    if start_month > end_month:
         raise ValueError("Start month must be before or equal to end month")
     
     # Validate schedule type specific fields
@@ -176,7 +176,15 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         if end_week is None:
             raise ValueError("End week must be provided")
         
-        # Convert to int if needed
+        # Convert day_of_week to int if needed
+        if isinstance(start_day_of_week, str):
+            start_day_of_week = int(start_day_of_week)
+            data["start_day_of_week"] = start_day_of_week
+        if isinstance(end_day_of_week, str):
+            end_day_of_week = int(end_day_of_week)
+            data["end_day_of_week"] = end_day_of_week
+        
+        # Convert week to int if needed
         if isinstance(start_week, float):
             start_week = int(start_week)
             data["start_week"] = start_week
@@ -185,15 +193,12 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             data["end_week"] = end_week
         
         # Validate day_of_week values
-        try:
-            start_day_val = int(start_day_of_week)
-            end_day_val = int(end_day_of_week)
-            if not 0 <= start_day_val <= 6:
-                raise ValueError("Start day of week must be between 0 and 6")
-            if not 0 <= end_day_val <= 6:
-                raise ValueError("End day of week must be between 0 and 6")
-        except (ValueError, TypeError) as err:
-            raise ValueError("Invalid day of week") from err
+        if not isinstance(start_day_of_week, int) or not isinstance(end_day_of_week, int):
+            raise ValueError("Day of week must be integers")
+        if not 0 <= start_day_of_week <= 6:
+            raise ValueError("Start day of week must be between 0 and 6")
+        if not 0 <= end_day_of_week <= 6:
+            raise ValueError("End day of week must be between 0 and 6")
         
         # Validate week numbers
         if not isinstance(start_week, int) or not isinstance(end_week, int):
@@ -237,7 +242,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema({
             vol.Required("name", default="My Schedule"): str,
-            vol.Required("schedule_type", default="date"): get_schedule_type_selector("date"),
+            vol.Required("schedule_type", default="date"): get_schedule_type_selector(self.hass, "date"),
         })
 
         return self.async_show_form(
@@ -270,8 +275,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=info["title"], data=self._data)
 
         schema = vol.Schema({
-            vol.Required("start_month", default="january"): get_month_selector("january"),
-            vol.Required("end_month", default="december"): get_month_selector("december"),
+            vol.Required("start_month", default="1"): get_month_selector(self.hass, "1"),
+            vol.Required("end_month", default="12"): get_month_selector(self.hass, "12"),
             vol.Required("start_day", default=1): NumberSelector(
                 NumberSelectorConfig(
                     min=1,
@@ -320,10 +325,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(title=info["title"], data=self._data)
 
         schema = vol.Schema({
-            vol.Required("start_month", default="january"): get_month_selector("january"),
-            vol.Required("end_month", default="december"): get_month_selector("december"),
-            vol.Required("start_day_of_week", default="0"): get_day_of_week_selector("0"),
-            vol.Required("end_day_of_week", default="6"): get_day_of_week_selector("6"),
+            vol.Required("start_month", default="1"): get_month_selector(self.hass, "1"),
+            vol.Required("end_month", default="12"): get_month_selector(self.hass, "12"),
+            vol.Required("start_day_of_week", default="0"): get_day_of_week_selector(self.hass, "0"),
+            vol.Required("end_day_of_week", default="6"): get_day_of_week_selector(self.hass, "6"),
             vol.Required("start_week", default=0): NumberSelector(
                 NumberSelectorConfig(
                     min=0,
@@ -379,7 +384,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         schema = vol.Schema({
             vol.Required("name", default=current_data.get("name", "My Schedule")): str,
-            vol.Required("schedule_type", default=current_data.get("schedule_type", "date")): get_schedule_type_selector(current_data.get("schedule_type", "date")),
+            vol.Required("schedule_type", default=current_data.get("schedule_type", "date")): get_schedule_type_selector(self.hass, current_data.get("schedule_type", "date")),
         })
 
         return self.async_show_form(
@@ -419,8 +424,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data={})
 
         schema = vol.Schema({
-            vol.Required("start_month", default=current_data.get("start_month", "january")): get_month_selector(current_data.get("start_month", "january")),
-            vol.Required("end_month", default=current_data.get("end_month", "december")): get_month_selector(current_data.get("end_month", "december")),
+            vol.Required("start_month", default=str(current_data.get("start_month", 1))): get_month_selector(self.hass, str(current_data.get("start_month", 1))),
+            vol.Required("end_month", default=str(current_data.get("end_month", 12))): get_month_selector(self.hass, str(current_data.get("end_month", 12))),
             vol.Required("start_day", default=current_data.get("start_day", 1)): NumberSelector(
                 NumberSelectorConfig(
                     min=1,
@@ -476,10 +481,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data={})
 
         schema = vol.Schema({
-            vol.Required("start_month", default=current_data.get("start_month", "january")): get_month_selector(current_data.get("start_month", "january")),
-            vol.Required("end_month", default=current_data.get("end_month", "december")): get_month_selector(current_data.get("end_month", "december")),
-            vol.Required("start_day_of_week", default=current_data.get("start_day_of_week", "0")): get_day_of_week_selector(current_data.get("start_day_of_week", "0")),
-            vol.Required("end_day_of_week", default=current_data.get("end_day_of_week", "6")): get_day_of_week_selector(current_data.get("end_day_of_week", "6")),
+            vol.Required("start_month", default=str(current_data.get("start_month", 1))): get_month_selector(self.hass, str(current_data.get("start_month", 1))),
+            vol.Required("end_month", default=str(current_data.get("end_month", 12))): get_month_selector(self.hass, str(current_data.get("end_month", 12))),
+            vol.Required("start_day_of_week", default=str(current_data.get("start_day_of_week", 0))): get_day_of_week_selector(self.hass, str(current_data.get("start_day_of_week", 0))),
+            vol.Required("end_day_of_week", default=str(current_data.get("end_day_of_week", 6))): get_day_of_week_selector(self.hass, str(current_data.get("end_day_of_week", 6))),
             vol.Required("start_week", default=current_data.get("start_week", 0)): NumberSelector(
                 NumberSelectorConfig(
                     min=0,

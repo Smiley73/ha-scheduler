@@ -69,11 +69,35 @@
         "description": "Update your schedule settings",
         "data": {
           "name": "Schedule Name",
+          "schedule_type": "Schedule Type"
+        },
+        "data_description": {
+          "name": "Enter a name for this schedule",
+          "schedule_type": "Choose to schedule by date or by week of the month"
+        }
+      },
+      "date_config": {
+        "title": "Configure Date-Based Schedule",
+        "description": "Set the month and day range for your schedule",
+        "data": {
           "start_month": "Start Month",
           "end_month": "End Month",
-          "schedule_type": "Schedule Type",
           "start_day": "Start Day",
-          "end_day": "End Day",
+          "end_day": "End Day"
+        },
+        "data_description": {
+          "start_month": "Select the month when the schedule starts",
+          "end_month": "Select the month when the schedule ends",
+          "start_day": "Enter the starting day of the month (1-31)",
+          "end_day": "Enter the ending day of the month (1-31)"
+        }
+      },
+      "week_config": {
+        "title": "Configure Week-Based Schedule",
+        "description": "Set the month, week, and day of week range for your schedule",
+        "data": {
+          "start_month": "Start Month",
+          "end_month": "End Month",
           "start_day_of_week": "Start Day of Week",
           "end_day_of_week": "End Day of Week",
           "start_week": "Start Week (0-4)",
@@ -82,9 +106,6 @@
         "data_description": {
           "start_month": "Select the month when the schedule starts",
           "end_month": "Select the month when the schedule ends",
-          "schedule_type": "Choose to schedule by date or by week of the month",
-          "start_day": "Enter the starting day of the month (1-31)",
-          "end_day": "Enter the ending day of the month (1-31)",
           "start_day_of_week": "Select the starting day of the week",
           "end_day_of_week": "Select the ending day of the week",
           "start_week": "Enter the starting week number (0-4)",
@@ -102,6 +123,12 @@
     }
   },
   "selector": {
+    "schedule_type": {
+      "options": {
+        "date": "By Date",
+        "week": "By Week of Month"
+      }
+    },
     "month": {
       "options": {
         "january": "January",
@@ -116,6 +143,17 @@
         "october": "October",
         "november": "November",
         "december": "December"
+      }
+    },
+    "day_of_week": {
+      "options": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
       }
     }
   }

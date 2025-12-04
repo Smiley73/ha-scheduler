@@ -2,8 +2,8 @@
 
 DOMAIN = "scheduler"
 
-# Month keys that reference strings.json selector.month.options
-MONTHS = [
+# Month names for translation keys
+MONTH_NAMES = [
     "january",
     "february",
     "march",
@@ -16,4 +16,15 @@ MONTHS = [
     "october",
     "november",
     "december",
+]
+
+# Day of week names for translation keys
+DAY_NAMES = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
 ]
