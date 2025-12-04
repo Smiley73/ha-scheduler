@@ -21,8 +21,8 @@ def config_entry():
         title="Test Schedule",
         data={
             "name": "Test Schedule",
-            "start_month": "january",
-            "end_month": "december",
+            "start_month": 1,
+            "end_month": 12,
             "schedule_type": "date",
             "start_day": 1,
             "end_day": 15,
