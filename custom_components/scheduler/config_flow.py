@@ -105,7 +105,79 @@ def get_day_of_week_selector(hass: HomeAssistant, default: str) -> SelectSelecto
     )
 
 
+def build_date_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Build schema for date-based schedule configuration."""
+    if defaults is None:
+        defaults = {}
+    
+    return vol.Schema({
+        vol.Required("start_month", default=str(defaults.get("start_month", 1))): get_month_selector(hass, str(defaults.get("start_month", 1))),
+        vol.Required("end_month", default=str(defaults.get("end_month", 12))): get_month_selector(hass, str(defaults.get("end_month", 12))),
+        vol.Required("start_day", default=defaults.get("start_day", 1)): NumberSelector(
+            NumberSelectorConfig(
+                min=1,
+                max=31,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required("end_day", default=defaults.get("end_day", 31)): NumberSelector(
+            NumberSelectorConfig(
+                min=1,
+                max=31,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional("additional_yaml", default=defaults.get("additional_yaml", "")): TemplateSelector(
+            TemplateSelectorConfig()
+        ),
+    })
 
+
+def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | None = None) -> vol.Schema:
+    """Build schema for week-based schedule configuration."""
+    if defaults is None:
+        defaults = {}
+    
+    return vol.Schema({
+        vol.Required("start_month", default=str(defaults.get("start_month", 1))): get_month_selector(hass, str(defaults.get("start_month", 1))),
+        vol.Required("end_month", default=str(defaults.get("end_month", 12))): get_month_selector(hass, str(defaults.get("end_month", 12))),
+        vol.Required("start_day_of_week", default=str(defaults.get("start_day_of_week", 0))): get_day_of_week_selector(hass, str(defaults.get("start_day_of_week", 0))),
+        vol.Required("end_day_of_week", default=str(defaults.get("end_day_of_week", 6))): get_day_of_week_selector(hass, str(defaults.get("end_day_of_week", 6))),
+        vol.Required("start_week", default=defaults.get("start_week", 0)): NumberSelector(
+            NumberSelectorConfig(
+                min=0,
+                max=4,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Required("end_week", default=defaults.get("end_week", 4)): NumberSelector(
+            NumberSelectorConfig(
+                min=0,
+                max=4,
+                mode=NumberSelectorMode.BOX,
+            )
+        ),
+        vol.Optional("additional_yaml", default=defaults.get("additional_yaml", "")): TemplateSelector(
+            TemplateSelectorConfig()
+        ),
+    })
+
+
+def handle_validation_error(err: ValueError) -> str:
+    """Handle validation errors and return appropriate error key."""
+    error_msg = str(err).lower()
+    if "yaml" in error_msg:
+        return "invalid_yaml"
+    elif "month" in error_msg and "day" not in error_msg:
+        return "invalid_month_range"
+    elif "day of week" in error_msg:
+        return "invalid_day_of_week"
+    elif "week" in error_msg:
+        return "invalid_week_range"
+    elif "day" in error_msg:
+        return "invalid_day_range"
+    else:
+        return "invalid_input"
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -275,42 +347,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 info = await validate_input(self.hass, self._data)
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                error_msg = str(err).lower()
-                if "yaml" in error_msg:
-                    errors["base"] = "invalid_yaml"
-                elif "month" in error_msg and "day" not in error_msg:
-                    errors["base"] = "invalid_month_range"
-                elif "day" in error_msg:
-                    errors["base"] = "invalid_day_range"
-                else:
-                    errors["base"] = "invalid_input"
+                errors["base"] = handle_validation_error(err)
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
                 return self.async_create_entry(title=info["title"], data=self._data)
 
-        schema = vol.Schema({
-            vol.Required("start_month", default="1"): get_month_selector(self.hass, "1"),
-            vol.Required("end_month", default="12"): get_month_selector(self.hass, "12"),
-            vol.Required("start_day", default=1): NumberSelector(
-                NumberSelectorConfig(
-                    min=1,
-                    max=31,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required("end_day", default=31): NumberSelector(
-                NumberSelectorConfig(
-                    min=1,
-                    max=31,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional("additional_yaml", default=""): TemplateSelector(
-                TemplateSelectorConfig()
-            ),
-        })
+        schema = build_date_config_schema(self.hass)
 
         return self.async_show_form(
             step_id="date_config", data_schema=schema, errors=errors
@@ -328,46 +372,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 info = await validate_input(self.hass, self._data)
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                error_msg = str(err).lower()
-                if "yaml" in error_msg:
-                    errors["base"] = "invalid_yaml"
-                elif "month" in error_msg and "day" not in error_msg:
-                    errors["base"] = "invalid_month_range"
-                elif "day of week" in error_msg:
-                    errors["base"] = "invalid_day_of_week"
-                elif "week" in error_msg:
-                    errors["base"] = "invalid_week_range"
-                else:
-                    errors["base"] = "invalid_input"
+                errors["base"] = handle_validation_error(err)
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
                 return self.async_create_entry(title=info["title"], data=self._data)
 
-        schema = vol.Schema({
-            vol.Required("start_month", default="1"): get_month_selector(self.hass, "1"),
-            vol.Required("end_month", default="12"): get_month_selector(self.hass, "12"),
-            vol.Required("start_day_of_week", default="0"): get_day_of_week_selector(self.hass, "0"),
-            vol.Required("end_day_of_week", default="6"): get_day_of_week_selector(self.hass, "6"),
-            vol.Required("start_week", default=0): NumberSelector(
-                NumberSelectorConfig(
-                    min=0,
-                    max=4,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required("end_week", default=4): NumberSelector(
-                NumberSelectorConfig(
-                    min=0,
-                    max=4,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional("additional_yaml", default=""): TemplateSelector(
-                TemplateSelectorConfig()
-            ),
-        })
+        schema = build_week_config_schema(self.hass)
 
         return self.async_show_form(
             step_id="week_config", data_schema=schema, errors=errors
@@ -428,15 +440,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 info = await validate_input(self.hass, self._data)
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                error_msg = str(err).lower()
-                if "yaml" in error_msg:
-                    errors["base"] = "invalid_yaml"
-                elif "month" in error_msg and "day" not in error_msg:
-                    errors["base"] = "invalid_month_range"
-                elif "day" in error_msg:
-                    errors["base"] = "invalid_day_range"
-                else:
-                    errors["base"] = "invalid_input"
+                errors["base"] = handle_validation_error(err)
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -449,27 +453,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 return self.async_create_entry(title="", data={})
 
-        schema = vol.Schema({
-            vol.Required("start_month", default=str(current_data.get("start_month", 1))): get_month_selector(self.hass, str(current_data.get("start_month", 1))),
-            vol.Required("end_month", default=str(current_data.get("end_month", 12))): get_month_selector(self.hass, str(current_data.get("end_month", 12))),
-            vol.Required("start_day", default=current_data.get("start_day", 1)): NumberSelector(
-                NumberSelectorConfig(
-                    min=1,
-                    max=31,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required("end_day", default=current_data.get("end_day", 31)): NumberSelector(
-                NumberSelectorConfig(
-                    min=1,
-                    max=31,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional("additional_yaml", default=current_data.get("additional_yaml", "")): TemplateSelector(
-                TemplateSelectorConfig()
-            ),
-        })
+        schema = build_date_config_schema(self.hass, current_data)
 
         return self.async_show_form(
             step_id="date_config", data_schema=schema, errors=errors
@@ -488,17 +472,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 info = await validate_input(self.hass, self._data)
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                error_msg = str(err).lower()
-                if "yaml" in error_msg:
-                    errors["base"] = "invalid_yaml"
-                elif "month" in error_msg and "day" not in error_msg:
-                    errors["base"] = "invalid_month_range"
-                elif "day of week" in error_msg:
-                    errors["base"] = "invalid_day_of_week"
-                elif "week" in error_msg:
-                    errors["base"] = "invalid_week_range"
-                else:
-                    errors["base"] = "invalid_input"
+                errors["base"] = handle_validation_error(err)
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -511,29 +485,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 return self.async_create_entry(title="", data={})
 
-        schema = vol.Schema({
-            vol.Required("start_month", default=str(current_data.get("start_month", 1))): get_month_selector(self.hass, str(current_data.get("start_month", 1))),
-            vol.Required("end_month", default=str(current_data.get("end_month", 12))): get_month_selector(self.hass, str(current_data.get("end_month", 12))),
-            vol.Required("start_day_of_week", default=str(current_data.get("start_day_of_week", 0))): get_day_of_week_selector(self.hass, str(current_data.get("start_day_of_week", 0))),
-            vol.Required("end_day_of_week", default=str(current_data.get("end_day_of_week", 6))): get_day_of_week_selector(self.hass, str(current_data.get("end_day_of_week", 6))),
-            vol.Required("start_week", default=current_data.get("start_week", 0)): NumberSelector(
-                NumberSelectorConfig(
-                    min=0,
-                    max=4,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Required("end_week", default=current_data.get("end_week", 4)): NumberSelector(
-                NumberSelectorConfig(
-                    min=0,
-                    max=4,
-                    mode=NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional("additional_yaml", default=current_data.get("additional_yaml", "")): TemplateSelector(
-                TemplateSelectorConfig()
-            ),
-        })
+        schema = build_week_config_schema(self.hass, current_data)
 
         return self.async_show_form(
             step_id="week_config", data_schema=schema, errors=errors
