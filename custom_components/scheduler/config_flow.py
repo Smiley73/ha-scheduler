@@ -169,23 +169,26 @@ def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
     })
 
 
-def handle_validation_error(err: ValueError) -> str:
-    """Handle validation errors and return appropriate error key."""
-    error_msg = str(err).lower()
-    if "overlap" in error_msg:
-        return "schedule_overlap"
-    elif "yaml" in error_msg:
-        return "invalid_yaml"
-    elif "month" in error_msg and "day" not in error_msg:
-        return "invalid_month_range"
-    elif "day of week" in error_msg:
-        return "invalid_day_of_week"
-    elif "week" in error_msg:
-        return "invalid_week_range"
-    elif "day" in error_msg:
-        return "invalid_day_range"
+def handle_validation_error(err: ValueError) -> tuple[str, dict[str, str]]:
+    """Handle validation errors and return appropriate error key and placeholders."""
+    error_msg = str(err)
+    error_msg_lower = error_msg.lower()
+    
+    if "overlap" in error_msg_lower:
+        # Return the full error message as a placeholder
+        return "schedule_overlap", {"error_detail": error_msg}
+    elif "yaml" in error_msg_lower:
+        return "invalid_yaml", {}
+    elif "month" in error_msg_lower and "day" not in error_msg_lower:
+        return "invalid_month_range", {}
+    elif "day of week" in error_msg_lower:
+        return "invalid_day_of_week", {}
+    elif "week" in error_msg_lower:
+        return "invalid_week_range", {}
+    elif "day" in error_msg_lower:
+        return "invalid_day_range", {}
     else:
-        return "invalid_input"
+        return "invalid_input", {}
 
 
 def check_date_overlap(
@@ -724,7 +727,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = handle_validation_error(err)
+                # For overlap errors, use the full error message
+                if "overlap" in str(err).lower():
+                    errors["base"] = str(err)
+                else:
+                    error_key, _ = handle_validation_error(err)
+                    errors["base"] = error_key
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
@@ -770,7 +778,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = handle_validation_error(err)
+                # For overlap errors, use the full error message
+                if "overlap" in str(err).lower():
+                    errors["base"] = str(err)
+                else:
+                    error_key, _ = handle_validation_error(err)
+                    errors["base"] = error_key
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
