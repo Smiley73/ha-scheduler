@@ -442,7 +442,7 @@ async def test_options_add_schedule_date_overlap(hass: HomeAssistant):
     )
     
     assert result4["type"] == FlowResultType.FORM
-    assert result4["errors"] == {"base": "schedule_overlap"}
+    assert result4["errors"]["base"] == "Schedule overlaps with existing schedule 'Existing Schedule'"
 
 
 async def test_options_add_schedule_week_overlap(hass: HomeAssistant):
@@ -501,7 +501,7 @@ async def test_options_add_schedule_week_overlap(hass: HomeAssistant):
     )
     
     assert result4["type"] == FlowResultType.FORM
-    assert result4["errors"] == {"base": "schedule_overlap"}
+    assert result4["errors"]["base"] == "Schedule overlaps with existing schedule 'Existing Week Schedule'"
 
 
 async def test_options_add_schedule_overlap_different_type(hass: HomeAssistant):
@@ -559,7 +559,7 @@ async def test_options_add_schedule_overlap_different_type(hass: HomeAssistant):
     
     # Should detect overlap even though types are different
     assert result4["type"] == FlowResultType.FORM
-    assert result4["errors"] == {"base": "schedule_overlap"}
+    assert result4["errors"]["base"] == "Schedule overlaps with existing schedule 'Date Schedule'"
 
 
 async def test_options_add_schedule_no_overlap_different_type(hass: HomeAssistant):
