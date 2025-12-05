@@ -513,7 +513,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Manage schedules."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["add_schedule", "edit_schedule", "remove_schedule"],
+            menu_options=["add_schedule", "edit_schedule", "rename_schedule", "remove_schedule"],
         )
 
     async def async_step_add_schedule(
@@ -584,6 +584,78 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="edit_schedule", data_schema=schema
+        )
+
+    async def async_step_rename_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Rename a schedule."""
+        schedules = self.config_entry.data.get("schedules", {})
+        
+        if not schedules:
+            return self.async_abort(reason="no_schedules")
+        
+        # If we have a schedule_id stored, show the rename form
+        if self._schedule_id and user_input is not None:
+            new_name = user_input.get("name", "").strip()
+            
+            # Validate that name is not "None"
+            if new_name.lower() == "none":
+                return self.async_show_form(
+                    step_id="rename_schedule",
+                    data_schema=vol.Schema({
+                        vol.Required("name", default=schedules[self._schedule_id]["name"]): str,
+                    }),
+                    errors={"name": "invalid_name"},
+                )
+            
+            # Update the schedule name
+            new_data = dict(self.config_entry.data)
+            new_schedules = dict(new_data.get("schedules", {}))
+            new_schedules[self._schedule_id]["name"] = new_name
+            new_data["schedules"] = new_schedules
+            
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data,
+            )
+            
+            # Reload the integration to update entities
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            
+            return self.async_create_entry(title="", data={})
+        
+        # First step: select which schedule to rename
+        if user_input is not None:
+            self._schedule_id = user_input["schedule_id"]
+            
+            # Show form to enter new name
+            schema = vol.Schema({
+                vol.Required("name", default=schedules[self._schedule_id]["name"]): str,
+            })
+            
+            return self.async_show_form(
+                step_id="rename_schedule",
+                data_schema=schema,
+            )
+        
+        # Build list of schedules
+        schedule_options = [
+            SelectOptionDict(value=schedule_id, label=schedule_data["name"])
+            for schedule_id, schedule_data in schedules.items()
+        ]
+        
+        schema = vol.Schema({
+            vol.Required("schedule_id"): SelectSelector(
+                SelectSelectorConfig(
+                    options=schedule_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="rename_schedule", data_schema=schema
         )
 
     async def async_step_remove_schedule(

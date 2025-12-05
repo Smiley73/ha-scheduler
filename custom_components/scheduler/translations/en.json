@@ -19,6 +19,7 @@
         "menu_options": {
           "add_schedule": "Add Schedule",
           "edit_schedule": "Edit Schedule",
+          "rename_schedule": "Rename Schedule",
           "remove_schedule": "Remove Schedule"
         }
       },
@@ -42,6 +43,18 @@
         },
         "data_description": {
           "schedule_id": "Choose the schedule to edit"
+        }
+      },
+      "rename_schedule": {
+        "title": "Rename Schedule",
+        "description": "Select a schedule to rename or enter a new name",
+        "data": {
+          "schedule_id": "Schedule",
+          "name": "New Name"
+        },
+        "data_description": {
+          "schedule_id": "Choose the schedule to rename",
+          "name": "Enter the new name for this schedule"
         }
       },
       "remove_schedule": {

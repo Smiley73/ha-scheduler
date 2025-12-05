@@ -776,3 +776,91 @@ async def test_options_add_schedule_name_none_rejected(hass: HomeAssistant, hub_
     # Should show error
     assert result["type"] == "form"
     assert result["errors"] == {"name": "invalid_name"}
+
+
+async def test_options_rename_schedule(hass: HomeAssistant, hub_entry):
+    """Test renaming a schedule."""
+    hub_entry.add_to_hass(hass)
+    
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+    
+    # Select rename_schedule
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "rename_schedule"}
+    )
+    
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "rename_schedule"
+    
+    # Select the schedule to rename
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_id": "test_schedule_1"}
+    )
+    
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "rename_schedule"
+    
+    # Enter new name
+    with patch("homeassistant.config_entries.ConfigEntries.async_reload"):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"name": "Renamed Schedule"}
+        )
+    
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    
+    # Verify the schedule was renamed
+    entry = hass.config_entries.async_get_entry(hub_entry.entry_id)
+    assert entry.data["schedules"]["test_schedule_1"]["name"] == "Renamed Schedule"
+
+
+async def test_options_rename_no_schedules(hass: HomeAssistant, empty_hub_entry):
+    """Test rename aborts when no schedules exist."""
+    empty_hub_entry.add_to_hass(hass)
+    
+    # Start options flow
+    result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+    
+    # Select rename_schedule
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "rename_schedule"}
+    )
+    
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "no_schedules"
+
+
+async def test_options_rename_schedule_invalid_name(hass: HomeAssistant, hub_entry):
+    """Test renaming a schedule with invalid name 'None'."""
+    hub_entry.add_to_hass(hass)
+    
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    # Select rename_schedule
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "rename_schedule"}
+    )
+    
+    # Select the schedule to rename
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_id": "test_schedule_1"}
+    )
+    
+    # Try to rename with "None"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"name": "None"}
+    )
+    
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "rename_schedule"
+    assert result["errors"] == {"name": "invalid_name"}
