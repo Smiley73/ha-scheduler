@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
+import yaml
+
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -136,6 +138,16 @@ class SchedulerBinarySensor(BinarySensorEntity):
             attrs["end_day_of_week"] = self._entry.data.get("end_day_of_week", 6)
             attrs["start_week"] = self._entry.data.get("start_week", 0)
             attrs["end_week"] = self._entry.data.get("end_week", 4)
+        
+        # Add parsed YAML config if provided
+        additional_yaml = self._entry.data.get("additional_yaml", "").strip()
+        if additional_yaml:
+            try:
+                parsed_config = yaml.safe_load(additional_yaml)
+                if isinstance(parsed_config, (dict, list)):
+                    attrs["config"] = parsed_config
+            except yaml.YAMLError as err:
+                _LOGGER.warning("Failed to parse additional_yaml: %s", err)
         
         self._attr_extra_state_attributes = attrs
 
