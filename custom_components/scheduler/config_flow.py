@@ -19,7 +19,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TemplateSelector,
-    TemplateSelectorConfig
+    TemplateSelectorConfig,
 )
 
 from .const import DOMAIN, MONTH_NAMES, DAY_NAMES
@@ -172,7 +172,9 @@ def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
 def handle_validation_error(err: ValueError) -> str:
     """Handle validation errors and return appropriate error key."""
     error_msg = str(err).lower()
-    if "yaml" in error_msg:
+    if "overlap" in error_msg:
+        return "schedule_overlap"
+    elif "yaml" in error_msg:
         return "invalid_yaml"
     elif "month" in error_msg and "day" not in error_msg:
         return "invalid_month_range"
@@ -186,8 +188,101 @@ def handle_validation_error(err: ValueError) -> str:
         return "invalid_input"
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input."""
+def check_date_overlap(
+    start_month1: int, start_day1: int, end_month1: int, end_day1: int,
+    start_month2: int, start_day2: int, end_month2: int, end_day2: int
+) -> bool:
+    """Check if two date ranges overlap."""
+    # Convert to comparable format (month * 100 + day)
+    start1 = start_month1 * 100 + start_day1
+    end1 = end_month1 * 100 + end_day1
+    start2 = start_month2 * 100 + start_day2
+    end2 = end_month2 * 100 + end_day2
+    
+    # Handle wrap-around (e.g., Nov-Feb)
+    if start1 > end1:  # Range 1 wraps around year
+        if start2 > end2:  # Range 2 also wraps around
+            return True  # Both wrap around, they overlap
+        else:  # Range 2 doesn't wrap
+            # Check if range 2 overlaps with either part of range 1
+            return (start2 <= end1) or (end2 >= start1)
+    elif start2 > end2:  # Only range 2 wraps around
+        # Check if range 1 overlaps with either part of range 2
+        return (start1 <= end2) or (end1 >= start2)
+    else:  # Neither wraps around
+        # Standard overlap check
+        return not (end1 < start2 or end2 < start1)
+
+
+def check_week_overlap(
+    start_month1: int, start_week1: int, start_dow1: int, end_month1: int, end_week1: int, end_dow1: int,
+    start_month2: int, start_week2: int, start_dow2: int, end_month2: int, end_week2: int, end_dow2: int
+) -> bool:
+    """Check if two week-based ranges overlap."""
+    # Convert to comparable format (month * 1000 + week * 10 + day_of_week)
+    start1 = start_month1 * 1000 + start_week1 * 10 + start_dow1
+    end1 = end_month1 * 1000 + end_week1 * 10 + end_dow1
+    start2 = start_month2 * 1000 + start_week2 * 10 + start_dow2
+    end2 = end_month2 * 1000 + end_week2 * 10 + end_dow2
+    
+    # Handle wrap-around
+    if start1 > end1:  # Range 1 wraps around year
+        if start2 > end2:  # Range 2 also wraps around
+            return True  # Both wrap around, they overlap
+        else:  # Range 2 doesn't wrap
+            return (start2 <= end1) or (end2 >= start1)
+    elif start2 > end2:  # Only range 2 wraps around
+        return (start1 <= end2) or (end1 >= start2)
+    else:  # Neither wraps around
+        return not (end1 < start2 or end2 < start1)
+
+
+def check_date_week_overlap(
+    date_start_month: int, date_start_day: int, date_end_month: int, date_end_day: int,
+    week_start_month: int, week_start_week: int, week_start_dow: int,
+    week_end_month: int, week_end_week: int, week_end_dow: int
+) -> bool:
+    """Check if a date-based range overlaps with a week-based range.
+    
+    This is a conservative check - we check if the month ranges overlap.
+    Since week-based schedules can span specific weeks within months,
+    and date-based schedules span specific days, we check if their
+    month ranges overlap as a reasonable approximation.
+    """
+    # For simplicity, check if the month ranges overlap
+    # This is conservative - it may flag some non-overlapping schedules,
+    # but it's better to be safe than allow actual overlaps
+    
+    date_start = date_start_month * 100 + date_start_day
+    date_end = date_end_month * 100 + date_end_day
+    
+    # For week-based, use approximate day ranges
+    # Week 0 starts around day 1-7, week 1 around 8-14, etc.
+    week_start_approx_day = week_start_week * 7 + 1
+    week_end_approx_day = min(week_end_week * 7 + 7, 31)
+    
+    week_start = week_start_month * 100 + week_start_approx_day
+    week_end = week_end_month * 100 + week_end_approx_day
+    
+    # Handle wrap-around
+    if date_start > date_end:  # Date range wraps around year
+        if week_start > week_end:  # Week range also wraps around
+            return True  # Both wrap around, they overlap
+        else:  # Week range doesn't wrap
+            return (week_start <= date_end) or (week_end >= date_start)
+    elif week_start > week_end:  # Only week range wraps around
+        return (date_start <= week_end) or (date_end >= week_start)
+    else:  # Neither wraps around
+        return not (date_end < week_start or week_end < date_start)
+
+
+async def validate_schedule_input(
+    hass: HomeAssistant, 
+    data: dict[str, Any], 
+    existing_schedules: dict[str, dict] | None = None,
+    current_schedule_id: str | None = None
+) -> dict[str, Any]:
+    """Validate the schedule input."""
     # Validate additional_yaml if provided
     additional_yaml = data.get("additional_yaml", "").strip()
     if additional_yaml:
@@ -306,6 +401,56 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         data.pop("start_day", None)
         data.pop("end_day", None)
 
+    # Check for overlaps with existing schedules
+    if existing_schedules:
+        for schedule_id, schedule_data in existing_schedules.items():
+            # Skip checking against itself when editing
+            if current_schedule_id and schedule_id == current_schedule_id:
+                continue
+            
+            existing_type = schedule_data.get("schedule_type")
+            
+            # Check overlap based on schedule types
+            if schedule_type == "date" and existing_type == "date":
+                # Both are date-based
+                if check_date_overlap(
+                    data["start_month"], data["start_day"], data["end_month"], data["end_day"],
+                    schedule_data["start_month"], schedule_data["start_day"], 
+                    schedule_data["end_month"], schedule_data["end_day"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+            
+            elif schedule_type == "week" and existing_type == "week":
+                # Both are week-based
+                if check_week_overlap(
+                    data["start_month"], data["start_week"], data["start_day_of_week"],
+                    data["end_month"], data["end_week"], data["end_day_of_week"],
+                    schedule_data["start_month"], schedule_data["start_week"], schedule_data["start_day_of_week"],
+                    schedule_data["end_month"], schedule_data["end_week"], schedule_data["end_day_of_week"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+            
+            elif schedule_type == "date" and existing_type == "week":
+                # New is date-based, existing is week-based
+                # Convert week-based to approximate date range and check
+                if check_date_week_overlap(
+                    data["start_month"], data["start_day"], data["end_month"], data["end_day"],
+                    schedule_data["start_month"], schedule_data["start_week"], schedule_data["start_day_of_week"],
+                    schedule_data["end_month"], schedule_data["end_week"], schedule_data["end_day_of_week"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+            
+            elif schedule_type == "week" and existing_type == "date":
+                # New is week-based, existing is date-based
+                # Convert week-based to approximate date range and check
+                if check_date_week_overlap(
+                    schedule_data["start_month"], schedule_data["start_day"], 
+                    schedule_data["end_month"], schedule_data["end_day"],
+                    data["start_month"], data["start_week"], data["start_day_of_week"],
+                    data["end_month"], data["end_week"], data["end_day_of_week"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+
     return {"title": data["name"]}
 
 
@@ -321,75 +466,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step - name and type selection."""
-        errors: dict[str, str] = {}
+        """Handle the user step - create the hub if it doesn't exist."""
+        # Check if hub already exists
+        existing_entries = self._async_current_entries()
+        if existing_entries:
+            return self.async_abort(reason="already_configured")
         
         if user_input is not None:
-            self._data.update(user_input)
-            # Route to the appropriate step based on schedule type
-            if user_input["schedule_type"] == "date":
-                return await self.async_step_date_config()
-            else:
-                return await self.async_step_week_config()
-
-        schema = vol.Schema({
-            vol.Required("name", default="My Schedule"): str,
-            vol.Required("schedule_type", default="date"): get_schedule_type_selector(self.hass, "date"),
-        })
-
-        return self.async_show_form(
-            step_id="user", data_schema=schema, errors=errors
-        )
-
-    async def async_step_date_config(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle date-based schedule configuration."""
-        errors: dict[str, str] = {}
+            # Create the hub entry with empty schedules
+            return self.async_create_entry(
+                title="Scheduler",
+                data={"schedules": {}}
+            )
         
-        if user_input is not None:
-            self._data.update(user_input)
-            try:
-                info = await validate_input(self.hass, self._data)
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = handle_validation_error(err)
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(title=info["title"], data=self._data)
-
-        schema = build_date_config_schema(self.hass)
-
+        # Show a simple confirmation form
         return self.async_show_form(
-            step_id="date_config", data_schema=schema, errors=errors
+            step_id="user",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "info": "This will create the Scheduler hub. You can add schedules after setup."
+            }
         )
 
-    async def async_step_week_config(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle week-based schedule configuration."""
-        errors: dict[str, str] = {}
-        
-        if user_input is not None:
-            self._data.update(user_input)
-            try:
-                info = await validate_input(self.hass, self._data)
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = handle_validation_error(err)
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(title=info["title"], data=self._data)
 
-        schema = build_week_config_schema(self.hass)
-
-        return self.async_show_form(
-            step_id="week_config", data_schema=schema, errors=errors
-        )
 
     @staticmethod
     @callback
@@ -397,40 +496,141 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> OptionsFlowHandler:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler()
+        return OptionsFlowHandler(config_entry)
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for Scheduler."""
+    """Handle options flow for Scheduler hub - manage schedules."""
 
-    def __init__(self) -> None:
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize the options flow."""
-        self._data: dict[str, Any] = {}
+        self._schedule_data: dict[str, Any] = {}
+        self._schedule_id: str | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step - name and type selection."""
+        """Manage schedules."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["add_schedule", "edit_schedule", "remove_schedule"],
+        )
+
+    async def async_step_add_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Add a new schedule - name and type selection."""
         errors: dict[str, str] = {}
         
-        # Pre-fill with current values
-        current_data = self.config_entry.data
-        
         if user_input is not None:
-            self._data.update(user_input)
-            # Route to the appropriate step based on schedule type
-            if user_input["schedule_type"] == "date":
-                return await self.async_step_date_config()
+            # Validate that name is not "None"
+            if user_input.get("name", "").strip().lower() == "none":
+                errors["name"] = "invalid_name"
             else:
-                return await self.async_step_week_config()
+                self._schedule_data.update(user_input)
+                # Generate a unique ID for this schedule
+                import uuid
+                self._schedule_id = str(uuid.uuid4())
+                
+                # Route to the appropriate step based on schedule type
+                if user_input["schedule_type"] == "date":
+                    return await self.async_step_date_config()
+                else:
+                    return await self.async_step_week_config()
 
         schema = vol.Schema({
-            vol.Required("name", default=current_data.get("name", "My Schedule")): str,
-            vol.Required("schedule_type", default=current_data.get("schedule_type", "date")): get_schedule_type_selector(self.hass, current_data.get("schedule_type", "date")),
+            vol.Required("name", default="My Schedule"): str,
+            vol.Required("schedule_type", default="date"): get_schedule_type_selector(self.hass, "date"),
         })
 
         return self.async_show_form(
-            step_id="init", data_schema=schema, errors=errors
+            step_id="add_schedule", data_schema=schema, errors=errors
+        )
+
+    async def async_step_edit_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Select a schedule to edit."""
+        schedules = self.config_entry.data.get("schedules", {})
+        
+        if not schedules:
+            return self.async_abort(reason="no_schedules")
+        
+        if user_input is not None:
+            self._schedule_id = user_input["schedule_id"]
+            schedule_data = schedules[self._schedule_id]
+            self._schedule_data = dict(schedule_data)
+            
+            # Route to the appropriate step based on schedule type
+            if schedule_data["schedule_type"] == "date":
+                return await self.async_step_date_config()
+            else:
+                return await self.async_step_week_config()
+        
+        # Build list of schedules
+        schedule_options = [
+            SelectOptionDict(value=schedule_id, label=schedule_data["name"])
+            for schedule_id, schedule_data in schedules.items()
+        ]
+        
+        schema = vol.Schema({
+            vol.Required("schedule_id"): SelectSelector(
+                SelectSelectorConfig(
+                    options=schedule_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="edit_schedule", data_schema=schema
+        )
+
+    async def async_step_remove_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Remove a schedule."""
+        schedules = self.config_entry.data.get("schedules", {})
+        
+        if not schedules:
+            return self.async_abort(reason="no_schedules")
+        
+        if user_input is not None:
+            schedule_id = user_input["schedule_id"]
+            
+            # Remove the schedule
+            new_data = dict(self.config_entry.data)
+            new_schedules = dict(new_data.get("schedules", {}))
+            new_schedules.pop(schedule_id, None)
+            new_data["schedules"] = new_schedules
+            
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data,
+            )
+            
+            # Reload the integration to update entities
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            
+            return self.async_create_entry(title="", data={})
+        
+        # Build list of schedules
+        schedule_options = [
+            SelectOptionDict(value=schedule_id, label=schedule_data["name"])
+            for schedule_id, schedule_data in schedules.items()
+        ]
+        
+        schema = vol.Schema({
+            vol.Required("schedule_id"): SelectSelector(
+                SelectSelectorConfig(
+                    options=schedule_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="remove_schedule", data_schema=schema
         )
 
     async def async_step_date_config(
@@ -438,12 +638,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Handle date-based schedule configuration."""
         errors: dict[str, str] = {}
-        current_data = self.config_entry.data
         
         if user_input is not None:
-            self._data.update(user_input)
+            self._schedule_data.update(user_input)
             try:
-                info = await validate_input(self.hass, self._data)
+                # Pass existing schedules for overlap checking
+                existing_schedules = self.config_entry.data.get("schedules", {})
+                await validate_schedule_input(
+                    self.hass, 
+                    self._schedule_data, 
+                    existing_schedules,
+                    self._schedule_id  # Pass current schedule ID when editing
+                )
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 errors["base"] = handle_validation_error(err)
@@ -451,15 +657,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                # Update config entry data
+                # Save the schedule
+                new_data = dict(self.config_entry.data)
+                new_schedules = dict(new_data.get("schedules", {}))
+                new_schedules[self._schedule_id] = self._schedule_data
+                new_data["schedules"] = new_schedules
+                
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
-                    data=self._data,
-                    title=self._data["name"],
+                    data=new_data,
                 )
+                
+                # Reload the integration to update entities
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                
                 return self.async_create_entry(title="", data={})
 
-        schema = build_date_config_schema(self.hass, current_data)
+        schema = build_date_config_schema(self.hass, self._schedule_data)
 
         return self.async_show_form(
             step_id="date_config", data_schema=schema, errors=errors
@@ -470,12 +684,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Handle week-based schedule configuration."""
         errors: dict[str, str] = {}
-        current_data = self.config_entry.data
         
         if user_input is not None:
-            self._data.update(user_input)
+            self._schedule_data.update(user_input)
             try:
-                info = await validate_input(self.hass, self._data)
+                # Pass existing schedules for overlap checking
+                existing_schedules = self.config_entry.data.get("schedules", {})
+                await validate_schedule_input(
+                    self.hass, 
+                    self._schedule_data, 
+                    existing_schedules,
+                    self._schedule_id  # Pass current schedule ID when editing
+                )
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 errors["base"] = handle_validation_error(err)
@@ -483,15 +703,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                # Update config entry data
+                # Save the schedule
+                new_data = dict(self.config_entry.data)
+                new_schedules = dict(new_data.get("schedules", {}))
+                new_schedules[self._schedule_id] = self._schedule_data
+                new_data["schedules"] = new_schedules
+                
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
-                    data=self._data,
-                    title=self._data["name"],
+                    data=new_data,
                 )
+                
+                # Reload the integration to update entities
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                
                 return self.async_create_entry(title="", data={})
 
-        schema = build_week_config_schema(self.hass, current_data)
+        schema = build_week_config_schema(self.hass, self._schedule_data)
 
         return self.async_show_form(
             step_id="week_config", data_schema=schema, errors=errors
