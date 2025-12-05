@@ -14,7 +14,7 @@ async def test_binary_sensor_setup(hass: HomeAssistant, hub_entry):
     assert await hass.config_entries.async_setup(hub_entry.entry_id)
     await hass.async_block_till_done()
 
-    entity_id = "binary_sensor.test_schedule"
+    entity_id = "binary_sensor.scheduler_test_schedule"
     
     state = hass.states.get(entity_id)
     assert state
@@ -34,7 +34,7 @@ async def test_binary_sensor_date_in_range(hass: HomeAssistant, hub_entry):
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
         await hass.async_block_till_done()
 
-        entity_id = "binary_sensor.test_schedule"
+        entity_id = "binary_sensor.scheduler_test_schedule"
         
         state = hass.states.get(entity_id)
         assert state
@@ -71,7 +71,7 @@ async def test_binary_sensor_date_out_of_range(hass: HomeAssistant):
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
         await hass.async_block_till_done()
 
-        entity_id = "binary_sensor.june_schedule"
+        entity_id = "binary_sensor.scheduler_june_schedule"
         
         state = hass.states.get(entity_id)
         assert state
@@ -110,7 +110,7 @@ async def test_binary_sensor_week_based(hass: HomeAssistant):
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
         await hass.async_block_till_done()
 
-        entity_id = "binary_sensor.week_schedule"
+        entity_id = "binary_sensor.scheduler_week_schedule"
         
         state = hass.states.get(entity_id)
         assert state
@@ -146,7 +146,7 @@ async def test_binary_sensor_with_additional_yaml(hass: HomeAssistant):
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
         await hass.async_block_till_done()
 
-        entity_id = "binary_sensor.config_schedule"
+        entity_id = "binary_sensor.scheduler_config_schedule"
         state = hass.states.get(entity_id)
         assert state
         assert "config" in state.attributes
@@ -190,8 +190,8 @@ async def test_multiple_schedules(hass: HomeAssistant):
         await hass.async_block_till_done()
 
         # Check both entities exist
-        state1 = hass.states.get("binary_sensor.schedule_1")
-        state2 = hass.states.get("binary_sensor.schedule_2")
+        state1 = hass.states.get("binary_sensor.scheduler_schedule_1")
+        state2 = hass.states.get("binary_sensor.scheduler_schedule_2")
         
         assert state1
         assert state2
@@ -231,7 +231,7 @@ async def test_binary_sensor_month_wrap_around(hass: HomeAssistant):
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
         await hass.async_block_till_done()
 
-        entity_id = "binary_sensor.winter_schedule"
+        entity_id = "binary_sensor.scheduler_winter_schedule"
         state = hass.states.get(entity_id)
         assert state
         assert state.state == "on"
@@ -267,7 +267,7 @@ async def test_binary_sensor_week_wrap_around_days(hass: HomeAssistant):
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
         await hass.async_block_till_done()
 
-        entity_id = "binary_sensor.weekend_schedule"
+        entity_id = "binary_sensor.scheduler_weekend_schedule"
         state = hass.states.get(entity_id)
         assert state
         assert state.state == "on"
