@@ -58,11 +58,15 @@ class SchedulerBinarySensor(BinarySensorEntity):
         self._entry = entry
         self._schedule_id = schedule_id
         self._schedule_data = schedule_data
-        self._attr_name = schedule_data.get("name", "Schedule")
+        schedule_name = schedule_data.get("name", "Schedule")
+        self._attr_name = schedule_name
         self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
+        # Create entity_id from schedule name - simply convert to snake_case
+        entity_name = schedule_name.lower().replace(" ", "_")
+        self.entity_id = f"binary_sensor.scheduler_{entity_name}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, schedule_id)},
-            "name": schedule_data.get("name", "Schedule"),
+            "name": schedule_name,
             "manufacturer": "Scheduler",
             "model": "Schedule",
             "via_device": (DOMAIN, "scheduler_hub"),
@@ -194,7 +198,8 @@ class SchedulerBinarySensor(BinarySensorEntity):
         schedules = self._entry.data.get("schedules", {})
         if self._schedule_id in schedules:
             self._schedule_data = schedules[self._schedule_id]
-            self._attr_name = self._schedule_data.get("name", "Schedule")
+            schedule_name = self._schedule_data.get("name", "Schedule")
+            self._attr_name = schedule_name
         
         self._update_state()
         self._update_extra_state_attributes()
