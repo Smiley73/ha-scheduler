@@ -721,3 +721,58 @@ async def test_options_add_schedule_no_overlap(hass: HomeAssistant):
     )
     
     assert result4["type"] == FlowResultType.CREATE_ENTRY
+
+
+
+async def test_options_add_schedule_name_none_rejected(hass: HomeAssistant, hub_entry):
+    """Test that schedule name 'None' is rejected."""
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == "menu"
+    
+    # Select add_schedule
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"}
+    )
+    
+    # Try to add a schedule with name "None"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "None",
+            "schedule_type": "date",
+        }
+    )
+    
+    # Should show error
+    assert result["type"] == "form"
+    assert result["errors"] == {"name": "invalid_name"}
+    
+    # Try with "none" (lowercase)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "none",
+            "schedule_type": "date",
+        }
+    )
+    
+    # Should show error
+    assert result["type"] == "form"
+    assert result["errors"] == {"name": "invalid_name"}
+    
+    # Try with "NONE" (uppercase)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "NONE",
+            "schedule_type": "date",
+        }
+    )
+    
+    # Should show error
+    assert result["type"] == "form"
+    assert result["errors"] == {"name": "invalid_name"}

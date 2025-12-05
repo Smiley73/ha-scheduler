@@ -524,16 +524,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         
         if user_input is not None:
-            self._schedule_data.update(user_input)
-            # Generate a unique ID for this schedule
-            import uuid
-            self._schedule_id = str(uuid.uuid4())
-            
-            # Route to the appropriate step based on schedule type
-            if user_input["schedule_type"] == "date":
-                return await self.async_step_date_config()
+            # Validate that name is not "None"
+            if user_input.get("name", "").strip().lower() == "none":
+                errors["name"] = "invalid_name"
             else:
-                return await self.async_step_week_config()
+                self._schedule_data.update(user_input)
+                # Generate a unique ID for this schedule
+                import uuid
+                self._schedule_id = str(uuid.uuid4())
+                
+                # Route to the appropriate step based on schedule type
+                if user_input["schedule_type"] == "date":
+                    return await self.async_step_date_config()
+                else:
+                    return await self.async_step_week_config()
 
         schema = vol.Schema({
             vol.Required("name", default="My Schedule"): str,

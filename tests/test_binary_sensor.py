@@ -271,3 +271,201 @@ async def test_binary_sensor_week_wrap_around_days(hass: HomeAssistant):
         state = hass.states.get(entity_id)
         assert state
         assert state.state == "on"
+
+
+
+async def test_hub_sensor_created(hass: HomeAssistant, hub_entry):
+    """Test that hub sensor is created."""
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Check hub sensor exists
+    hub_state = hass.states.get("binary_sensor.scheduler")
+    assert hub_state
+    assert hub_state.name == "Scheduler"
+
+
+async def test_hub_sensor_aggregates_active_schedules(hass: HomeAssistant):
+    """Test that hub sensor is on when any schedule is active."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "summer_schedule": {
+                    "name": "Summer Schedule",
+                    "start_month": 6,
+                    "end_month": 8,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+                "winter_schedule": {
+                    "name": "Winter Schedule",
+                    "start_month": 12,
+                    "end_month": 2,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 28,
+                },
+            },
+        },
+        entry_id="test_hub_aggregate",
+    )
+    
+    # Test in summer (June) - summer schedule should be active
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hub_state = hass.states.get("binary_sensor.scheduler")
+        assert hub_state
+        assert hub_state.state == "on"
+        assert hub_state.attributes["active_schedule"] == "Summer Schedule"
+
+
+async def test_hub_sensor_off_when_no_schedules_active(hass: HomeAssistant):
+    """Test that hub sensor is off when no schedules are active."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "summer_schedule": {
+                    "name": "Summer Schedule",
+                    "start_month": 6,
+                    "end_month": 8,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+                "winter_schedule": {
+                    "name": "Winter Schedule",
+                    "start_month": 12,
+                    "end_month": 2,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 28,
+                },
+            },
+        },
+        entry_id="test_hub_off",
+    )
+    
+    # Test in April - no schedules should be active
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 4, 15)
+        
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hub_state = hass.states.get("binary_sensor.scheduler")
+        assert hub_state
+        assert hub_state.state == "off"
+        assert hub_state.attributes["active_schedule"] == "None"
+
+
+async def test_hub_sensor_duplicates_yaml_config(hass: HomeAssistant):
+    """Test that hub sensor duplicates additional_yaml from active schedule."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "config_schedule": {
+                    "name": "Config Schedule",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                    "additional_yaml": "mode: heat\ntemperature: 20",
+                },
+            },
+        },
+        entry_id="test_hub_yaml",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hub_state = hass.states.get("binary_sensor.scheduler")
+        assert hub_state
+        assert hub_state.state == "on"
+        assert hub_state.attributes["active_schedule"] == "Config Schedule"
+        assert "config" in hub_state.attributes
+        assert hub_state.attributes["config"]["mode"] == "heat"
+        assert hub_state.attributes["config"]["temperature"] == 20
+
+
+async def test_hub_sensor_multiple_active_schedules(hass: HomeAssistant):
+    """Test that hub sensor shows first active schedule when multiple are active."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "schedule_a": {
+                    "name": "Schedule A",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                    "additional_yaml": "priority: high",
+                },
+                "schedule_b": {
+                    "name": "Schedule B",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                    "additional_yaml": "priority: low",
+                },
+            },
+        },
+        entry_id="test_hub_multiple",
+    )
+    
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hub_state = hass.states.get("binary_sensor.scheduler")
+        assert hub_state
+        assert hub_state.state == "on"
+        # Should show one of the active schedules
+        assert hub_state.attributes["active_schedule"] in ["Schedule A", "Schedule B"]
+        # Should have config from the active schedule
+        assert "config" in hub_state.attributes
+
+
+
+async def test_hub_sensor_attribute_name_change(hass: HomeAssistant, hub_entry):
+    """Test that hub sensor uses 'active_schedule' attribute name."""
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+        
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hub_state = hass.states.get("binary_sensor.scheduler")
+        assert hub_state
+        # Verify the attribute is named "active_schedule"
+        assert "active_schedule" in hub_state.attributes
+        # Verify old attribute name doesn't exist
+        assert "schedule" not in hub_state.attributes

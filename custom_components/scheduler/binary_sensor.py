@@ -8,9 +8,9 @@ import yaml
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_time_interval, async_track_state_change_event
 from datetime import timedelta
 
 from .const import DOMAIN
@@ -27,8 +27,18 @@ async def async_setup_entry(
     schedules = entry.data.get("schedules", {})
     
     entities = []
+    
+    # Create individual schedule sensors
+    schedule_sensors = []
     for schedule_id, schedule_data in schedules.items():
-        entities.append(SchedulerBinarySensor(hass, entry, schedule_id, schedule_data))
+        sensor = SchedulerBinarySensor(hass, entry, schedule_id, schedule_data)
+        entities.append(sensor)
+        schedule_sensors.append(sensor)
+    
+    # Create aggregated hub sensor if there are schedules
+    if schedule_sensors:
+        hub_sensor = SchedulerHubBinarySensor(hass, entry, schedule_sensors)
+        entities.append(hub_sensor)
     
     async_add_entities(entities)
 
@@ -188,3 +198,99 @@ class SchedulerBinarySensor(BinarySensorEntity):
         
         self._update_state()
         self._update_extra_state_attributes()
+
+
+
+class SchedulerHubBinarySensor(BinarySensorEntity):
+    """Aggregated binary sensor that represents all schedule sensors."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        schedule_sensors: list[SchedulerBinarySensor],
+    ) -> None:
+        """Initialize the hub binary sensor."""
+        self._hass = hass
+        self._entry = entry
+        self._schedule_sensors = schedule_sensors
+        self._attr_name = "Scheduler"
+        self._attr_unique_id = f"{entry.entry_id}_hub"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, "scheduler_hub")},
+            "name": "Scheduler",
+            "manufacturer": "Scheduler",
+            "model": "Hub",
+        }
+        self._attr_extra_state_attributes = {}
+        self._unsub_state_listener = None
+        self._update_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Run when entity is added to hass."""
+        await super().async_added_to_hass()
+        
+        # Track state changes of all schedule sensors
+        entity_ids = [sensor.entity_id for sensor in self._schedule_sensors]
+        
+        @callback
+        def state_change_listener(event):
+            """Handle state changes of schedule sensors."""
+            self._update_state()
+            self.async_write_ha_state()
+        
+        self._unsub_state_listener = async_track_state_change_event(
+            self._hass, entity_ids, state_change_listener
+        )
+        
+        # Update every hour as well
+        async_track_time_interval(
+            self._hass, self._async_update_callback, timedelta(hours=1)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Run when entity will be removed from hass."""
+        if self._unsub_state_listener:
+            self._unsub_state_listener()
+        await super().async_will_remove_from_hass()
+
+    def _update_state(self) -> None:
+        """Update the sensor state based on schedule sensors."""
+        active_schedules = []
+        
+        # Find all active schedules
+        for sensor in self._schedule_sensors:
+            if sensor.is_on:
+                active_schedules.append(sensor)
+        
+        # Set state to true if any schedule is active
+        self._attr_is_on = len(active_schedules) > 0
+        
+        # Update attributes
+        attrs = {}
+        
+        if active_schedules:
+            # Use the first active schedule for the attributes
+            active_sensor = active_schedules[0]
+            attrs["active_schedule"] = active_sensor.name
+            
+            # Duplicate the additional_yaml attribute if it exists
+            sensor_attrs = active_sensor.extra_state_attributes or {}
+            if "config" in sensor_attrs:
+                attrs["config"] = sensor_attrs["config"]
+            
+            self._attr_icon = "mdi:check-circle"
+        else:
+            attrs["active_schedule"] = "None"
+            self._attr_icon = "mdi:circle-outline"
+        
+        self._attr_extra_state_attributes = attrs
+
+    async def _async_update_callback(self, now: datetime) -> None:
+        """Update callback called every hour."""
+        self._update_state()
+        self.async_write_ha_state()
+
+    async def async_update(self) -> None:
+        """Update the entity."""
+        self._update_state()
