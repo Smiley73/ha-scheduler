@@ -504,7 +504,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize the options flow."""
-        self.config_entry = config_entry
         self._schedule_data: dict[str, Any] = {}
         self._schedule_id: str | None = None
 
