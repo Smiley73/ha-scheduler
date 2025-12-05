@@ -34,7 +34,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
         """Initialize the binary sensor."""
         self._hass = hass
         self._entry = entry
-        self._attr_name = entry.data.get("name", "Schedule")
+        self._attr_name = "Scheduler " + entry.data.get("name", "Schedule")
         self._attr_unique_id = entry.entry_id
         self._attr_extra_state_attributes = {}
         self._update_extra_state_attributes()
