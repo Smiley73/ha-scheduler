@@ -18,17 +18,17 @@
         "description": "Set the month and day range for your schedule",
         "data": {
           "start_month": "Start Month",
-          "end_month": "End Month",
           "start_day": "Start Day",
+          "end_month": "End Month",
           "end_day": "End Day",
-          "additional_yaml": "Additional YAML Configuration"
+          "additional_yaml": "Advanced: Additional YAML Configuration (Optional)"
         },
         "data_description": {
-          "start_month": "Select the month when the schedule starts",
-          "end_month": "Select the month when the schedule ends",
-          "start_day": "Enter the starting day of the month (1-31)",
-          "end_day": "Enter the ending day of the month (1-31)",
-          "additional_yaml": "Optional YAML configuration for advanced settings"
+          "start_month": "Month when the schedule starts",
+          "start_day": "Day of the month when the schedule starts (1-31)",
+          "end_month": "Month when the schedule ends",
+          "end_day": "Day of the month when the schedule ends (1-31)",
+          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
         }
       },
       "week_config": {
@@ -36,21 +36,21 @@
         "description": "Set the month, week, and day of week range for your schedule",
         "data": {
           "start_month": "Start Month",
-          "end_month": "End Month",
-          "start_day_of_week": "Start Day of Week",
-          "end_day_of_week": "End Day of Week",
           "start_week": "Start Week (0-4)",
+          "start_day_of_week": "Start Day of Week",
+          "end_month": "End Month",
           "end_week": "End Week (0-4)",
-          "additional_yaml": "Additional YAML Configuration"
+          "end_day_of_week": "End Day of Week",
+          "additional_yaml": "Advanced: Additional YAML Configuration (Optional)"
         },
         "data_description": {
-          "start_month": "Select the month when the schedule starts",
-          "end_month": "Select the month when the schedule ends",
-          "start_day_of_week": "Select the starting day of the week",
-          "end_day_of_week": "Select the ending day of the week",
-          "start_week": "Enter the starting week number (0-4)",
-          "end_week": "Enter the ending week number (0-4)",
-          "additional_yaml": "Optional YAML configuration for advanced settings"
+          "start_month": "Month when the schedule starts",
+          "start_week": "Week number when the schedule starts (0-4, where 0 is the first week)",
+          "start_day_of_week": "Day of the week when the schedule starts",
+          "end_month": "Month when the schedule ends",
+          "end_week": "Week number when the schedule ends (0-4, where 4 is the last week)",
+          "end_day_of_week": "Day of the week when the schedule ends",
+          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
         }
       }
     },
@@ -86,17 +86,17 @@
         "description": "Set the month and day range for your schedule",
         "data": {
           "start_month": "Start Month",
-          "end_month": "End Month",
           "start_day": "Start Day",
+          "end_month": "End Month",
           "end_day": "End Day",
-          "additional_yaml": "Additional YAML Configuration"
+          "additional_yaml": "Additional YAML Configuration (Optional)"
         },
         "data_description": {
-          "start_month": "Select the month when the schedule starts",
-          "end_month": "Select the month when the schedule ends",
-          "start_day": "Enter the starting day of the month (1-31)",
-          "end_day": "Enter the ending day of the month (1-31)",
-          "additional_yaml": "Optional YAML configuration for advanced settings"
+          "start_month": "Month when the schedule starts",
+          "start_day": "Day of the month when the schedule starts (1-31)",
+          "end_month": "Month when the schedule ends",
+          "end_day": "Day of the month when the schedule ends (1-31)",
+          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
         }
       },
       "week_config": {
@@ -104,21 +104,21 @@
         "description": "Set the month, week, and day of week range for your schedule",
         "data": {
           "start_month": "Start Month",
-          "end_month": "End Month",
-          "start_day_of_week": "Start Day of Week",
-          "end_day_of_week": "End Day of Week",
           "start_week": "Start Week (0-4)",
+          "start_day_of_week": "Start Day of Week",
+          "end_month": "End Month",
           "end_week": "End Week (0-4)",
-          "additional_yaml": "Additional YAML Configuration"
+          "end_day_of_week": "End Day of Week",
+          "additional_yaml": "Additional YAML Configuration (Optional)"
         },
         "data_description": {
-          "start_month": "Select the month when the schedule starts",
-          "end_month": "Select the month when the schedule ends",
-          "start_day_of_week": "Select the starting day of the week",
-          "end_day_of_week": "Select the ending day of the week",
-          "start_week": "Enter the starting week number (0-4)",
-          "end_week": "Enter the ending week number (0-4)",
-          "additional_yaml": "Optional YAML configuration for advanced settings"
+          "start_month": "Month when the schedule starts",
+          "start_week": "Week number when the schedule starts (0-4, where 0 is the first week)",
+          "start_day_of_week": "Day of the week when the schedule starts",
+          "end_month": "Month when the schedule ends",
+          "end_week": "Week number when the schedule ends (0-4, where 4 is the last week)",
+          "end_day_of_week": "Day of the week when the schedule ends",
+          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
         }
       }
     },

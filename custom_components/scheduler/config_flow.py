@@ -111,8 +111,8 @@ def build_date_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
         defaults = {}
     
     return vol.Schema({
+        # Start configuration
         vol.Required("start_month", default=str(defaults.get("start_month", 1))): get_month_selector(hass, str(defaults.get("start_month", 1))),
-        vol.Required("end_month", default=str(defaults.get("end_month", 12))): get_month_selector(hass, str(defaults.get("end_month", 12))),
         vol.Required("start_day", default=defaults.get("start_day", 1)): NumberSelector(
             NumberSelectorConfig(
                 min=1,
@@ -120,6 +120,8 @@ def build_date_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
                 mode=NumberSelectorMode.BOX,
             )
         ),
+        # End configuration
+        vol.Required("end_month", default=str(defaults.get("end_month", 12))): get_month_selector(hass, str(defaults.get("end_month", 12))),
         vol.Required("end_day", default=defaults.get("end_day", 31)): NumberSelector(
             NumberSelectorConfig(
                 min=1,
@@ -127,6 +129,7 @@ def build_date_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
                 mode=NumberSelectorMode.BOX,
             )
         ),
+        # Advanced configuration
         vol.Optional("additional_yaml", default=defaults.get("additional_yaml", "")): TemplateSelector(
             TemplateSelectorConfig()
         ),
@@ -139,10 +142,8 @@ def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
         defaults = {}
     
     return vol.Schema({
+        # Start configuration
         vol.Required("start_month", default=str(defaults.get("start_month", 1))): get_month_selector(hass, str(defaults.get("start_month", 1))),
-        vol.Required("end_month", default=str(defaults.get("end_month", 12))): get_month_selector(hass, str(defaults.get("end_month", 12))),
-        vol.Required("start_day_of_week", default=str(defaults.get("start_day_of_week", 0))): get_day_of_week_selector(hass, str(defaults.get("start_day_of_week", 0))),
-        vol.Required("end_day_of_week", default=str(defaults.get("end_day_of_week", 6))): get_day_of_week_selector(hass, str(defaults.get("end_day_of_week", 6))),
         vol.Required("start_week", default=defaults.get("start_week", 0)): NumberSelector(
             NumberSelectorConfig(
                 min=0,
@@ -150,6 +151,9 @@ def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
                 mode=NumberSelectorMode.BOX,
             )
         ),
+        vol.Required("start_day_of_week", default=str(defaults.get("start_day_of_week", 0))): get_day_of_week_selector(hass, str(defaults.get("start_day_of_week", 0))),
+        # End configuration
+        vol.Required("end_month", default=str(defaults.get("end_month", 12))): get_month_selector(hass, str(defaults.get("end_month", 12))),
         vol.Required("end_week", default=defaults.get("end_week", 4)): NumberSelector(
             NumberSelectorConfig(
                 min=0,
@@ -157,6 +161,8 @@ def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
                 mode=NumberSelectorMode.BOX,
             )
         ),
+        vol.Required("end_day_of_week", default=str(defaults.get("end_day_of_week", 6))): get_day_of_week_selector(hass, str(defaults.get("end_day_of_week", 6))),
+        # Advanced configuration
         vol.Optional("additional_yaml", default=defaults.get("additional_yaml", "")): TemplateSelector(
             TemplateSelectorConfig()
         ),
