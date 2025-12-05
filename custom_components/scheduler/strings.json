@@ -2,7 +2,28 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Schedule",
+        "title": "Set up Scheduler",
+        "description": "This will create the Scheduler hub. You can add schedules after setup by clicking the Configure button."
+      }
+    },
+    "abort": {
+      "already_configured": "Scheduler is already configured. Use the configure button to manage schedules.",
+      "single_instance_allowed": "Only one Scheduler instance is allowed"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage Scheduler",
+        "description": "Choose an action",
+        "menu_options": {
+          "add_schedule": "Add Schedule",
+          "edit_schedule": "Edit Schedule",
+          "remove_schedule": "Remove Schedule"
+        }
+      },
+      "add_schedule": {
+        "title": "Add New Schedule",
         "description": "Enter a name for your schedule and choose the schedule type",
         "data": {
           "name": "Schedule Name",
@@ -13,6 +34,26 @@
           "schedule_type": "Choose to schedule by date or by week of the month"
         }
       },
+      "edit_schedule": {
+        "title": "Edit Schedule",
+        "description": "Select a schedule to edit",
+        "data": {
+          "schedule_id": "Schedule"
+        },
+        "data_description": {
+          "schedule_id": "Choose the schedule to edit"
+        }
+      },
+      "remove_schedule": {
+        "title": "Remove Schedule",
+        "description": "Select a schedule to remove",
+        "data": {
+          "schedule_id": "Schedule"
+        },
+        "data_description": {
+          "schedule_id": "Choose the schedule to remove"
+        }
+      },
       "date_config": {
         "title": "Configure Date-Based Schedule",
         "description": "Set the month and day range for your schedule",
@@ -21,7 +62,7 @@
           "start_day": "Start Day",
           "end_month": "End Month",
           "end_day": "End Day",
-          "additional_yaml": "Advanced: Additional YAML Configuration (Optional)"
+          "additional_yaml": "Additional YAML Configuration (Optional)"
         },
         "data_description": {
           "start_month": "Month when the schedule starts",
@@ -41,7 +82,7 @@
           "end_month": "End Month",
           "end_week": "End Week (0-4)",
           "end_day_of_week": "End Day of Week",
-          "additional_yaml": "Advanced: Additional YAML Configuration (Optional)"
+          "additional_yaml": "Additional YAML Configuration (Optional)"
         },
         "data_description": {
           "start_month": "Month when the schedule starts",
@@ -64,72 +105,7 @@
       "unknown": "Unexpected error occurred"
     },
     "abort": {
-      "already_configured": "Device is already configured"
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Reconfigure Schedule",
-        "description": "Update your schedule settings",
-        "data": {
-          "name": "Schedule Name",
-          "schedule_type": "Schedule Type"
-        },
-        "data_description": {
-          "name": "Enter a name for this schedule",
-          "schedule_type": "Choose to schedule by date or by week of the month"
-        }
-      },
-      "date_config": {
-        "title": "Configure Date-Based Schedule",
-        "description": "Set the month and day range for your schedule",
-        "data": {
-          "start_month": "Start Month",
-          "start_day": "Start Day",
-          "end_month": "End Month",
-          "end_day": "End Day",
-          "additional_yaml": "Additional YAML Configuration (Optional)"
-        },
-        "data_description": {
-          "start_month": "Month when the schedule starts",
-          "start_day": "Day of the month when the schedule starts (1-31)",
-          "end_month": "Month when the schedule ends",
-          "end_day": "Day of the month when the schedule ends (1-31)",
-          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
-        }
-      },
-      "week_config": {
-        "title": "Configure Week-Based Schedule",
-        "description": "Set the month, week, and day of week range for your schedule",
-        "data": {
-          "start_month": "Start Month",
-          "start_week": "Start Week (0-4)",
-          "start_day_of_week": "Start Day of Week",
-          "end_month": "End Month",
-          "end_week": "End Week (0-4)",
-          "end_day_of_week": "End Day of Week",
-          "additional_yaml": "Additional YAML Configuration (Optional)"
-        },
-        "data_description": {
-          "start_month": "Month when the schedule starts",
-          "start_week": "Week number when the schedule starts (0-4, where 0 is the first week)",
-          "start_day_of_week": "Day of the week when the schedule starts",
-          "end_month": "Month when the schedule ends",
-          "end_week": "Week number when the schedule ends (0-4, where 4 is the last week)",
-          "end_day_of_week": "Day of the week when the schedule ends",
-          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
-        }
-      }
-    },
-    "error": {
-      "invalid_month_range": "Start month must be before or equal to end month",
-      "invalid_day_range": "Invalid day range provided",
-      "invalid_day_of_week": "Day of week must be between 0 and 6",
-      "invalid_week_range": "Invalid week range provided",
-      "invalid_yaml": "Invalid YAML format in additional configuration",
-      "invalid_input": "Invalid input provided",
-      "unknown": "Unexpected error occurred"
+      "no_schedules": "No schedules available"
     }
   },
   "selector": {

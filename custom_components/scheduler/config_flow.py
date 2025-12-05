@@ -19,7 +19,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TemplateSelector,
-    TemplateSelectorConfig
+    TemplateSelectorConfig,
 )
 
 from .const import DOMAIN, MONTH_NAMES, DAY_NAMES
@@ -186,8 +186,8 @@ def handle_validation_error(err: ValueError) -> str:
         return "invalid_input"
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input."""
+async def validate_schedule_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+    """Validate the schedule input."""
     # Validate additional_yaml if provided
     additional_yaml = data.get("additional_yaml", "").strip()
     if additional_yaml:
@@ -321,11 +321,69 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle the initial step - name and type selection."""
+        """Handle the user step - create the hub if it doesn't exist."""
+        # Check if hub already exists
+        existing_entries = self._async_current_entries()
+        if existing_entries:
+            return self.async_abort(reason="already_configured")
+        
+        if user_input is not None:
+            # Create the hub entry with empty schedules
+            return self.async_create_entry(
+                title="Scheduler",
+                data={"schedules": {}}
+            )
+        
+        # Show a simple confirmation form
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "info": "This will create the Scheduler hub. You can add schedules after setup."
+            }
+        )
+
+
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> OptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for Scheduler hub - manage schedules."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize the options flow."""
+        self.config_entry = config_entry
+        self._schedule_data: dict[str, Any] = {}
+        self._schedule_id: str | None = None
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Manage schedules."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["add_schedule", "edit_schedule", "remove_schedule"],
+        )
+
+    async def async_step_add_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Add a new schedule - name and type selection."""
         errors: dict[str, str] = {}
         
         if user_input is not None:
-            self._data.update(user_input)
+            self._schedule_data.update(user_input)
+            # Generate a unique ID for this schedule
+            import uuid
+            self._schedule_id = str(uuid.uuid4())
+            
             # Route to the appropriate step based on schedule type
             if user_input["schedule_type"] == "date":
                 return await self.async_step_date_config()
@@ -338,99 +396,93 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         })
 
         return self.async_show_form(
-            step_id="user", data_schema=schema, errors=errors
+            step_id="add_schedule", data_schema=schema, errors=errors
         )
 
-    async def async_step_date_config(
+    async def async_step_edit_schedule(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle date-based schedule configuration."""
-        errors: dict[str, str] = {}
+        """Select a schedule to edit."""
+        schedules = self.config_entry.data.get("schedules", {})
+        
+        if not schedules:
+            return self.async_abort(reason="no_schedules")
         
         if user_input is not None:
-            self._data.update(user_input)
-            try:
-                info = await validate_input(self.hass, self._data)
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = handle_validation_error(err)
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(title=info["title"], data=self._data)
-
-        schema = build_date_config_schema(self.hass)
-
-        return self.async_show_form(
-            step_id="date_config", data_schema=schema, errors=errors
-        )
-
-    async def async_step_week_config(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle week-based schedule configuration."""
-        errors: dict[str, str] = {}
-        
-        if user_input is not None:
-            self._data.update(user_input)
-            try:
-                info = await validate_input(self.hass, self._data)
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = handle_validation_error(err)
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
-            else:
-                return self.async_create_entry(title=info["title"], data=self._data)
-
-        schema = build_week_config_schema(self.hass)
-
-        return self.async_show_form(
-            step_id="week_config", data_schema=schema, errors=errors
-        )
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> OptionsFlowHandler:
-        """Get the options flow for this handler."""
-        return OptionsFlowHandler()
-
-
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for Scheduler."""
-
-    def __init__(self) -> None:
-        """Initialize the options flow."""
-        self._data: dict[str, Any] = {}
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the initial step - name and type selection."""
-        errors: dict[str, str] = {}
-        
-        # Pre-fill with current values
-        current_data = self.config_entry.data
-        
-        if user_input is not None:
-            self._data.update(user_input)
+            self._schedule_id = user_input["schedule_id"]
+            schedule_data = schedules[self._schedule_id]
+            self._schedule_data = dict(schedule_data)
+            
             # Route to the appropriate step based on schedule type
-            if user_input["schedule_type"] == "date":
+            if schedule_data["schedule_type"] == "date":
                 return await self.async_step_date_config()
             else:
                 return await self.async_step_week_config()
-
+        
+        # Build list of schedules
+        schedule_options = [
+            SelectOptionDict(value=schedule_id, label=schedule_data["name"])
+            for schedule_id, schedule_data in schedules.items()
+        ]
+        
         schema = vol.Schema({
-            vol.Required("name", default=current_data.get("name", "My Schedule")): str,
-            vol.Required("schedule_type", default=current_data.get("schedule_type", "date")): get_schedule_type_selector(self.hass, current_data.get("schedule_type", "date")),
+            vol.Required("schedule_id"): SelectSelector(
+                SelectSelectorConfig(
+                    options=schedule_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
         })
 
         return self.async_show_form(
-            step_id="init", data_schema=schema, errors=errors
+            step_id="edit_schedule", data_schema=schema
+        )
+
+    async def async_step_remove_schedule(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Remove a schedule."""
+        schedules = self.config_entry.data.get("schedules", {})
+        
+        if not schedules:
+            return self.async_abort(reason="no_schedules")
+        
+        if user_input is not None:
+            schedule_id = user_input["schedule_id"]
+            
+            # Remove the schedule
+            new_data = dict(self.config_entry.data)
+            new_schedules = dict(new_data.get("schedules", {}))
+            new_schedules.pop(schedule_id, None)
+            new_data["schedules"] = new_schedules
+            
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data=new_data,
+            )
+            
+            # Reload the integration to update entities
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            
+            return self.async_create_entry(title="", data={})
+        
+        # Build list of schedules
+        schedule_options = [
+            SelectOptionDict(value=schedule_id, label=schedule_data["name"])
+            for schedule_id, schedule_data in schedules.items()
+        ]
+        
+        schema = vol.Schema({
+            vol.Required("schedule_id"): SelectSelector(
+                SelectSelectorConfig(
+                    options=schedule_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="remove_schedule", data_schema=schema
         )
 
     async def async_step_date_config(
@@ -438,12 +490,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Handle date-based schedule configuration."""
         errors: dict[str, str] = {}
-        current_data = self.config_entry.data
         
         if user_input is not None:
-            self._data.update(user_input)
+            self._schedule_data.update(user_input)
             try:
-                info = await validate_input(self.hass, self._data)
+                await validate_schedule_input(self.hass, self._schedule_data)
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 errors["base"] = handle_validation_error(err)
@@ -451,15 +502,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                # Update config entry data
+                # Save the schedule
+                new_data = dict(self.config_entry.data)
+                new_schedules = dict(new_data.get("schedules", {}))
+                new_schedules[self._schedule_id] = self._schedule_data
+                new_data["schedules"] = new_schedules
+                
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
-                    data=self._data,
-                    title=self._data["name"],
+                    data=new_data,
                 )
+                
+                # Reload the integration to update entities
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                
                 return self.async_create_entry(title="", data={})
 
-        schema = build_date_config_schema(self.hass, current_data)
+        schema = build_date_config_schema(self.hass, self._schedule_data)
 
         return self.async_show_form(
             step_id="date_config", data_schema=schema, errors=errors
@@ -470,12 +529,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Handle week-based schedule configuration."""
         errors: dict[str, str] = {}
-        current_data = self.config_entry.data
         
         if user_input is not None:
-            self._data.update(user_input)
+            self._schedule_data.update(user_input)
             try:
-                info = await validate_input(self.hass, self._data)
+                await validate_schedule_input(self.hass, self._schedule_data)
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 errors["base"] = handle_validation_error(err)
@@ -483,15 +541,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                # Update config entry data
+                # Save the schedule
+                new_data = dict(self.config_entry.data)
+                new_schedules = dict(new_data.get("schedules", {}))
+                new_schedules[self._schedule_id] = self._schedule_data
+                new_data["schedules"] = new_schedules
+                
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
-                    data=self._data,
-                    title=self._data["name"],
+                    data=new_data,
                 )
+                
+                # Reload the integration to update entities
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                
                 return self.async_create_entry(title="", data={})
 
-        schema = build_week_config_schema(self.hass, current_data)
+        schema = build_week_config_schema(self.hass, self._schedule_data)
 
         return self.async_show_form(
             step_id="week_config", data_schema=schema, errors=errors

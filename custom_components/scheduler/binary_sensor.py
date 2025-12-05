@@ -24,18 +24,39 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Scheduler binary sensor platform."""
-    async_add_entities([SchedulerBinarySensor(hass, entry)])
+    schedules = entry.data.get("schedules", {})
+    
+    entities = []
+    for schedule_id, schedule_data in schedules.items():
+        entities.append(SchedulerBinarySensor(hass, entry, schedule_id, schedule_data))
+    
+    async_add_entities(entities)
 
 
 class SchedulerBinarySensor(BinarySensorEntity):
     """Representation of a Scheduler binary sensor."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, 
+        hass: HomeAssistant, 
+        entry: ConfigEntry, 
+        schedule_id: str, 
+        schedule_data: dict
+    ) -> None:
         """Initialize the binary sensor."""
         self._hass = hass
         self._entry = entry
-        self._attr_name = "Scheduler " + entry.data.get("name", "Schedule")
-        self._attr_unique_id = entry.entry_id
+        self._schedule_id = schedule_id
+        self._schedule_data = schedule_data
+        self._attr_name = schedule_data.get("name", "Schedule")
+        self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, schedule_id)},
+            "name": schedule_data.get("name", "Schedule"),
+            "manufacturer": "Scheduler",
+            "model": "Schedule",
+            "via_device": (DOMAIN, "scheduler_hub"),
+        }
         self._attr_extra_state_attributes = {}
         self._update_extra_state_attributes()
         self._update_state()
@@ -52,9 +73,9 @@ class SchedulerBinarySensor(BinarySensorEntity):
         current_day = now.day
         current_weekday = now.weekday()  # Monday=0, Sunday=6
         
-        schedule_type = self._entry.data.get("schedule_type", "date")
-        start_month = self._entry.data.get("start_month", 1)
-        end_month = self._entry.data.get("end_month", 12)
+        schedule_type = self._schedule_data.get("schedule_type", "date")
+        start_month = self._schedule_data.get("start_month", 1)
+        end_month = self._schedule_data.get("end_month", 12)
         
         # Check if current month is in range
         if start_month <= end_month:
@@ -68,8 +89,8 @@ class SchedulerBinarySensor(BinarySensorEntity):
         
         if schedule_type == "date":
             # Date-based schedule
-            start_day = self._entry.data.get("start_day", 1)
-            end_day = self._entry.data.get("end_day", 31)
+            start_day = self._schedule_data.get("start_day", 1)
+            end_day = self._schedule_data.get("end_day", 31)
             
             # If we're in the start month, check if we're past the start day
             if current_month == start_month and current_day < start_day:
@@ -82,10 +103,10 @@ class SchedulerBinarySensor(BinarySensorEntity):
             return True
         
         else:  # week-based schedule
-            start_day_of_week = self._entry.data.get("start_day_of_week", 0)
-            end_day_of_week = self._entry.data.get("end_day_of_week", 6)
-            start_week = self._entry.data.get("start_week", 0)
-            end_week = self._entry.data.get("end_week", 4)
+            start_day_of_week = self._schedule_data.get("start_day_of_week", 0)
+            end_day_of_week = self._schedule_data.get("end_day_of_week", 6)
+            start_week = self._schedule_data.get("start_week", 0)
+            end_week = self._schedule_data.get("end_week", 4)
             
             # Calculate which week of the month we're in (0-4)
             week_of_month = (current_day - 1) // 7
@@ -122,25 +143,26 @@ class SchedulerBinarySensor(BinarySensorEntity):
 
     def _update_extra_state_attributes(self) -> None:
         """Update extra state attributes."""
-        schedule_type = self._entry.data.get("schedule_type", "date")
+        schedule_type = self._schedule_data.get("schedule_type", "date")
         
         attrs = {
             "schedule_type": schedule_type,
-            "start_month": self._entry.data.get("start_month", 1),
-            "end_month": self._entry.data.get("end_month", 12),
+            "schedule_id": self._schedule_id,
+            "start_month": self._schedule_data.get("start_month", 1),
+            "end_month": self._schedule_data.get("end_month", 12),
         }
         
         if schedule_type == "date":
-            attrs["start_day"] = self._entry.data.get("start_day", 1)
-            attrs["end_day"] = self._entry.data.get("end_day", 31)
+            attrs["start_day"] = self._schedule_data.get("start_day", 1)
+            attrs["end_day"] = self._schedule_data.get("end_day", 31)
         else:
-            attrs["start_day_of_week"] = self._entry.data.get("start_day_of_week", 0)
-            attrs["end_day_of_week"] = self._entry.data.get("end_day_of_week", 6)
-            attrs["start_week"] = self._entry.data.get("start_week", 0)
-            attrs["end_week"] = self._entry.data.get("end_week", 4)
+            attrs["start_day_of_week"] = self._schedule_data.get("start_day_of_week", 0)
+            attrs["end_day_of_week"] = self._schedule_data.get("end_day_of_week", 6)
+            attrs["start_week"] = self._schedule_data.get("start_week", 0)
+            attrs["end_week"] = self._schedule_data.get("end_week", 4)
         
         # Add parsed YAML config if provided
-        additional_yaml = self._entry.data.get("additional_yaml", "").strip()
+        additional_yaml = self._schedule_data.get("additional_yaml", "").strip()
         if additional_yaml:
             try:
                 parsed_config = yaml.safe_load(additional_yaml)
@@ -158,6 +180,11 @@ class SchedulerBinarySensor(BinarySensorEntity):
 
     async def async_update(self) -> None:
         """Update the entity."""
-        self._attr_name = self._entry.data.get("name", "Schedule")
+        # Refresh schedule data from entry
+        schedules = self._entry.data.get("schedules", {})
+        if self._schedule_id in schedules:
+            self._schedule_data = schedules[self._schedule_id]
+            self._attr_name = self._schedule_data.get("name", "Schedule")
+        
         self._update_state()
         self._update_extra_state_attributes()
