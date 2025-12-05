@@ -102,6 +102,7 @@
       "invalid_week_range": "Invalid week range provided",
       "invalid_yaml": "Invalid YAML format in additional configuration",
       "invalid_input": "Invalid input provided",
+      "schedule_overlap": "This schedule overlaps with an existing schedule",
       "unknown": "Unexpected error occurred"
     },
     "abort": {

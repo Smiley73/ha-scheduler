@@ -172,7 +172,9 @@ def build_week_config_schema(hass: HomeAssistant, defaults: dict[str, Any] | Non
 def handle_validation_error(err: ValueError) -> str:
     """Handle validation errors and return appropriate error key."""
     error_msg = str(err).lower()
-    if "yaml" in error_msg:
+    if "overlap" in error_msg:
+        return "schedule_overlap"
+    elif "yaml" in error_msg:
         return "invalid_yaml"
     elif "month" in error_msg and "day" not in error_msg:
         return "invalid_month_range"
@@ -186,7 +188,100 @@ def handle_validation_error(err: ValueError) -> str:
         return "invalid_input"
 
 
-async def validate_schedule_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+def check_date_overlap(
+    start_month1: int, start_day1: int, end_month1: int, end_day1: int,
+    start_month2: int, start_day2: int, end_month2: int, end_day2: int
+) -> bool:
+    """Check if two date ranges overlap."""
+    # Convert to comparable format (month * 100 + day)
+    start1 = start_month1 * 100 + start_day1
+    end1 = end_month1 * 100 + end_day1
+    start2 = start_month2 * 100 + start_day2
+    end2 = end_month2 * 100 + end_day2
+    
+    # Handle wrap-around (e.g., Nov-Feb)
+    if start1 > end1:  # Range 1 wraps around year
+        if start2 > end2:  # Range 2 also wraps around
+            return True  # Both wrap around, they overlap
+        else:  # Range 2 doesn't wrap
+            # Check if range 2 overlaps with either part of range 1
+            return (start2 <= end1) or (end2 >= start1)
+    elif start2 > end2:  # Only range 2 wraps around
+        # Check if range 1 overlaps with either part of range 2
+        return (start1 <= end2) or (end1 >= start2)
+    else:  # Neither wraps around
+        # Standard overlap check
+        return not (end1 < start2 or end2 < start1)
+
+
+def check_week_overlap(
+    start_month1: int, start_week1: int, start_dow1: int, end_month1: int, end_week1: int, end_dow1: int,
+    start_month2: int, start_week2: int, start_dow2: int, end_month2: int, end_week2: int, end_dow2: int
+) -> bool:
+    """Check if two week-based ranges overlap."""
+    # Convert to comparable format (month * 1000 + week * 10 + day_of_week)
+    start1 = start_month1 * 1000 + start_week1 * 10 + start_dow1
+    end1 = end_month1 * 1000 + end_week1 * 10 + end_dow1
+    start2 = start_month2 * 1000 + start_week2 * 10 + start_dow2
+    end2 = end_month2 * 1000 + end_week2 * 10 + end_dow2
+    
+    # Handle wrap-around
+    if start1 > end1:  # Range 1 wraps around year
+        if start2 > end2:  # Range 2 also wraps around
+            return True  # Both wrap around, they overlap
+        else:  # Range 2 doesn't wrap
+            return (start2 <= end1) or (end2 >= start1)
+    elif start2 > end2:  # Only range 2 wraps around
+        return (start1 <= end2) or (end1 >= start2)
+    else:  # Neither wraps around
+        return not (end1 < start2 or end2 < start1)
+
+
+def check_date_week_overlap(
+    date_start_month: int, date_start_day: int, date_end_month: int, date_end_day: int,
+    week_start_month: int, week_start_week: int, week_start_dow: int,
+    week_end_month: int, week_end_week: int, week_end_dow: int
+) -> bool:
+    """Check if a date-based range overlaps with a week-based range.
+    
+    This is a conservative check - we check if the month ranges overlap.
+    Since week-based schedules can span specific weeks within months,
+    and date-based schedules span specific days, we check if their
+    month ranges overlap as a reasonable approximation.
+    """
+    # For simplicity, check if the month ranges overlap
+    # This is conservative - it may flag some non-overlapping schedules,
+    # but it's better to be safe than allow actual overlaps
+    
+    date_start = date_start_month * 100 + date_start_day
+    date_end = date_end_month * 100 + date_end_day
+    
+    # For week-based, use approximate day ranges
+    # Week 0 starts around day 1-7, week 1 around 8-14, etc.
+    week_start_approx_day = week_start_week * 7 + 1
+    week_end_approx_day = min(week_end_week * 7 + 7, 31)
+    
+    week_start = week_start_month * 100 + week_start_approx_day
+    week_end = week_end_month * 100 + week_end_approx_day
+    
+    # Handle wrap-around
+    if date_start > date_end:  # Date range wraps around year
+        if week_start > week_end:  # Week range also wraps around
+            return True  # Both wrap around, they overlap
+        else:  # Week range doesn't wrap
+            return (week_start <= date_end) or (week_end >= date_start)
+    elif week_start > week_end:  # Only week range wraps around
+        return (date_start <= week_end) or (date_end >= week_start)
+    else:  # Neither wraps around
+        return not (date_end < week_start or week_end < date_start)
+
+
+async def validate_schedule_input(
+    hass: HomeAssistant, 
+    data: dict[str, Any], 
+    existing_schedules: dict[str, dict] | None = None,
+    current_schedule_id: str | None = None
+) -> dict[str, Any]:
     """Validate the schedule input."""
     # Validate additional_yaml if provided
     additional_yaml = data.get("additional_yaml", "").strip()
@@ -305,6 +400,56 @@ async def validate_schedule_input(hass: HomeAssistant, data: dict[str, Any]) -> 
         # Remove date-based fields
         data.pop("start_day", None)
         data.pop("end_day", None)
+
+    # Check for overlaps with existing schedules
+    if existing_schedules:
+        for schedule_id, schedule_data in existing_schedules.items():
+            # Skip checking against itself when editing
+            if current_schedule_id and schedule_id == current_schedule_id:
+                continue
+            
+            existing_type = schedule_data.get("schedule_type")
+            
+            # Check overlap based on schedule types
+            if schedule_type == "date" and existing_type == "date":
+                # Both are date-based
+                if check_date_overlap(
+                    data["start_month"], data["start_day"], data["end_month"], data["end_day"],
+                    schedule_data["start_month"], schedule_data["start_day"], 
+                    schedule_data["end_month"], schedule_data["end_day"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+            
+            elif schedule_type == "week" and existing_type == "week":
+                # Both are week-based
+                if check_week_overlap(
+                    data["start_month"], data["start_week"], data["start_day_of_week"],
+                    data["end_month"], data["end_week"], data["end_day_of_week"],
+                    schedule_data["start_month"], schedule_data["start_week"], schedule_data["start_day_of_week"],
+                    schedule_data["end_month"], schedule_data["end_week"], schedule_data["end_day_of_week"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+            
+            elif schedule_type == "date" and existing_type == "week":
+                # New is date-based, existing is week-based
+                # Convert week-based to approximate date range and check
+                if check_date_week_overlap(
+                    data["start_month"], data["start_day"], data["end_month"], data["end_day"],
+                    schedule_data["start_month"], schedule_data["start_week"], schedule_data["start_day_of_week"],
+                    schedule_data["end_month"], schedule_data["end_week"], schedule_data["end_day_of_week"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
+            
+            elif schedule_type == "week" and existing_type == "date":
+                # New is week-based, existing is date-based
+                # Convert week-based to approximate date range and check
+                if check_date_week_overlap(
+                    schedule_data["start_month"], schedule_data["start_day"], 
+                    schedule_data["end_month"], schedule_data["end_day"],
+                    data["start_month"], data["start_week"], data["start_day_of_week"],
+                    data["end_month"], data["end_week"], data["end_day_of_week"]
+                ):
+                    raise ValueError(f"Schedule overlaps with existing schedule '{schedule_data['name']}'")
 
     return {"title": data["name"]}
 
@@ -494,7 +639,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             self._schedule_data.update(user_input)
             try:
-                await validate_schedule_input(self.hass, self._schedule_data)
+                # Pass existing schedules for overlap checking
+                existing_schedules = self.config_entry.data.get("schedules", {})
+                await validate_schedule_input(
+                    self.hass, 
+                    self._schedule_data, 
+                    existing_schedules,
+                    self._schedule_id  # Pass current schedule ID when editing
+                )
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 errors["base"] = handle_validation_error(err)
@@ -533,7 +685,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             self._schedule_data.update(user_input)
             try:
-                await validate_schedule_input(self.hass, self._schedule_data)
+                # Pass existing schedules for overlap checking
+                existing_schedules = self.config_entry.data.get("schedules", {})
+                await validate_schedule_input(
+                    self.hass, 
+                    self._schedule_data, 
+                    existing_schedules,
+                    self._schedule_id  # Pass current schedule ID when editing
+                )
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
                 errors["base"] = handle_validation_error(err)

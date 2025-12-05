@@ -387,3 +387,337 @@ async def test_options_add_schedule_invalid_yaml(hass: HomeAssistant, empty_hub_
     
     assert result4["type"] == FlowResultType.FORM
     assert result4["errors"] == {"base": "invalid_yaml"}
+
+
+
+async def test_options_add_schedule_date_overlap(hass: HomeAssistant):
+    """Test adding a date schedule that overlaps with existing schedule."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    # Create hub with existing schedule (Jan 1 - Jun 30)
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "existing_schedule": {
+                    "name": "Existing Schedule",
+                    "start_month": 1,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 30,
+                },
+            },
+        },
+        entry_id="test_overlap_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Overlapping Schedule",
+            "schedule_type": "date",
+        },
+    )
+    
+    # Try to add schedule that overlaps (May 1 - Aug 31)
+    result4 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "5",
+            "end_month": "8",
+            "start_day": 1,
+            "end_day": 31,
+        },
+    )
+    
+    assert result4["type"] == FlowResultType.FORM
+    assert result4["errors"] == {"base": "schedule_overlap"}
+
+
+async def test_options_add_schedule_week_overlap(hass: HomeAssistant):
+    """Test adding a week schedule that overlaps with existing schedule."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    # Create hub with existing week schedule
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "existing_week": {
+                    "name": "Existing Week Schedule",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "week",
+                    "start_day_of_week": 0,
+                    "end_day_of_week": 4,
+                    "start_week": 0,
+                    "end_week": 2,
+                },
+            },
+        },
+        entry_id="test_week_overlap_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Overlapping Week Schedule",
+            "schedule_type": "week",
+        },
+    )
+    
+    # Try to add schedule that overlaps
+    result4 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "6",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 1,
+            "end_week": 3,
+        },
+    )
+    
+    assert result4["type"] == FlowResultType.FORM
+    assert result4["errors"] == {"base": "schedule_overlap"}
+
+
+async def test_options_add_schedule_overlap_different_type(hass: HomeAssistant):
+    """Test adding a schedule with different type checks overlap."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    # Create hub with date-based schedule covering full year
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "date_schedule": {
+                    "name": "Date Schedule",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_diff_type_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Week Schedule",
+            "schedule_type": "week",
+        },
+    )
+    
+    # Add week schedule that overlaps with date schedule
+    result4 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 0,
+            "end_week": 4,
+        },
+    )
+    
+    # Should detect overlap even though types are different
+    assert result4["type"] == FlowResultType.FORM
+    assert result4["errors"] == {"base": "schedule_overlap"}
+
+
+async def test_options_add_schedule_no_overlap_different_type(hass: HomeAssistant):
+    """Test adding a schedule with different type that doesn't overlap."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    # Create hub with date-based schedule for first half of year
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "date_schedule": {
+                    "name": "Date Schedule",
+                    "start_month": 1,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 30,
+                },
+            },
+        },
+        entry_id="test_diff_type_no_overlap_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Week Schedule",
+            "schedule_type": "week",
+        },
+    )
+    
+    # Add week schedule for second half of year (no overlap)
+    result4 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "7",
+            "end_month": "12",
+            "start_day_of_week": "0",
+            "end_day_of_week": "6",
+            "start_week": 0,
+            "end_week": 4,
+        },
+    )
+    
+    # Should succeed as there's no overlap
+    assert result4["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_edit_schedule_no_self_overlap(hass: HomeAssistant):
+    """Test editing a schedule doesn't check overlap with itself."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "schedule_1": {
+                    "name": "Schedule 1",
+                    "start_month": 1,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 30,
+                },
+            },
+        },
+        entry_id="test_edit_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "edit_schedule"},
+    )
+    
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_id": "schedule_1"},
+    )
+    
+    # Edit the schedule (should not check overlap with itself)
+    result4 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "end_month": "7",  # Extended range
+            "start_day": 1,
+            "end_day": 15,
+        },
+    )
+    
+    assert result4["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_add_schedule_no_overlap(hass: HomeAssistant):
+    """Test adding a schedule that doesn't overlap."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    
+    # Create hub with existing schedule (Jan 1 - Jun 30)
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "first_half": {
+                    "name": "First Half",
+                    "start_month": 1,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 30,
+                },
+            },
+        },
+        entry_id="test_no_overlap_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    
+    result2 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    
+    result3 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Second Half",
+            "schedule_type": "date",
+        },
+    )
+    
+    # Add schedule that doesn't overlap (Jul 1 - Dec 31)
+    result4 = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "7",
+            "end_month": "12",
+            "start_day": 1,
+            "end_day": 31,
+        },
+    )
+    
+    assert result4["type"] == FlowResultType.CREATE_ENTRY
