@@ -715,3 +715,241 @@ async def test_calendar_week_schedule_includes_weekends(hass: HomeAssistant):
     assert (
         duration_days == 12
     ), f"Expected 12 days including weekend, got {duration_days}"
+
+
+async def test_calendar_nth_day_schedule(hass: HomeAssistant):
+    """Test calendar events for nth-day schedule."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "thanksgiving": {
+                    "name": "Thanksgiving",
+                    "schedule_type": "nth-day",
+                    "month": 11,  # November
+                    "occurrence": 3,  # Fourth (0-indexed)
+                    "day_of_week": 3,  # Thursday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            }
+        },
+        entry_id="test_nth_day_calendar",
+    )
+
+    calendar = SchedulerCalendar(hass, entry)
+
+    # Test for 2024 and 2025
+    start_date = datetime(2024, 11, 1)
+    end_date = datetime(2025, 11, 30)
+
+    events = await calendar.async_get_events(hass, start_date, end_date)
+
+    # Should have 2 events (one for each year)
+    assert len(events) == 2
+
+    # 2024: Fourth Thursday of November is November 28
+    assert events[0].summary == "Thanksgiving"
+    assert events[0].start == dt_util.start_of_local_day(datetime(2024, 11, 28))
+    assert events[0].end == dt_util.as_local(datetime(2024, 11, 28, 23, 59, 59))
+
+    # 2025: Fourth Thursday of November is November 27
+    assert events[1].summary == "Thanksgiving"
+    assert events[1].start == dt_util.start_of_local_day(datetime(2025, 11, 27))
+    assert events[1].end == dt_util.as_local(datetime(2025, 11, 27, 23, 59, 59))
+
+
+async def test_calendar_nth_day_with_offsets(hass: HomeAssistant):
+    """Test calendar events for nth-day schedule with offsets."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "second_monday": {
+                    "name": "Second Monday Range",
+                    "schedule_type": "nth-day",
+                    "month": 3,  # March
+                    "occurrence": 1,  # Second
+                    "day_of_week": 0,  # Monday
+                    "start_offset": 3,  # 3 days before
+                    "end_offset": 4,  # 4 days after
+                },
+            }
+        },
+        entry_id="test_nth_day_offset_calendar",
+    )
+
+    calendar = SchedulerCalendar(hass, entry)
+
+    # Test for March 2025
+    start_date = datetime(2025, 3, 1)
+    end_date = datetime(2025, 3, 31)
+
+    events = await calendar.async_get_events(hass, start_date, end_date)
+
+    # Should have 1 event
+    assert len(events) == 1
+
+    # March 2025: Second Monday is March 10
+    # With offsets: March 7 (10-3) to March 14 (10+4)
+    assert events[0].summary == "Second Monday Range"
+    assert events[0].start == dt_util.start_of_local_day(datetime(2025, 3, 7))
+    assert events[0].end == dt_util.as_local(datetime(2025, 3, 14, 23, 59, 59))
+
+
+async def test_calendar_nth_day_last_occurrence(hass: HomeAssistant):
+    """Test calendar events for last occurrence of a weekday."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "last_friday": {
+                    "name": "Last Friday",
+                    "schedule_type": "nth-day",
+                    "month": 12,  # December
+                    "occurrence": 4,  # Last
+                    "day_of_week": 4,  # Friday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            }
+        },
+        entry_id="test_last_friday_calendar",
+    )
+
+    calendar = SchedulerCalendar(hass, entry)
+
+    # Test for December 2024
+    start_date = datetime(2024, 12, 1)
+    end_date = datetime(2024, 12, 31)
+
+    events = await calendar.async_get_events(hass, start_date, end_date)
+
+    # Should have 1 event
+    assert len(events) == 1
+
+    # December 2024: Last Friday is December 27
+    assert events[0].summary == "Last Friday"
+    assert events[0].start == dt_util.start_of_local_day(datetime(2024, 12, 27))
+    assert events[0].end == dt_util.as_local(datetime(2024, 12, 27, 23, 59, 59))
+
+
+async def test_calendar_nth_day_first_occurrence(hass: HomeAssistant):
+    """Test calendar events for first occurrence of a weekday."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "first_sunday": {
+                    "name": "First Sunday",
+                    "schedule_type": "nth-day",
+                    "month": 1,  # January
+                    "occurrence": 0,  # First
+                    "day_of_week": 6,  # Sunday
+                    "start_offset": 1,
+                    "end_offset": 1,
+                },
+            }
+        },
+        entry_id="test_first_sunday_calendar",
+    )
+
+    calendar = SchedulerCalendar(hass, entry)
+
+    # Test for January 2025
+    start_date = datetime(2025, 1, 1)
+    end_date = datetime(2025, 1, 31)
+
+    events = await calendar.async_get_events(hass, start_date, end_date)
+
+    # Should have 1 event
+    assert len(events) == 1
+
+    # January 2025: First Sunday is January 5
+    # With offsets: January 4 to January 6
+    assert events[0].summary == "First Sunday"
+    assert events[0].start == dt_util.start_of_local_day(datetime(2025, 1, 4))
+    assert events[0].end == dt_util.as_local(datetime(2025, 1, 6, 23, 59, 59))
+
+
+async def test_calendar_nth_day_multi_year(hass: HomeAssistant):
+    """Test calendar events for nth-day schedule across multiple years."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "third_tuesday": {
+                    "name": "Third Tuesday",
+                    "schedule_type": "nth-day",
+                    "month": 6,  # June
+                    "occurrence": 2,  # Third (0-indexed)
+                    "day_of_week": 1,  # Tuesday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            }
+        },
+        entry_id="test_multi_year_nth_calendar",
+    )
+
+    calendar = SchedulerCalendar(hass, entry)
+
+    # Test across 3 years
+    start_date = datetime(2024, 1, 1)
+    end_date = datetime(2026, 12, 31)
+
+    events = await calendar.async_get_events(hass, start_date, end_date)
+
+    # Should have 3 events (one for each year)
+    assert len(events) == 3
+
+    # Verify each year has the correct date
+    assert events[0].summary == "Third Tuesday"
+    assert events[0].start.year == 2024
+    assert events[0].start.month == 6
+
+    assert events[1].summary == "Third Tuesday"
+    assert events[1].start.year == 2025
+    assert events[1].start.month == 6
+
+    assert events[2].summary == "Third Tuesday"
+    assert events[2].start.year == 2026
+    assert events[2].start.month == 6
+
+
+async def test_calendar_nth_day_outside_range(hass: HomeAssistant):
+    """Test calendar events for nth-day schedule outside requested range."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "november_schedule": {
+                    "name": "November Event",
+                    "schedule_type": "nth-day",
+                    "month": 11,  # November
+                    "occurrence": 0,  # First
+                    "day_of_week": 0,  # Monday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            }
+        },
+        entry_id="test_outside_range_calendar",
+    )
+
+    calendar = SchedulerCalendar(hass, entry)
+
+    # Request events for December (outside November)
+    start_date = datetime(2025, 12, 1)
+    end_date = datetime(2025, 12, 31)
+
+    events = await calendar.async_get_events(hass, start_date, end_date)
+
+    # Should have no events
+    assert len(events) == 0

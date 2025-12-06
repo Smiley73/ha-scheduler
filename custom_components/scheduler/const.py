@@ -28,3 +28,12 @@ DAY_NAMES = [
     "saturday",
     "sunday",
 ]
+
+# Occurrence names for nth-day schedules
+OCCURRENCE_NAMES = [
+    "first",
+    "second",
+    "third",
+    "fourth",
+    "last",
+]

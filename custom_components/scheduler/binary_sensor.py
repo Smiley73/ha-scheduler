@@ -130,9 +130,32 @@ class SchedulerBinarySensor(BinarySensorEntity):
         now = datetime.now()
         current_month = now.month
         current_day = now.day
-        now.weekday()  # Monday=0, Sunday=6
+        current_date = now.date()
 
         schedule_type = self._schedule_data.get("schedule_type", "date")
+
+        if schedule_type == "nth-day":
+            # Nth-day schedule: specific occurrence of a weekday in a month
+            target_month = self._schedule_data.get("month", 1)
+            occurrence = self._schedule_data.get("occurrence", 0)
+            day_of_week = self._schedule_data.get("day_of_week", 0)
+            start_offset = self._schedule_data.get("start_offset", 0)
+            end_offset = self._schedule_data.get("end_offset", 0)
+
+            # Calculate the target date for this year
+            target_date = self._calculate_nth_day(
+                now.year, target_month, occurrence, day_of_week
+            )
+
+            if target_date is None:
+                return False
+
+            # Calculate the date range with offsets
+            range_start = target_date - timedelta(days=start_offset)
+            range_end = target_date + timedelta(days=end_offset)
+
+            return range_start <= current_date <= range_end
+
         start_month = self._schedule_data.get("start_month", 1)
         end_month = self._schedule_data.get("end_month", 12)
 
@@ -204,6 +227,47 @@ class SchedulerBinarySensor(BinarySensorEntity):
 
             return True
 
+    def _calculate_nth_day(
+        self, year: int, month: int, occurrence: int, day_of_week: int
+    ) -> datetime.date | None:
+        """Calculate the nth occurrence of a day of week in a month.
+
+        Args:
+            year: The year
+            month: The month (1-12)
+            occurrence: The occurrence (0=first, 1=second, 2=third, 3=fourth, 4=last)
+            day_of_week: The day of week (0=Monday, 6=Sunday)
+
+        Returns:
+            The date of the nth occurrence, or None if it doesn't exist
+        """
+        import calendar
+
+        if occurrence == 4:  # Last occurrence
+            # Start from the last day of the month and work backwards
+            last_day = calendar.monthrange(year, month)[1]
+            for day in range(last_day, 0, -1):
+                try:
+                    check_date = datetime(year, month, day).date()
+                    if check_date.weekday() == day_of_week:
+                        return check_date
+                except ValueError:
+                    continue
+            return None
+        else:
+            # Find the nth occurrence (0-3)
+            count = 0
+            for day in range(1, 32):
+                try:
+                    check_date = datetime(year, month, day).date()
+                    if check_date.weekday() == day_of_week:
+                        if count == occurrence:
+                            return check_date
+                        count += 1
+                except ValueError:
+                    break
+            return None
+
     def _update_state(self) -> None:
         """Update the sensor state based on current date."""
         is_active = self._is_date_in_range()
@@ -216,14 +280,22 @@ class SchedulerBinarySensor(BinarySensorEntity):
         attrs = {
             "schedule_type": schedule_type,
             "schedule_id": self._schedule_id,
-            "start_month": self._schedule_data.get("start_month", 1),
-            "end_month": self._schedule_data.get("end_month", 12),
         }
 
-        if schedule_type == "date":
+        if schedule_type == "nth-day":
+            attrs["month"] = self._schedule_data.get("month", 1)
+            attrs["occurrence"] = self._schedule_data.get("occurrence", 0)
+            attrs["day_of_week"] = self._schedule_data.get("day_of_week", 0)
+            attrs["start_offset"] = self._schedule_data.get("start_offset", 0)
+            attrs["end_offset"] = self._schedule_data.get("end_offset", 0)
+        elif schedule_type == "date":
+            attrs["start_month"] = self._schedule_data.get("start_month", 1)
+            attrs["end_month"] = self._schedule_data.get("end_month", 12)
             attrs["start_day"] = self._schedule_data.get("start_day", 1)
             attrs["end_day"] = self._schedule_data.get("end_day", 31)
         else:
+            attrs["start_month"] = self._schedule_data.get("start_month", 1)
+            attrs["end_month"] = self._schedule_data.get("end_month", 12)
             attrs["start_day_of_week"] = self._schedule_data.get("start_day_of_week", 0)
             attrs["end_day_of_week"] = self._schedule_data.get("end_day_of_week", 6)
             attrs["start_week"] = self._schedule_data.get("start_week", 0)
