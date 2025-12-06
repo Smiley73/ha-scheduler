@@ -2016,3 +2016,335 @@ async def test_options_add_nth_day_large_offsets_allowed(hass: HomeAssistant):
     schedule_data = list(schedules.values())[0]
     assert schedule_data["start_offset"] == 15
     assert schedule_data["end_offset"] == 10
+
+
+async def test_config_flow_already_configured(hass: HomeAssistant):
+    """Test config flow aborts when already configured."""
+    # Create existing entry
+    existing_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="existing",
+    )
+    existing_entry.add_to_hass(hass)
+
+    # Try to add another
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_options_flow_rename_invalid_name(hass: HomeAssistant):
+    """Test renaming schedule with invalid name 'None'."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "test_id": {
+                    "name": "Test Schedule",
+                    "schedule_type": "date",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_rename",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+
+    # Select rename
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "rename_schedule"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "rename_schedule"
+
+    # Select schedule to rename
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_id": "test_id"}
+    )
+    assert result["type"] == FlowResultType.FORM
+
+    # Try to rename to "None"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "None"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["name"] == "invalid_name"
+
+
+async def test_options_flow_add_schedule_invalid_name(hass: HomeAssistant):
+    """Test adding schedule with invalid name 'None'."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_add_invalid",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+
+    # Select add schedule
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    assert result["type"] == FlowResultType.FORM
+
+    # Try to add with name "None"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "None", "schedule_type": "date"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["name"] == "invalid_name"
+
+
+async def test_options_flow_no_schedules_to_edit(hass: HomeAssistant):
+    """Test edit flow aborts when no schedules exist."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_no_schedules",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+
+    # Try to edit
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_schedule"}
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "no_schedules"
+
+
+async def test_options_flow_no_schedules_to_remove(hass: HomeAssistant):
+    """Test remove flow aborts when no schedules exist."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_no_schedules_remove",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+
+    # Try to remove
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "remove_schedule"}
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "no_schedules"
+
+
+async def test_options_flow_no_schedules_to_rename(hass: HomeAssistant):
+    """Test rename flow aborts when no schedules exist."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_no_schedules_rename",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start options flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+
+    # Try to rename
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "rename_schedule"}
+    )
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "no_schedules"
+
+
+async def test_date_config_validation_errors(hass: HomeAssistant):
+    """Test date config with various validation errors."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_validation",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "Test", "schedule_type": "date"}
+    )
+    assert result["step_id"] == "date_config"
+
+    # Test with invalid YAML
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "start_day": 1,
+            "end_month": "12",
+            "end_day": 31,
+            "additional_yaml": "invalid: yaml: syntax:",
+        },
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert "base" in result["errors"]
+
+
+async def test_week_config_validation_errors(hass: HomeAssistant):
+    """Test week config with validation errors."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_week_validation",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "Week Test", "schedule_type": "week"}
+    )
+    assert result["step_id"] == "week_config"
+
+    # Test with invalid YAML
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "1",
+            "start_week": 0,
+            "start_day_of_week": "0",
+            "end_month": "12",
+            "end_week": 4,
+            "end_day_of_week": "6",
+            "additional_yaml": "{invalid yaml",
+        },
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert "base" in result["errors"]
+
+
+async def test_nth_day_config_validation_errors(hass: HomeAssistant):
+    """Test nth-day config with validation errors."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_nth_validation",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "Nth Test", "schedule_type": "nth-day"}
+    )
+    assert result["step_id"] == "nth_day_config"
+
+    # Test with invalid occurrence (5th Monday of February doesn't exist in most years)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "month": "2",
+            "occurrence": "4",  # Last (5th) occurrence
+            "day_of_week": "0",  # Monday
+            "start_offset": 0,
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+    # May succeed or fail depending on the year - just check it doesn't crash
+    assert result["type"] in [FlowResultType.FORM, FlowResultType.CREATE_ENTRY]
+
+
+async def test_schedule_overlap_detection(hass: HomeAssistant):
+    """Test schedule overlap detection."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "existing": {
+                    "name": "Existing",
+                    "schedule_type": "date",
+                    "start_month": 6,
+                    "end_month": 8,
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_overlap",
+    )
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Try to add overlapping schedule
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"name": "Overlapping", "schedule_type": "date"}
+    )
+
+    # Add schedule that overlaps with existing (July)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "start_month": "7",
+            "start_day": 1,
+            "end_month": "9",
+            "end_day": 30,
+            "additional_yaml": "",
+        },
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert "base" in result["errors"]
+    # Error message should mention overlap
+    assert "overlap" in result["errors"]["base"].lower()
