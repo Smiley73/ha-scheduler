@@ -314,8 +314,7 @@ async def validate_schedule_input(
         raise ValueError("Start month must be between 1 and 12")
     if not 1 <= end_month <= 12:
         raise ValueError("End month must be between 1 and 12")
-    if start_month > end_month:
-        raise ValueError("Start month must be before or equal to end month")
+    # Note: Wrap-around schedules (e.g., Nov-Feb) are supported by overlap checking
     
     # Validate schedule type specific fields
     schedule_type = data.get("schedule_type", "date")

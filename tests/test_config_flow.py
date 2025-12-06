@@ -248,7 +248,7 @@ async def test_options_remove_no_schedules(hass: HomeAssistant, empty_hub_entry)
 
 
 async def test_options_add_schedule_invalid_month_range(hass: HomeAssistant, empty_hub_entry):
-    """Test adding schedule with invalid month range."""
+    """Test adding schedule with wrap-around month range (Dec-Jan) is now allowed."""
     empty_hub_entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
@@ -276,8 +276,15 @@ async def test_options_add_schedule_invalid_month_range(hass: HomeAssistant, emp
         },
     )
     
-    assert result4["type"] == FlowResultType.FORM
-    assert result4["errors"] == {"base": "invalid_month_range"}
+    # Wrap-around schedules are now supported (e.g., winter schedules Nov-Feb)
+    assert result4["type"] == FlowResultType.CREATE_ENTRY
+    
+    # Verify the schedule was created
+    schedules = empty_hub_entry.data.get("schedules", {})
+    assert len(schedules) == 1
+    schedule = list(schedules.values())[0]
+    assert schedule["start_month"] == 12
+    assert schedule["end_month"] == 1
 
 
 async def test_options_add_schedule_invalid_day_range(hass: HomeAssistant, empty_hub_entry):

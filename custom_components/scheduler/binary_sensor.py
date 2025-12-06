@@ -24,7 +24,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Scheduler binary sensor platform."""
+    from homeassistant.helpers import entity_registry as er
+    
     schedules = entry.data.get("schedules", {})
+    entity_reg = er.async_get(hass)
     
     entities = []
     
@@ -32,6 +35,22 @@ async def async_setup_entry(
     schedule_sensors = []
     for schedule_id, schedule_data in schedules.items():
         sensor = SchedulerBinarySensor(hass, entry, schedule_id, schedule_data)
+        
+        # Pre-register entity with custom entity_id to ensure prefix
+        schedule_name = schedule_data.get("name", "Schedule")
+        suggested_entity_id = f"scheduler_{schedule_name.lower().replace(' ', '_')}"
+        unique_id = f"{entry.entry_id}_{schedule_id}"
+        
+        # Check if entity exists, if not create it with our suggested ID
+        existing_entity_id = entity_reg.async_get_entity_id("binary_sensor", DOMAIN, unique_id)
+        if not existing_entity_id:
+            entity_reg.async_get_or_create(
+                "binary_sensor",
+                DOMAIN,
+                unique_id,
+                suggested_object_id=suggested_entity_id,
+            )
+        
         entities.append(sensor)
         schedule_sensors.append(sensor)
     
@@ -59,11 +78,10 @@ class SchedulerBinarySensor(BinarySensorEntity):
         self._schedule_id = schedule_id
         self._schedule_data = schedule_data
         schedule_name = schedule_data.get("name", "Schedule")
+        # Display name without prefix
         self._attr_name = schedule_name
         self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
-        # Create entity_id from schedule name - simply convert to snake_case
-        entity_name = schedule_name.lower().replace(" ", "_")
-        self.entity_id = f"binary_sensor.scheduler_{entity_name}"
+        self._attr_should_poll = False
         self._attr_device_info = {
             "identifiers": {(DOMAIN, schedule_id)},
             "name": schedule_name,
@@ -145,15 +163,6 @@ class SchedulerBinarySensor(BinarySensorEntity):
         """Update the sensor state based on current date."""
         is_active = self._is_date_in_range()
         self._attr_is_on = is_active
-        
-        if is_active:
-            self._attr_icon = "mdi:check-circle"
-            self._attr_extra_state_attributes = {
-                **self._attr_extra_state_attributes,
-                "device_class": "running",
-            }
-        else:
-            self._attr_icon = "mdi:circle-outline"
 
     def _update_extra_state_attributes(self) -> None:
         """Update extra state attributes."""
@@ -199,6 +208,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
         if self._schedule_id in schedules:
             self._schedule_data = schedules[self._schedule_id]
             schedule_name = self._schedule_data.get("name", "Schedule")
+            # Update entity name (device name provides prefix)
             self._attr_name = schedule_name
         
         self._update_state()
@@ -221,6 +231,7 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         self._schedule_sensors = schedule_sensors
         self._attr_name = "Scheduler"
         self._attr_unique_id = f"{entry.entry_id}_hub"
+        self._attr_should_poll = False
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scheduler_hub")},
             "name": "Scheduler",
@@ -228,15 +239,19 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
             "model": "Hub",
         }
         self._attr_extra_state_attributes = {}
+        self._attr_is_on = False
         self._unsub_state_listener = None
-        self._update_state()
+        # Don't call _update_state() here - entity_ids aren't set yet
 
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass."""
         await super().async_added_to_hass()
         
+        # Now that entities are added, do initial state update
+        self._update_state()
+        
         # Track state changes of all schedule sensors
-        entity_ids = [sensor.entity_id for sensor in self._schedule_sensors]
+        entity_ids = [sensor.entity_id for sensor in self._schedule_sensors if sensor.entity_id]
         
         @callback
         def state_change_listener(event):
@@ -244,9 +259,10 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
             self._update_state()
             self.async_write_ha_state()
         
-        self._unsub_state_listener = async_track_state_change_event(
-            self._hass, entity_ids, state_change_listener
-        )
+        if entity_ids:
+            self._unsub_state_listener = async_track_state_change_event(
+                self._hass, entity_ids, state_change_listener
+            )
         
         # Update every hour as well
         async_track_time_interval(
@@ -263,10 +279,14 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         """Update the sensor state based on schedule sensors."""
         active_schedules = []
         
-        # Find all active schedules
+        # Find all active schedules by checking actual state from state machine
         for sensor in self._schedule_sensors:
-            if sensor.is_on:
-                active_schedules.append(sensor)
+            # Check if entity exists and is enabled in the state machine
+            if sensor.entity_id:
+                state = self._hass.states.get(sensor.entity_id)
+                # Only consider if state exists and is "on"
+                if state and state.state == "on":
+                    active_schedules.append(sensor)
         
         # Set state to true if any schedule is active
         self._attr_is_on = len(active_schedules) > 0
@@ -283,11 +303,8 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
             sensor_attrs = active_sensor.extra_state_attributes or {}
             if "config" in sensor_attrs:
                 attrs["config"] = sensor_attrs["config"]
-            
-            self._attr_icon = "mdi:check-circle"
         else:
             attrs["active_schedule"] = "None"
-            self._attr_icon = "mdi:circle-outline"
         
         self._attr_extra_state_attributes = attrs
 
