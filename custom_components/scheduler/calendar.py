@@ -159,17 +159,40 @@ class SchedulerCalendar(CalendarEntity):
 
             return events
         else:
-            # For week-based schedules, still generate individual events
-            # as they may not be continuous
-            return self._generate_week_based_events(
-                schedule_id,
-                schedule_name,
-                schedule_data,
-                start_date,
-                end_date,
-                start_month,
-                end_month,
-            )
+            # For week-based schedules, generate events per year
+            events = []
+            start_year = start_date.year
+            end_year = end_date.year
+
+            for year in range(start_year, end_year + 1):
+                # Calculate year boundaries within the requested range
+                # Create timezone-aware boundaries if start_date is aware, otherwise naive
+                if start_date.tzinfo is not None:
+                    year_start_boundary = dt_util.start_of_local_day(
+                        datetime(year, 1, 1)
+                    )
+                    year_end_boundary = dt_util.as_local(
+                        datetime(year, 12, 31, 23, 59, 59)
+                    )
+                else:
+                    year_start_boundary = datetime(year, 1, 1)
+                    year_end_boundary = datetime(year, 12, 31, 23, 59, 59)
+
+                year_start = max(start_date, year_start_boundary)
+                year_end = min(end_date, year_end_boundary)
+
+                year_events = self._generate_week_based_events(
+                    schedule_id,
+                    schedule_name,
+                    schedule_data,
+                    year_start,
+                    year_end,
+                    start_month,
+                    end_month,
+                )
+                events.extend(year_events)
+
+            return events
 
         return []
 
@@ -232,33 +255,56 @@ class SchedulerCalendar(CalendarEntity):
         start_month: int,
         end_month: int,
     ) -> list[CalendarEvent]:
-        """Generate individual events for week-based schedules."""
-        events = []
+        """Generate events for week-based schedules."""
+        # Calculate the actual start and end dates for the schedule period
+        schedule_data.get("start_week", 0)
+        schedule_data.get("end_week", 4)
+        start_day_of_week = schedule_data.get("start_day_of_week", 0)
+        end_day_of_week = schedule_data.get("end_day_of_week", 6)
+
+        # Find the first and last dates matching the configured day-of-week
         current_date = start_date.date()
         end = end_date.date()
 
+        first_start_dow_date = None  # First occurrence of start_day_of_week
+        last_end_dow_date = None  # Last occurrence of end_day_of_week
+
         while current_date <= end:
-            if self._is_date_active(
+            is_active = self._is_date_active(
                 current_date, schedule_data, "week", start_month, end_month
-            ):
-                # Create end datetime at 23:59:59 on the same date
-                end_datetime = datetime.combine(
-                    current_date, datetime.max.time().replace(microsecond=0)
-                )
-                event = CalendarEvent(
+            )
+
+            if is_active:
+                weekday = current_date.weekday()
+
+                # Track first occurrence of start day of week
+                if weekday == start_day_of_week and first_start_dow_date is None:
+                    first_start_dow_date = current_date
+
+                # Track last occurrence of end day of week
+                if weekday == end_day_of_week:
+                    last_end_dow_date = current_date
+
+            current_date += timedelta(days=1)
+
+        # Create a single event spanning from first start_dow to last end_dow
+        if first_start_dow_date and last_end_dow_date:
+            end_datetime = datetime.combine(
+                last_end_dow_date, datetime.max.time().replace(microsecond=0)
+            )
+            return [
+                CalendarEvent(
                     start=dt_util.start_of_local_day(
-                        datetime.combine(current_date, datetime.min.time())
+                        datetime.combine(first_start_dow_date, datetime.min.time())
                     ),
                     end=dt_util.as_local(end_datetime),
                     summary=schedule_name,
                     description=f"Schedule: {schedule_name} (week-based)",
-                    uid=f"{schedule_id}_{current_date.isoformat()}",
+                    uid=f"{schedule_id}_{first_start_dow_date.isoformat()}",
                 )
-                events.append(event)
+            ]
 
-            current_date += timedelta(days=1)
-
-        return events
+        return []
 
     def _is_date_active(
         self,
@@ -271,7 +317,7 @@ class SchedulerCalendar(CalendarEntity):
         """Check if a specific date is active for the schedule."""
         current_month = check_date.month
         current_day = check_date.day
-        current_weekday = check_date.weekday()  # Monday=0, Sunday=6
+        check_date.weekday()  # Monday=0, Sunday=6
 
         # Check if current month is in range
         if start_month <= end_month:
@@ -304,24 +350,36 @@ class SchedulerCalendar(CalendarEntity):
             start_week = schedule_data.get("start_week", 0)
             end_week = schedule_data.get("end_week", 4)
 
-            # Calculate which week of the month we're in (0-4)
-            week_of_month = (current_day - 1) // 7
+            # Calculate the actual start and end dates for this month/year
+            # The day-of-week selection determines the start/end dates,
+            # but ALL days between those dates are active
 
-            # Check if current week is in range
-            if not (start_week <= week_of_month <= end_week):
-                return False
+            # Calculate start date: first start_day_of_week in start_week
+            start_week_first_day = start_week * 7 + 1
+            start_date_candidate = start_week_first_day
 
-            # Check if current day of week is in range
-            if start_day_of_week <= end_day_of_week:
-                # Normal range (e.g., Monday to Friday)
-                if not (start_day_of_week <= current_weekday <= end_day_of_week):
-                    return False
-            else:
-                # Wrap-around range (e.g., Friday to Monday)
-                if not (
-                    current_weekday >= start_day_of_week
-                    or current_weekday <= end_day_of_week
-                ):
-                    return False
+            # Find the first occurrence of start_day_of_week in the start week
+            for day in range(start_week_first_day, min(start_week_first_day + 7, 32)):
+                try:
+                    test_date = datetime(check_date.year, current_month, day)
+                    if test_date.weekday() == start_day_of_week:
+                        start_date_candidate = day
+                        break
+                except ValueError:
+                    break
 
-            return True
+            # Calculate end date: last occurrence of end_day_of_week in end_week
+            end_week_first_day = end_week * 7 + 1
+            end_date_candidate = end_week_first_day
+
+            # Find the last occurrence of end_day_of_week in the end week
+            for day in range(end_week_first_day, min(end_week_first_day + 7, 32)):
+                try:
+                    test_date = datetime(check_date.year, current_month, day)
+                    if test_date.weekday() == end_day_of_week:
+                        end_date_candidate = day
+                except ValueError:
+                    break
+
+            # Check if current day is within the calculated range
+            return start_date_candidate <= current_day <= end_date_candidate

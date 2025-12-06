@@ -5,10 +5,12 @@ This guide will help you set up your development environment and run tests for t
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
+- [Quick Start](#quick-start)
 - [Setting Up Your Development Environment](#setting-up-your-development-environment)
   - [1. Clone the Repository](#1-clone-the-repository)
   - [2. Create a Virtual Environment](#2-create-a-virtual-environment)
   - [3. Install Dependencies](#3-install-dependencies)
+  - [4. Install Pre-commit Hooks](#4-install-pre-commit-hooks)
 - [Running Tests](#running-tests)
   - [Run All Tests](#run-all-tests)
   - [Run Tests with Verbose Output](#run-tests-with-verbose-output)
@@ -17,9 +19,10 @@ This guide will help you set up your development environment and run tests for t
   - [Run a Specific Test File](#run-a-specific-test-file)
   - [Run a Specific Test Function](#run-a-specific-test-function)
 - [Code Quality Checks](#code-quality-checks)
+  - [Pre-commit Hooks](#pre-commit-hooks)
   - [Run Linting with Ruff](#run-linting-with-ruff)
-  - [Run Code Formatting with Black](#run-code-formatting-with-black)
-  - [Run Import Sorting with isort](#run-import-sorting-with-isort)
+  - [Run Code Formatting with Ruff](#run-code-formatting-with-ruff)
+  - [Manual Pre-commit Check](#manual-pre-commit-check)
 - [Running Home Assistant Locally](#running-home-assistant-locally)
   - [Option 1: Local Development Instance (Recommended)](#option-1-local-development-instance-recommended)
   - [Option 2: Using Existing Home Assistant Installation](#option-2-using-existing-home-assistant-installation)
@@ -30,11 +33,12 @@ This guide will help you set up your development environment and run tests for t
   - [View Logs](#view-logs)
   - [Using pytest with pdb](#using-pytest-with-pdb)
 - [Continuous Integration](#continuous-integration)
-- [Making Changes](#making-changes)
+- [Contributing Workflow](#contributing-workflow)
 - [Troubleshooting](#troubleshooting)
   - [Tests Fail with Import Errors](#tests-fail-with-import-errors)
   - [Home Assistant Doesn't Detect the Integration](#home-assistant-doesnt-detect-the-integration)
   - [Coverage Report Shows Missing Lines](#coverage-report-shows-missing-lines)
+  - [Pre-commit Hooks Failing](#pre-commit-hooks-failing)
 - [Resources](#resources)
 - [Getting Help](#getting-help)
 
@@ -43,6 +47,21 @@ This guide will help you set up your development environment and run tests for t
 - Python 3.13
 - Git
 - A Home Assistant installation (for manual testing)
+
+## Quick Start
+
+Run the automated setup script:
+
+```bash
+./setup-dev.sh
+```
+
+This will:
+- Install pre-commit hooks
+- Install test dependencies
+- Run initial linting and tests
+
+Or follow the manual setup steps below.
 
 ## Setting Up Your Development Environment
 
@@ -66,11 +85,32 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 # Upgrade pip
 pip install --upgrade pip
 
-# Install test dependencies
+# Install test dependencies (includes pre-commit)
 pip install -r requirements_test.txt
 
 # Install runtime dependencies
 pip install -r requirements.txt
+```
+
+### 4. Install Pre-commit Hooks
+
+Pre-commit hooks automatically check your code before each commit:
+
+```bash
+# Install the git hooks (pre-commit is already installed from requirements_test.txt)
+pre-commit install
+```
+
+Now every commit will automatically:
+- Run Ruff linting with auto-fix
+- Format code with Ruff
+- Remove trailing whitespace
+- Validate YAML files
+- Run tests on changed files
+
+**Important**: Pre-commit uses the Python environment where it was installed. Always activate your virtual environment before committing:
+```bash
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
 ## Running Tests
@@ -113,30 +153,48 @@ pytest tests/test_config_flow.py::test_form -v
 
 ## Code Quality Checks
 
+### Pre-commit Hooks
+
+Pre-commit hooks run automatically before each commit. They will:
+- Fix linting issues automatically
+- Format code
+- Block commits if there are unfixable errors
+
+To skip hooks (not recommended):
+```bash
+git commit --no-verify
+```
+
 ### Run Linting with Ruff
 
 ```bash
-ruff check custom_components/
+# Check for issues
+ruff check custom_components/scheduler/ tests/
+
+# Auto-fix issues
+ruff check --fix custom_components/scheduler/ tests/
 ```
 
-### Run Code Formatting with Black
+### Run Code Formatting with Ruff
 
 ```bash
 # Check formatting
-black --check custom_components/
+ruff format --check custom_components/scheduler/ tests/
 
 # Auto-format code
-black custom_components/
+ruff format custom_components/scheduler/ tests/
 ```
 
-### Run Import Sorting with isort
+### Manual Pre-commit Check
+
+Run all pre-commit checks manually:
 
 ```bash
-# Check import order
-isort --check-only custom_components/
+# Run on all files
+pre-commit run --all-files
 
-# Auto-sort imports
-isort custom_components/
+# Update pre-commit hooks
+pre-commit autoupdate
 ```
 
 ## Running Home Assistant Locally
@@ -270,41 +328,57 @@ pytest tests/ -s
 This project uses GitHub Actions for CI/CD:
 
 - **Test Workflow**: Runs pytest with coverage on every push/PR
-- **Lint Workflow**: Checks code quality with ruff, black, and isort
+- **Lint Workflow**: Checks code quality with Ruff (linting and formatting)
 - **Validate Workflow**: Validates HACS and Home Assistant compliance
+- **CodeQL**: Security analysis
 
 All workflows run on Python 3.13.
 
-## Making Changes
+Check the Actions tab in GitHub to see results. Pre-commit hooks catch most issues locally before pushing.
 
-1. Create a new branch for your feature/fix:
+## Contributing Workflow
+
+1. **Create a branch** for your feature/fix:
    ```bash
    git checkout -b feature/my-new-feature
    ```
 
-2. Make your changes
+2. **Make your changes** with proper tests
 
-3. Run tests to ensure everything works:
+3. **Run tests** to ensure everything works:
    ```bash
    pytest tests/ --cov=custom_components/scheduler
    ```
 
-4. Run linting:
-   ```bash
-   ruff check custom_components/
-   black --check custom_components/
-   ```
-
-5. Commit your changes:
+4. **Commit your changes** (pre-commit hooks run automatically):
    ```bash
    git add .
    git commit -m "Add my new feature"
    ```
 
-6. Push and create a pull request:
+   If pre-commit hooks fail:
+   - Review the error messages
+   - Hooks will auto-fix most issues
+   - Stage the fixed files: `git add .`
+   - Commit again
+
+5. **Push** and create a pull request:
    ```bash
    git push origin feature/my-new-feature
    ```
+
+6. **GitHub Actions** will automatically verify your changes
+
+### Code Style
+
+This project follows Home Assistant's coding standards:
+
+- Python 3.13+
+- Type hints required
+- Ruff for linting and formatting
+- Pytest for testing
+- American English for all text
+- Test coverage >95%
 
 ## Troubleshooting
 
@@ -331,6 +405,27 @@ pytest tests/ --cov=custom_components/scheduler --cov-report=term-missing
 ```
 
 Then add tests to cover those lines.
+
+### Pre-commit Hooks Failing
+
+If pre-commit hooks fail:
+
+1. Review the error messages
+2. Most issues are auto-fixed by hooks
+3. Stage the fixed files: `git add .`
+4. Commit again
+
+For manual fixes:
+```bash
+# Fix linting issues
+ruff check --fix custom_components/scheduler/ tests/
+
+# Format code
+ruff format custom_components/scheduler/ tests/
+
+# Run all checks
+pre-commit run --all-files
+```
 
 ## Resources
 
