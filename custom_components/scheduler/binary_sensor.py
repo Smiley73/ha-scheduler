@@ -143,11 +143,6 @@ class SchedulerBinarySensor(BinarySensorEntity):
         """Update the sensor state based on current date."""
         is_active = self._is_date_in_range()
         self._attr_is_on = is_active
-        
-        if is_active:
-            self._attr_icon = "mdi:check-circle"
-        else:
-            self._attr_icon = "mdi:circle-outline"
 
     def _update_extra_state_attributes(self) -> None:
         """Update extra state attributes."""
@@ -278,11 +273,8 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
             sensor_attrs = active_sensor.extra_state_attributes or {}
             if "config" in sensor_attrs:
                 attrs["config"] = sensor_attrs["config"]
-            
-            self._attr_icon = "mdi:check-circle"
         else:
             attrs["active_schedule"] = "None"
-            self._attr_icon = "mdi:circle-outline"
         
         self._attr_extra_state_attributes = attrs
 
