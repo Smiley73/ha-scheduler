@@ -72,6 +72,10 @@ async def async_setup_entry(
 class SchedulerBinarySensor(BinarySensorEntity):
     """Representation of a Scheduler binary sensor."""
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "schedule"
+    _attr_name = None  # Use device name only
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -85,8 +89,8 @@ class SchedulerBinarySensor(BinarySensorEntity):
         self._schedule_id = schedule_id
         self._schedule_data = schedule_data
         schedule_name = schedule_data.get("name", "Schedule")
-        # Display name without prefix
-        self._attr_name = schedule_name
+        # Store schedule name for hub sensor to access
+        self._schedule_name = schedule_name
         self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
         self._attr_should_poll = False
         self._attr_available = True
@@ -234,8 +238,8 @@ class SchedulerBinarySensor(BinarySensorEntity):
         if self._schedule_id in schedules:
             self._schedule_data = schedules[self._schedule_id]
             schedule_name = self._schedule_data.get("name", "Schedule")
-            # Update entity name (device name provides prefix)
-            self._attr_name = schedule_name
+            # Store schedule name for hub sensor to access
+            self._schedule_name = schedule_name
         else:
             # Schedule was removed from config
             if not self._unavailable_logged:
@@ -255,6 +259,10 @@ class SchedulerBinarySensor(BinarySensorEntity):
 class SchedulerHubBinarySensor(BinarySensorEntity):
     """Aggregated binary sensor that represents all schedule sensors."""
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "hub"
+    _attr_name = None  # Use device name only
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -265,7 +273,6 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         self._hass = hass
         self._entry = entry
         self._schedule_sensors = schedule_sensors
-        self._attr_name = "Scheduler"
         self._attr_unique_id = f"{entry.entry_id}_hub"
         self._attr_should_poll = False
         self._attr_available = True
@@ -343,7 +350,9 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         if active_schedules:
             # Use the first active schedule for the attributes
             active_sensor = active_schedules[0]
-            attrs["active_schedule"] = active_sensor.name
+            # Get schedule name from the sensor's stored name
+            schedule_name = getattr(active_sensor, "_schedule_name", "Unknown")
+            attrs["active_schedule"] = schedule_name
 
             # Duplicate the additional_yaml attribute if it exists
             sensor_attrs = active_sensor.extra_state_attributes or {}

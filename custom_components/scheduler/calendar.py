@@ -35,11 +35,14 @@ async def async_setup_entry(
 class SchedulerCalendar(CalendarEntity):
     """Representation of a Scheduler calendar."""
 
+    _attr_has_entity_name = True
+    _attr_translation_key = "scheduler"
+    _attr_name = None  # Use device name only
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the calendar."""
         self._hass = hass
         self._entry = entry
-        self._attr_name = "Scheduler"
         self._attr_unique_id = f"{entry.entry_id}_calendar"
         self._attr_available = True
         self._attr_device_info = {

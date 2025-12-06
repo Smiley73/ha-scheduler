@@ -56,7 +56,9 @@ async def test_calendar_setup(hass: HomeAssistant, mock_entry_with_schedules):
     
     assert len(entities) == 1
     assert isinstance(entities[0], SchedulerCalendar)
-    assert entities[0].name == "Scheduler"
+    # With translations, name is None and derived from translation_key
+    assert entities[0].translation_key == "scheduler"
+    assert entities[0].has_entity_name is True
 
 
 async def test_calendar_events_date_schedule(hass: HomeAssistant, mock_entry_with_schedules):

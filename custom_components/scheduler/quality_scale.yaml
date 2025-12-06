@@ -88,14 +88,14 @@ rules:
     status: done
     comment: PARALLEL_UPDATES = 0 set in both binary_sensor.py and calendar.py (unlimited for local read-only operations)
 
-  # Gold Tier (Optional - not targeting)
+  # Gold Tier
   devices:
     status: done
-    comment: Creates hub device and individual schedule devices (bonus feature)
+    comment: Creates hub device and individual schedule devices
 
   entity-translations:
-    status: exempt
-    comment: Not targeting Gold tier - entities use simple names
+    status: done
+    comment: All entities use translation_key with strings.json translations, schedule names use translation_placeholders
 
   # Platinum Tier (Optional - not targeting)
   strict-typing:
