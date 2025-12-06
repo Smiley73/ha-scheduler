@@ -1,8 +1,8 @@
 # Scheduler for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Release](https://img.shields.io/github/release/smiley73/ha-scheduler.svg)](https://github.com/smiley73/ha-scheduler/releases)
-[![License](https://img.shields.io/github/license/smiley73/ha-scheduler.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/Smiley73/ha-scheduler.svg)](https://github.com/Smiley73/ha-scheduler/releases)
+[![License](https://img.shields.io/github/license/Smiley73/ha-scheduler.svg)](LICENSE)
 
 A custom Home Assistant integration to support seasonal schedules, like holiday lighting.
 
@@ -188,7 +188,7 @@ mode: single
 
 ## Support
 
-For issues and feature requests, please use the [GitHub issue tracker](https://github.com/smiley73/ha-scheduler/issues).
+For issues and feature requests, please use the [GitHub issue tracker](https://github.com/Smiley73/ha-scheduler/issues).
 
 ## License
 
