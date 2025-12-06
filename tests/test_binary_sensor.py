@@ -694,8 +694,9 @@ async def test_binary_sensor_update_on_schedule_change(hass: HomeAssistant, hub_
 
 async def test_hub_sensor_no_entity_ids(hass: HomeAssistant):
     """Test hub sensor when schedule sensors have no entity_id yet."""
-    from custom_components.scheduler.binary_sensor import SchedulerHubBinarySensor
     from unittest.mock import Mock
+
+    from custom_components.scheduler.binary_sensor import SchedulerHubBinarySensor
 
     hub_entry = MockConfigEntry(
         domain=DOMAIN,

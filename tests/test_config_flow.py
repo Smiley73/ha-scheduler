@@ -110,7 +110,7 @@ async def test_options_add_schedule_week(hass: HomeAssistant, empty_hub_entry):
 
     result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
@@ -254,12 +254,12 @@ async def test_options_add_schedule_invalid_month_range(hass: HomeAssistant, emp
 
     result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Test Schedule",
@@ -294,12 +294,12 @@ async def test_options_add_schedule_invalid_day_range(hass: HomeAssistant, empty
 
     result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Test Schedule",
@@ -327,12 +327,12 @@ async def test_options_add_schedule_with_yaml(hass: HomeAssistant, empty_hub_ent
 
     result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Test Schedule",
@@ -366,12 +366,12 @@ async def test_options_add_schedule_invalid_yaml(hass: HomeAssistant, empty_hub_
 
     result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Test Schedule",
@@ -425,12 +425,12 @@ async def test_options_add_schedule_date_overlap(hass: HomeAssistant):
 
     result = await hass.config_entries.options.async_init(hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Overlapping Schedule",
@@ -482,12 +482,12 @@ async def test_options_add_schedule_week_overlap(hass: HomeAssistant):
 
     result = await hass.config_entries.options.async_init(hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Overlapping Week Schedule",
@@ -539,12 +539,12 @@ async def test_options_add_schedule_overlap_different_type(hass: HomeAssistant):
 
     result = await hass.config_entries.options.async_init(hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Week Schedule",
@@ -597,12 +597,12 @@ async def test_options_add_schedule_no_overlap_different_type(hass: HomeAssistan
 
     result = await hass.config_entries.options.async_init(hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Week Schedule",
@@ -653,12 +653,12 @@ async def test_options_edit_schedule_no_self_overlap(hass: HomeAssistant):
 
     result = await hass.config_entries.options.async_init(hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "edit_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"schedule_id": "schedule_1"},
     )
@@ -704,12 +704,12 @@ async def test_options_add_schedule_no_overlap(hass: HomeAssistant):
 
     result = await hass.config_entries.options.async_init(hub_entry.entry_id)
     
-    result2 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "add_schedule"},
     )
     
-    result3 = await hass.config_entries.options.async_configure(
+    await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
             "name": "Second Half",
@@ -1286,9 +1286,9 @@ async def test_options_add_schedule_day_float_conversion(hass: HomeAssistant):
 async def test_translation_fallback_paths(hass: HomeAssistant):
     """Test translation fallback when translations are not available."""
     from custom_components.scheduler.config_flow import (
-        _get_schedule_type_options,
-        _get_month_options,
         _get_day_of_week_options,
+        _get_month_options,
+        _get_schedule_type_options,
     )
 
     # Test with no translations loaded
@@ -1315,8 +1315,8 @@ async def test_check_overlap_functions():
     """Test overlap checking functions directly."""
     from custom_components.scheduler.config_flow import (
         check_date_overlap,
-        check_week_overlap,
         check_date_week_overlap,
+        check_week_overlap,
     )
 
     # Test date overlap - no overlap

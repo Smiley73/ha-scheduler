@@ -1,9 +1,7 @@
 """Test the Scheduler calendar platform."""
-from datetime import datetime, timedelta
-from unittest.mock import patch
+from datetime import datetime
 
 import pytest
-from homeassistant.components.calendar import CalendarEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry

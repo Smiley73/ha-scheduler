@@ -155,14 +155,15 @@ async def test_calendar_not_created_without_schedules(hass: HomeAssistant, empty
 
 async def test_async_remove_config_entry_device_not_found(hass: HomeAssistant, hub_entry):
     """Test removing a device that doesn't exist in schedules."""
-    from custom_components.scheduler import async_remove_config_entry_device
     from homeassistant.helpers import device_registry as dr
+
+    from custom_components.scheduler import async_remove_config_entry_device
 
     hub_entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(hub_entry.entry_id)
     await hass.async_block_till_done()
 
-    device_registry = dr.async_get(hass)
+    dr.async_get(hass)
 
     # Create a fake device entry that doesn't match any schedule
     fake_device = dr.DeviceEntry(

@@ -253,8 +253,8 @@ class SchedulerCalendar(CalendarEntity):
     ) -> list[CalendarEvent]:
         """Generate events for week-based schedules."""
         # Calculate the actual start and end dates for the schedule period
-        start_week = schedule_data.get("start_week", 0)
-        end_week = schedule_data.get("end_week", 4)
+        schedule_data.get("start_week", 0)
+        schedule_data.get("end_week", 4)
         start_day_of_week = schedule_data.get("start_day_of_week", 0)
         end_day_of_week = schedule_data.get("end_day_of_week", 6)
         
@@ -313,7 +313,7 @@ class SchedulerCalendar(CalendarEntity):
         """Check if a specific date is active for the schedule."""
         current_month = check_date.month
         current_day = check_date.day
-        current_weekday = check_date.weekday()  # Monday=0, Sunday=6
+        check_date.weekday()  # Monday=0, Sunday=6
 
         # Check if current month is in range
         if start_month <= end_month:

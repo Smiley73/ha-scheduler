@@ -130,7 +130,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
         now = datetime.now()
         current_month = now.month
         current_day = now.day
-        current_weekday = now.weekday()  # Monday=0, Sunday=6
+        now.weekday()  # Monday=0, Sunday=6
 
         schedule_type = self._schedule_data.get("schedule_type", "date")
         start_month = self._schedule_data.get("start_month", 1)

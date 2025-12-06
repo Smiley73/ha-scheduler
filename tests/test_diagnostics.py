@@ -1,5 +1,4 @@
 """Test Scheduler diagnostics."""
-import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.scheduler.diagnostics import async_get_config_entry_diagnostics
