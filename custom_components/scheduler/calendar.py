@@ -159,17 +159,36 @@ class SchedulerCalendar(CalendarEntity):
 
             return events
         else:
-            # For week-based schedules, still generate individual events
-            # as they may not be continuous
-            return self._generate_week_based_events(
-                schedule_id,
-                schedule_name,
-                schedule_data,
-                start_date,
-                end_date,
-                start_month,
-                end_month,
-            )
+            # For week-based schedules, generate events per year
+            events = []
+            start_year = start_date.year
+            end_year = end_date.year
+
+            for year in range(start_year, end_year + 1):
+                # Calculate year boundaries within the requested range
+                # Create timezone-aware boundaries if start_date is aware, otherwise naive
+                if start_date.tzinfo is not None:
+                    year_start_boundary = dt_util.start_of_local_day(datetime(year, 1, 1))
+                    year_end_boundary = dt_util.as_local(datetime(year, 12, 31, 23, 59, 59))
+                else:
+                    year_start_boundary = datetime(year, 1, 1)
+                    year_end_boundary = datetime(year, 12, 31, 23, 59, 59)
+                
+                year_start = max(start_date, year_start_boundary)
+                year_end = min(end_date, year_end_boundary)
+                
+                year_events = self._generate_week_based_events(
+                    schedule_id,
+                    schedule_name,
+                    schedule_data,
+                    year_start,
+                    year_end,
+                    start_month,
+                    end_month,
+                )
+                events.extend(year_events)
+
+            return events
 
         return []
 
@@ -232,33 +251,56 @@ class SchedulerCalendar(CalendarEntity):
         start_month: int,
         end_month: int,
     ) -> list[CalendarEvent]:
-        """Generate individual events for week-based schedules."""
-        events = []
+        """Generate events for week-based schedules."""
+        # Calculate the actual start and end dates for the schedule period
+        start_week = schedule_data.get("start_week", 0)
+        end_week = schedule_data.get("end_week", 4)
+        start_day_of_week = schedule_data.get("start_day_of_week", 0)
+        end_day_of_week = schedule_data.get("end_day_of_week", 6)
+        
+        # Find the first and last dates matching the configured day-of-week
         current_date = start_date.date()
         end = end_date.date()
-
+        
+        first_start_dow_date = None  # First occurrence of start_day_of_week
+        last_end_dow_date = None  # Last occurrence of end_day_of_week
+        
         while current_date <= end:
-            if self._is_date_active(
+            is_active = self._is_date_active(
                 current_date, schedule_data, "week", start_month, end_month
-            ):
-                # Create end datetime at 23:59:59 on the same date
-                end_datetime = datetime.combine(
-                    current_date, datetime.max.time().replace(microsecond=0)
-                )
-                event = CalendarEvent(
+            )
+            
+            if is_active:
+                weekday = current_date.weekday()
+                
+                # Track first occurrence of start day of week
+                if weekday == start_day_of_week and first_start_dow_date is None:
+                    first_start_dow_date = current_date
+                
+                # Track last occurrence of end day of week
+                if weekday == end_day_of_week:
+                    last_end_dow_date = current_date
+            
+            current_date += timedelta(days=1)
+        
+        # Create a single event spanning from first start_dow to last end_dow
+        if first_start_dow_date and last_end_dow_date:
+            end_datetime = datetime.combine(
+                last_end_dow_date, datetime.max.time().replace(microsecond=0)
+            )
+            return [
+                CalendarEvent(
                     start=dt_util.start_of_local_day(
-                        datetime.combine(current_date, datetime.min.time())
+                        datetime.combine(first_start_dow_date, datetime.min.time())
                     ),
                     end=dt_util.as_local(end_datetime),
                     summary=schedule_name,
                     description=f"Schedule: {schedule_name} (week-based)",
-                    uid=f"{schedule_id}_{current_date.isoformat()}",
+                    uid=f"{schedule_id}_{first_start_dow_date.isoformat()}",
                 )
-                events.append(event)
-
-            current_date += timedelta(days=1)
-
-        return events
+            ]
+        
+        return []
 
     def _is_date_active(
         self,

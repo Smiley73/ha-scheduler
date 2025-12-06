@@ -411,3 +411,190 @@ async def test_calendar_empty_date_range(hass: HomeAssistant):
     
     # Should return empty list
     assert len(events) == 0
+
+
+
+async def test_calendar_week_schedule_dow_boundaries(hass: HomeAssistant):
+    """Test that week-based schedules respect day-of-week boundaries."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "weekday_schedule": {
+                    "name": "Weekday Schedule",
+                    "schedule_type": "week",
+                    "start_month": 5,  # May only
+                    "end_month": 5,
+                    "start_day_of_week": 0,  # Monday
+                    "end_day_of_week": 4,  # Friday
+                    "start_week": 1,  # 2nd week (0-indexed)
+                    "end_week": 3,  # 4th week (0-indexed)
+                },
+            },
+        },
+        entry_id="test_dow_boundaries",
+    )
+
+    calendar = SchedulerCalendar(hass, hub_entry)
+    
+    # Test May 2026
+    start_date = datetime(2026, 5, 1)
+    end_date = datetime(2026, 5, 31)
+    
+    events = await calendar.async_get_events(hass, start_date, end_date)
+    
+    # Should have exactly 1 event
+    assert len(events) == 1
+    
+    event = events[0]
+    assert event.summary == "Weekday Schedule"
+    
+    # Event should start on a Monday (weekday 0)
+    assert event.start.weekday() == 0, f"Should start on Monday, got {event.start.strftime('%A')}"
+    
+    # Event should end on a Friday (weekday 4)
+    assert event.end.weekday() == 4, f"Should end on Friday, got {event.end.strftime('%A')}"
+    
+    # Verify specific dates for May 2026
+    # Week 1 (days 8-14): First Monday is May 11
+    # Week 3 (days 22-28): Last Friday is May 22
+    assert event.start == dt_util.start_of_local_day(datetime(2026, 5, 11))
+    assert event.end == dt_util.as_local(datetime(2026, 5, 22, 23, 59, 59))
+
+
+async def test_calendar_week_schedule_weekend_boundaries(hass: HomeAssistant):
+    """Test week-based schedule with Saturday-Sunday boundaries."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "weekend_schedule": {
+                    "name": "Weekend Schedule",
+                    "schedule_type": "week",
+                    "start_month": 6,  # June only
+                    "end_month": 6,
+                    "start_day_of_week": 5,  # Saturday
+                    "end_day_of_week": 6,  # Sunday
+                    "start_week": 0,  # All weeks
+                    "end_week": 4,
+                },
+            },
+        },
+        entry_id="test_weekend_boundaries",
+    )
+
+    calendar = SchedulerCalendar(hass, hub_entry)
+    
+    # Test June 2024
+    start_date = datetime(2024, 6, 1)
+    end_date = datetime(2024, 6, 30)
+    
+    events = await calendar.async_get_events(hass, start_date, end_date)
+    
+    # Should have exactly 1 event spanning all weekends
+    assert len(events) == 1
+    
+    event = events[0]
+    assert event.summary == "Weekend Schedule"
+    
+    # Event should start on a Saturday (weekday 5)
+    assert event.start.weekday() == 5, f"Should start on Saturday, got {event.start.strftime('%A')}"
+    
+    # Event should end on a Sunday (weekday 6)
+    assert event.end.weekday() == 6, f"Should end on Sunday, got {event.end.strftime('%A')}"
+    
+    # June 2024: First Saturday is June 1, last Sunday is June 30
+    assert event.start == dt_util.start_of_local_day(datetime(2024, 6, 1))
+    assert event.end == dt_util.as_local(datetime(2024, 6, 30, 23, 59, 59))
+
+
+async def test_calendar_week_schedule_single_day(hass: HomeAssistant):
+    """Test week-based schedule with same start and end day of week."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "friday_schedule": {
+                    "name": "Friday Only",
+                    "schedule_type": "week",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "start_day_of_week": 4,  # Friday
+                    "end_day_of_week": 4,  # Friday (same day)
+                    "start_week": 0,
+                    "end_week": 4,
+                },
+            },
+        },
+        entry_id="test_single_day",
+    )
+
+    calendar = SchedulerCalendar(hass, hub_entry)
+    
+    # Test January 2024
+    start_date = datetime(2024, 1, 1)
+    end_date = datetime(2024, 1, 31)
+    
+    events = await calendar.async_get_events(hass, start_date, end_date)
+    
+    # Should have exactly 1 event
+    assert len(events) == 1
+    
+    event = events[0]
+    
+    # Both start and end should be Friday
+    assert event.start.weekday() == 4
+    assert event.end.weekday() == 4
+    
+    # January 2024: First Friday is Jan 5, last Friday is Jan 26
+    assert event.start == dt_util.start_of_local_day(datetime(2024, 1, 5))
+    assert event.end == dt_util.as_local(datetime(2024, 1, 26, 23, 59, 59))
+
+
+async def test_calendar_week_schedule_multi_year_dow_boundaries(hass: HomeAssistant):
+    """Test week-based schedule maintains day-of-week boundaries across years."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "weekday_schedule": {
+                    "name": "Weekdays",
+                    "schedule_type": "week",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "start_day_of_week": 0,  # Monday
+                    "end_day_of_week": 4,  # Friday
+                    "start_week": 0,
+                    "end_week": 4,
+                },
+            },
+        },
+        entry_id="test_multi_year_dow",
+    )
+
+    calendar = SchedulerCalendar(hass, hub_entry)
+    
+    # Test across 2 years
+    start_date = datetime(2024, 1, 1)
+    end_date = datetime(2025, 12, 31)
+    
+    events = await calendar.async_get_events(hass, start_date, end_date)
+    
+    # Should have 2 events (one per year)
+    assert len(events) == 2
+    
+    # Check 2024 event
+    event_2024 = events[0]
+    assert event_2024.start.year == 2024
+    assert event_2024.start.weekday() == 0, "2024 event should start on Monday"
+    assert event_2024.end.weekday() == 4, "2024 event should end on Friday"
+    
+    # Check 2025 event
+    event_2025 = events[1]
+    assert event_2025.start.year == 2025
+    assert event_2025.start.weekday() == 0, "2025 event should start on Monday"
+    assert event_2025.end.weekday() == 4, "2025 event should end on Friday"
