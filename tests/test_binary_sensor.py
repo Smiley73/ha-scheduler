@@ -467,3 +467,249 @@ async def test_hub_sensor_attribute_name_change(hass: HomeAssistant, hub_entry):
         assert "active_schedule" in hub_state.attributes
         # Verify old attribute name doesn't exist
         assert "schedule" not in hub_state.attributes
+
+
+
+async def test_binary_sensor_invalid_yaml(hass: HomeAssistant):
+    """Test binary sensor with invalid YAML config."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "bad_yaml_schedule": {
+                    "name": "Bad YAML Schedule",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                    "additional_yaml": "invalid: yaml: content: [unclosed",
+                },
+            },
+        },
+        entry_id="test_bad_yaml_hub",
+    )
+
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_bad_yaml_schedule"
+        state = hass.states.get(entity_id)
+        assert state
+        # Should not have config attribute due to invalid YAML
+        assert "config" not in state.attributes
+
+
+async def test_binary_sensor_week_out_of_range(hass: HomeAssistant):
+    """Test binary sensor with week-based schedule out of range."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "week_schedule": {
+                    "name": "Week Schedule",
+                    "schedule_type": "week",
+                    "start_month": 6,
+                    "end_month": 6,
+                    "start_day_of_week": 0,  # Monday
+                    "end_day_of_week": 4,  # Friday
+                    "start_week": 0,  # First week
+                    "end_week": 0,  # First week only
+                },
+            },
+        },
+        entry_id="test_week_out_hub",
+    )
+
+    # Mock current date to be second week of June (June 9, 2025 - Monday)
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 9)  # Monday, second week
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_week_schedule"
+
+        state = hass.states.get(entity_id)
+        assert state
+        # Should be off because we're in the second week, not first
+        assert state.state == "off"
+
+
+async def test_binary_sensor_day_of_week_out_of_range(hass: HomeAssistant):
+    """Test binary sensor with day of week out of range."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "weekday_schedule": {
+                    "name": "Weekday Schedule",
+                    "schedule_type": "week",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "start_day_of_week": 0,  # Monday
+                    "end_day_of_week": 4,  # Friday
+                    "start_week": 0,
+                    "end_week": 4,
+                },
+            },
+        },
+        entry_id="test_weekday_hub",
+    )
+
+    # Mock current date to be Saturday (June 7, 2025)
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 7)  # Saturday
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_weekday_schedule"
+
+        state = hass.states.get(entity_id)
+        assert state
+        # Should be off because Saturday is not in Monday-Friday range
+        assert state.state == "off"
+
+
+async def test_binary_sensor_date_before_start_day(hass: HomeAssistant):
+    """Test binary sensor when current day is before start day in start month."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "mid_month_schedule": {
+                    "name": "Mid Month Schedule",
+                    "start_month": 6,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 15,  # Starts mid-month
+                    "end_day": 30,
+                },
+            },
+        },
+        entry_id="test_mid_month_hub",
+    )
+
+    # Mock current date to be before start day (June 10)
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 10)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_mid_month_schedule"
+
+        state = hass.states.get(entity_id)
+        assert state
+        # Should be off because we're before the start day
+        assert state.state == "off"
+
+
+async def test_binary_sensor_date_after_end_day(hass: HomeAssistant):
+    """Test binary sensor when current day is after end day in end month."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "early_month_schedule": {
+                    "name": "Early Month Schedule",
+                    "start_month": 6,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 15,  # Ends mid-month
+                },
+            },
+        },
+        entry_id="test_early_month_hub",
+    )
+
+    # Mock current date to be after end day (June 20)
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 20)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_early_month_schedule"
+
+        state = hass.states.get(entity_id)
+        assert state
+        # Should be off because we're after the end day
+        assert state.state == "off"
+
+
+async def test_binary_sensor_update_on_schedule_change(hass: HomeAssistant, hub_entry):
+    """Test that binary sensor updates when schedule data changes."""
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_test_schedule"
+
+        # Get initial state
+        state = hass.states.get(entity_id)
+        assert state
+        initial_name = state.attributes.get("friendly_name")
+
+        # Update the schedule name in the config entry
+        new_data = dict(hub_entry.data)
+        new_data["schedules"]["test_schedule_1"]["name"] = "Updated Schedule Name"
+
+        hass.config_entries.async_update_entry(hub_entry, data=new_data)
+        await hass.config_entries.async_reload(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Check that the name was updated
+        state = hass.states.get(entity_id)
+        assert state
+        updated_name = state.attributes.get("friendly_name")
+        assert updated_name != initial_name
+        assert updated_name == "Updated Schedule Name"
+
+
+
+async def test_hub_sensor_no_entity_ids(hass: HomeAssistant):
+    """Test hub sensor when schedule sensors have no entity_id yet."""
+    from custom_components.scheduler.binary_sensor import SchedulerHubBinarySensor
+    from unittest.mock import Mock
+
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_no_entity_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+
+    # Create hub sensor with mock schedule sensors that have no entity_id
+    mock_sensor = Mock()
+    mock_sensor.entity_id = None
+    mock_sensor.name = "Test"
+
+    hub_sensor = SchedulerHubBinarySensor(hass, hub_entry, [mock_sensor])
+
+    # Should handle None entity_ids gracefully
+    await hub_sensor.async_added_to_hass()
+    await hass.async_block_till_done()
+
+    # Should not crash
+    assert hub_sensor._attr_is_on is False
