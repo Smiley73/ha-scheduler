@@ -167,25 +167,40 @@ class SchedulerBinarySensor(BinarySensorEntity):
             start_week = self._schedule_data.get("start_week", 0)
             end_week = self._schedule_data.get("end_week", 4)
 
-            # Calculate which week of the month we're in (0-4)
-            week_of_month = (current_day - 1) // 7
-
-            # Check if current week is in range
-            if not (start_week <= week_of_month <= end_week):
+            # Calculate the actual start and end dates for this month/year
+            # Find the first occurrence of start_day_of_week in start_week
+            # and last occurrence of end_day_of_week in end_week
+            
+            # Calculate start date: first start_day_of_week in start_week
+            start_week_first_day = start_week * 7 + 1
+            start_date_candidate = start_week_first_day
+            
+            # Find the first occurrence of start_day_of_week in the start week
+            for day in range(start_week_first_day, min(start_week_first_day + 7, 32)):
+                try:
+                    check_date = datetime(now.year, current_month, day)
+                    if check_date.weekday() == start_day_of_week:
+                        start_date_candidate = day
+                        break
+                except ValueError:
+                    break
+            
+            # Calculate end date: last occurrence of end_day_of_week in end_week
+            end_week_first_day = end_week * 7 + 1
+            end_date_candidate = end_week_first_day
+            
+            # Find the last occurrence of end_day_of_week in the end week
+            for day in range(end_week_first_day, min(end_week_first_day + 7, 32)):
+                try:
+                    check_date = datetime(now.year, current_month, day)
+                    if check_date.weekday() == end_day_of_week:
+                        end_date_candidate = day
+                except ValueError:
+                    break
+            
+            # Check if current day is within the calculated range
+            if not (start_date_candidate <= current_day <= end_date_candidate):
                 return False
-
-            # Check if current day of week is in range
-            if start_day_of_week <= end_day_of_week:
-                # Normal range (e.g., Monday to Friday)
-                if not (start_day_of_week <= current_weekday <= end_day_of_week):
-                    return False
-            else:
-                # Wrap-around range (e.g., Friday to Monday)
-                if not (
-                    current_weekday >= start_day_of_week
-                    or current_weekday <= end_day_of_week
-                ):
-                    return False
 
             return True
 

@@ -598,3 +598,110 @@ async def test_calendar_week_schedule_multi_year_dow_boundaries(hass: HomeAssist
     assert event_2025.start.year == 2025
     assert event_2025.start.weekday() == 0, "2025 event should start on Monday"
     assert event_2025.end.weekday() == 4, "2025 event should end on Friday"
+
+
+
+async def test_calendar_week_schedule_all_days_active(hass: HomeAssistant):
+    """Test that week-based schedules activate ALL days between start and end dates.
+    
+    This test verifies that day-of-week selection only determines the start/end dates,
+    not which specific days are active. All days between start and end should be active.
+    """
+    # December schedule: weeks 0-3, Monday (start) to Wednesday (end)
+    # Expected: Active from first Monday (Dec 2) to last Wednesday (Dec 25)
+    # ALL days in between should be active, including weekends
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "december_schedule": {
+                    "name": "December Schedule",
+                    "schedule_type": "week",
+                    "start_month": 12,
+                    "end_month": 12,
+                    "start_day_of_week": 0,  # Monday (determines start date)
+                    "end_day_of_week": 2,  # Wednesday (determines end date)
+                    "start_week": 0,
+                    "end_week": 3,
+                },
+            }
+        },
+        entry_id="test_december",
+    )
+
+    calendar = SchedulerCalendar(hass, hub_entry)
+    
+    # Test December 2024
+    start_date = datetime(2024, 12, 1)
+    end_date = datetime(2024, 12, 31)
+    
+    events = await calendar.async_get_events(hass, start_date, end_date)
+    
+    # Should have exactly 1 event
+    assert len(events) == 1
+    
+    event = events[0]
+    assert event.summary == "December Schedule"
+    
+    # December 2024: Week 0 is days 1-7
+    # First Monday is Dec 2, last Wednesday of week 3 (days 22-28) is Dec 25
+    assert event.start == dt_util.start_of_local_day(datetime(2024, 12, 2))
+    assert event.end == dt_util.as_local(datetime(2024, 12, 25, 23, 59, 59))
+    
+    # Verify the event spans from Monday to Wednesday but includes ALL days
+    # Start should be Monday
+    assert event.start.weekday() == 0, "Should start on Monday"
+    # End should be Wednesday
+    assert event.end.weekday() == 2, "Should end on Wednesday"
+    
+    # The period is 24 days (Dec 2-25), which includes weekends
+    duration_days = (event.end.date() - event.start.date()).days + 1
+    assert duration_days == 24, f"Expected 24 days, got {duration_days}"
+
+
+async def test_calendar_week_schedule_includes_weekends(hass: HomeAssistant):
+    """Test that weekends are included when they fall within the week-based range."""
+    # Schedule: First 2 weeks, Monday to Friday
+    # Expected: Active from first Monday to last Friday, INCLUDING the weekend in between
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "two_weeks": {
+                    "name": "Two Weeks",
+                    "schedule_type": "week",
+                    "start_month": 1,
+                    "end_month": 1,
+                    "start_day_of_week": 0,  # Monday
+                    "end_day_of_week": 4,  # Friday
+                    "start_week": 0,
+                    "end_week": 1,
+                },
+            }
+        },
+        entry_id="test_two_weeks",
+    )
+
+    calendar = SchedulerCalendar(hass, hub_entry)
+    
+    # Test January 2024
+    start_date = datetime(2024, 1, 1)
+    end_date = datetime(2024, 1, 31)
+    
+    events = await calendar.async_get_events(hass, start_date, end_date)
+    
+    # Should have exactly 1 event
+    assert len(events) == 1
+    
+    event = events[0]
+    
+    # January 2024: Week 0 is days 1-7, Week 1 is days 8-14
+    # First Monday is Jan 1, last Friday of week 1 is Jan 12
+    assert event.start == dt_util.start_of_local_day(datetime(2024, 1, 1))
+    assert event.end == dt_util.as_local(datetime(2024, 1, 12, 23, 59, 59))
+    
+    # The period is 12 days (Jan 1-12), which includes the weekend Jan 6-7
+    duration_days = (event.end.date() - event.start.date()).days + 1
+    assert duration_days == 12, f"Expected 12 days including weekend, got {duration_days}"

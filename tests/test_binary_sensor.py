@@ -81,6 +81,7 @@ async def test_binary_sensor_date_out_of_range(hass: HomeAssistant):
 async def test_binary_sensor_week_based(hass: HomeAssistant):
     """Test binary sensor with week-based schedule."""
     # Create hub entry with week-based schedule (first week, Monday-Friday)
+    # This means: active from first Monday to last Friday of week 0
     hub_entry = MockConfigEntry(
         domain=DOMAIN,
         title="Scheduler",
@@ -91,8 +92,8 @@ async def test_binary_sensor_week_based(hass: HomeAssistant):
                     "schedule_type": "week",
                     "start_month": 1,
                     "end_month": 12,
-                    "start_day_of_week": 0,  # Monday
-                    "end_day_of_week": 4,    # Friday
+                    "start_day_of_week": 0,  # Monday (determines start date)
+                    "end_day_of_week": 4,    # Friday (determines end date)
                     "start_week": 0,
                     "end_week": 0,
                 },
@@ -102,8 +103,10 @@ async def test_binary_sensor_week_based(hass: HomeAssistant):
     )
     
     # Mock current date to be first Monday of June (June 2, 2025)
+    # June 2025: Week 0 is days 1-7, first Monday is June 2, last Friday is June 6
     with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
-        mock_datetime.now.return_value = datetime(2025, 6, 2)  # Monday, first week
+        mock_datetime.now.return_value = datetime(2025, 6, 2)  # Monday, within range
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
         
         hub_entry.add_to_hass(hass)
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
@@ -545,7 +548,7 @@ async def test_binary_sensor_week_out_of_range(hass: HomeAssistant):
 
 
 async def test_binary_sensor_day_of_week_out_of_range(hass: HomeAssistant):
-    """Test binary sensor with day of week out of range."""
+    """Test binary sensor outside the week-based schedule range."""
     hub_entry = MockConfigEntry(
         domain=DOMAIN,
         title="Scheduler",
@@ -556,19 +559,21 @@ async def test_binary_sensor_day_of_week_out_of_range(hass: HomeAssistant):
                     "schedule_type": "week",
                     "start_month": 1,
                     "end_month": 12,
-                    "start_day_of_week": 0,  # Monday
-                    "end_day_of_week": 4,  # Friday
+                    "start_day_of_week": 0,  # Monday (determines start date)
+                    "end_day_of_week": 4,  # Friday (determines end date)
                     "start_week": 0,
-                    "end_week": 4,
+                    "end_week": 0,  # Only first week
                 },
             },
         },
         entry_id="test_weekday_hub",
     )
 
-    # Mock current date to be Saturday (June 7, 2025)
+    # Mock current date to be in second week (June 9, 2025 - Monday of week 1)
+    # Week 0 ends on June 6 (Friday), so June 9 should be OFF
     with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
-        mock_datetime.now.return_value = datetime(2025, 6, 7)  # Saturday
+        mock_datetime.now.return_value = datetime(2025, 6, 9)  # Monday of week 1
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 
         hub_entry.add_to_hass(hass)
         assert await hass.config_entries.async_setup(hub_entry.entry_id)
@@ -578,7 +583,7 @@ async def test_binary_sensor_day_of_week_out_of_range(hass: HomeAssistant):
 
         state = hass.states.get(entity_id)
         assert state
-        # Should be off because Saturday is not in Monday-Friday range
+        # Should be off because June 9 is in week 1, not week 0
         assert state.state == "off"
 
 
@@ -907,3 +912,79 @@ async def test_calendar_availability_with_schedules(hass: HomeAssistant):
     calendar_state = hass.states.get("calendar.scheduler")
     assert calendar_state
     assert calendar_state.state != "unavailable"
+
+
+
+
+async def test_binary_sensor_week_schedule_includes_all_days(hass: HomeAssistant):
+    """Test that week-based schedule activates ALL days between start and end dates.
+    
+    This test verifies the December scenario: weeks 0-3, Monday-Wednesday.
+    The sensor should be ON for ALL days from first Monday to last Wednesday,
+    including weekends.
+    """
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "december_schedule": {
+                    "name": "December Schedule",
+                    "schedule_type": "week",
+                    "start_month": 12,
+                    "end_month": 12,
+                    "start_day_of_week": 0,  # Monday (determines start date)
+                    "end_day_of_week": 2,  # Wednesday (determines end date)
+                    "start_week": 0,
+                    "end_week": 3,
+                },
+            }
+        },
+        entry_id="test_december",
+    )
+
+    # Test various dates in December 2024
+    # Week 0: Dec 1-7, Week 1: Dec 8-14, Week 2: Dec 15-21, Week 3: Dec 22-28
+    # First Monday: Dec 2, Last Wednesday of week 3: Dec 25
+    
+    test_cases = [
+        (datetime(2024, 12, 1), False, "Sunday Dec 1 - before first Monday"),
+        (datetime(2024, 12, 2), True, "Monday Dec 2 - first Monday (START)"),
+        (datetime(2024, 12, 6), True, "Friday Dec 6 - within range"),
+        (datetime(2024, 12, 7), True, "Saturday Dec 7 - weekend within range"),
+        (datetime(2024, 12, 8), True, "Sunday Dec 8 - weekend within range"),
+        (datetime(2024, 12, 15), True, "Sunday Dec 15 - within range"),
+        (datetime(2024, 12, 24), True, "Tuesday Dec 24 - within range"),
+        (datetime(2024, 12, 25), True, "Wednesday Dec 25 - last Wednesday (END)"),
+        (datetime(2024, 12, 26), False, "Thursday Dec 26 - after last Wednesday"),
+        (datetime(2024, 12, 31), False, "Tuesday Dec 31 - after range"),
+    ]
+
+    for test_date, expected_state, description in test_cases:
+        with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+            mock_datetime.now.return_value = test_date
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+            
+            # Create a fresh entry for each test
+            entry = MockConfigEntry(
+                domain=DOMAIN,
+                title="Scheduler",
+                data=hub_entry.data,
+                entry_id=f"test_december_{test_date.day}",
+            )
+            entry.add_to_hass(hass)
+            await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+
+            state = hass.states.get("binary_sensor.scheduler_december_schedule")
+            assert state is not None, f"Sensor not found for {description}"
+            
+            actual_state = state.state == "on"
+            assert actual_state == expected_state, (
+                f"{description}: Expected {'ON' if expected_state else 'OFF'}, "
+                f"got {state.state}"
+            )
+            
+            # Clean up
+            await hass.config_entries.async_remove(entry.entry_id)
+            await hass.async_block_till_done()
