@@ -61,9 +61,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
         schedule_name = schedule_data.get("name", "Schedule")
         self._attr_name = schedule_name
         self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
-        # Create entity_id from schedule name - simply convert to snake_case
-        entity_name = schedule_name.lower().replace(" ", "_")
-        self.entity_id = f"binary_sensor.scheduler_{entity_name}"
+        self._attr_should_poll = False
         self._attr_device_info = {
             "identifiers": {(DOMAIN, schedule_id)},
             "name": schedule_name,
@@ -148,10 +146,6 @@ class SchedulerBinarySensor(BinarySensorEntity):
         
         if is_active:
             self._attr_icon = "mdi:check-circle"
-            self._attr_extra_state_attributes = {
-                **self._attr_extra_state_attributes,
-                "device_class": "running",
-            }
         else:
             self._attr_icon = "mdi:circle-outline"
 
@@ -221,6 +215,7 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         self._schedule_sensors = schedule_sensors
         self._attr_name = "Scheduler"
         self._attr_unique_id = f"{entry.entry_id}_hub"
+        self._attr_should_poll = False
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scheduler_hub")},
             "name": "Scheduler",
