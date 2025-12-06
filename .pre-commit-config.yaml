@@ -9,26 +9,37 @@ repos:
       # Run the linter
       - id: ruff
         args: [--fix]
+        pass_filenames: false
+        always_run: true
+        exclude: '.*\.md$'
       # Run the formatter
       - id: ruff-format
+        pass_filenames: false
+        always_run: true
+        exclude: '.*\.md$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        pass_filenames: false
+        always_run: true
+        exclude: '.*\.md$'
       - id: end-of-file-fixer
+        pass_filenames: false
+        always_run: true
+        exclude: '.*\.md$'
       - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict
 
   - repo: local
     hooks:
-      # Run pytest on changed test files
+      # Run pytest on all tests
       - id: pytest-check
         name: pytest-check
-        entry: pytest
+        entry: pytest tests/ -q
         language: system
         pass_filenames: false
-        always_run: false
-        files: ^tests/.*\.py$
+        always_run: true
         stages: [pre-commit]

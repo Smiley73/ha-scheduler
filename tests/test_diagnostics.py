@@ -1,4 +1,5 @@
 """Test Scheduler diagnostics."""
+
 from homeassistant.core import HomeAssistant
 
 from custom_components.scheduler.diagnostics import async_get_config_entry_diagnostics
@@ -44,12 +45,12 @@ async def test_diagnostics_with_entity_states(hass: HomeAssistant, hub_entry):
     # Check that entity states are captured
     assert "entity_states" in diagnostics
     assert "test_schedule_1" in diagnostics["entity_states"]
-    
+
     entity_state = diagnostics["entity_states"]["test_schedule_1"]
     assert "entity_id" in entity_state
     assert "state" in entity_state
     assert "attributes" in entity_state
-    
+
     # Check hub sensor info
     assert diagnostics["hub_sensor"] is not None
     assert "entity_id" in diagnostics["hub_sensor"]

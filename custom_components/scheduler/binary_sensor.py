@@ -170,11 +170,11 @@ class SchedulerBinarySensor(BinarySensorEntity):
             # Calculate the actual start and end dates for this month/year
             # Find the first occurrence of start_day_of_week in start_week
             # and last occurrence of end_day_of_week in end_week
-            
+
             # Calculate start date: first start_day_of_week in start_week
             start_week_first_day = start_week * 7 + 1
             start_date_candidate = start_week_first_day
-            
+
             # Find the first occurrence of start_day_of_week in the start week
             for day in range(start_week_first_day, min(start_week_first_day + 7, 32)):
                 try:
@@ -184,11 +184,11 @@ class SchedulerBinarySensor(BinarySensorEntity):
                         break
                 except ValueError:
                     break
-            
+
             # Calculate end date: last occurrence of end_day_of_week in end_week
             end_week_first_day = end_week * 7 + 1
             end_date_candidate = end_week_first_day
-            
+
             # Find the last occurrence of end_day_of_week in the end week
             for day in range(end_week_first_day, min(end_week_first_day + 7, 32)):
                 try:
@@ -197,7 +197,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
                         end_date_candidate = day
                 except ValueError:
                     break
-            
+
             # Check if current day is within the calculated range
             if not (start_date_candidate <= current_day <= end_date_candidate):
                 return False
