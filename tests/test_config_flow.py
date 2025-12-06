@@ -5,6 +5,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.scheduler.const import DOMAIN
 
@@ -871,3 +872,756 @@ async def test_options_rename_schedule_invalid_name(hass: HomeAssistant, hub_ent
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "rename_schedule"
     assert result["errors"] == {"name": "invalid_name"}
+
+
+
+async def test_options_add_schedule_invalid_week_range(hass: HomeAssistant, hub_entry):
+    """Test adding a schedule with invalid week range."""
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    assert result["type"] == "menu"
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Invalid Week Schedule", "schedule_type": "week"},
+    )
+
+    # Try to configure with start_week > end_week
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "1",
+            "start_week": 3,
+            "start_day_of_week": "0",
+            "end_month": "12",
+            "end_week": 1,  # Less than start_week
+            "end_day_of_week": "6",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert "base" in result["errors"]
+
+
+async def test_options_add_schedule_scalar_yaml(hass: HomeAssistant, hub_entry):
+    """Test adding a schedule with scalar YAML value (should fail)."""
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Scalar YAML Schedule", "schedule_type": "date"},
+    )
+
+    # Try to configure with scalar YAML (should fail)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "1",
+            "start_day": 1,
+            "end_month": "12",
+            "end_day": 31,
+            "additional_yaml": "just_a_string",  # Scalar value, not dict/list
+        },
+    )
+
+    assert result["type"] == "form"
+    assert "base" in result["errors"]
+
+
+async def test_options_add_schedule_month_validation(hass: HomeAssistant):
+    """Test month validation in schedule configuration with string conversion."""
+    # Create a hub with no schedules to avoid overlap
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_month_validation_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Month Validation Schedule", "schedule_type": "date"},
+    )
+
+    # The form should accept month values as strings (from selector)
+    # This tests the string-to-int conversion path
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "6",  # String value from selector
+            "start_day": 1,
+            "end_month": "8",  # String value from selector
+            "end_day": 31,
+            "additional_yaml": "",
+        },
+    )
+
+    # Should succeed
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_add_schedule_week_day_validation(hass: HomeAssistant):
+    """Test day of week validation in week-based schedule with string conversion."""
+    # Create a hub with no schedules to avoid overlap
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_week_validation_hub",
+    )
+    
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Week Day Schedule", "schedule_type": "week"},
+    )
+
+    # Configure with string day_of_week values (from selector)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "1",
+            "start_week": 0,
+            "start_day_of_week": "0",  # String value from selector
+            "end_month": "12",
+            "end_week": 4,
+            "end_day_of_week": "6",  # String value from selector
+            "additional_yaml": "",
+        },
+    )
+
+    # Should succeed
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_edit_schedule_with_overlap_check(hass: HomeAssistant):
+    """Test editing a schedule doesn't trigger self-overlap."""
+    # Create hub with two schedules
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "schedule_1": {
+                    "name": "Schedule 1",
+                    "start_month": 1,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 30,
+                },
+                "schedule_2": {
+                    "name": "Schedule 2",
+                    "start_month": 7,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_edit_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start edit schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "edit_schedule"}
+    )
+
+    # Select schedule 1 to edit
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"schedule_id": "schedule_1"}
+    )
+
+    # Edit schedule 1 with same dates (should not trigger self-overlap)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "1",
+            "start_day": 1,
+            "end_month": "6",
+            "end_day": 30,
+            "additional_yaml": "",
+        },
+    )
+
+    # Should succeed without overlap error
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_add_schedule_cross_type_overlap(hass: HomeAssistant):
+    """Test overlap detection between date and week schedules."""
+    # Create hub with a date-based schedule
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "date_schedule": {
+                    "name": "Date Schedule",
+                    "start_month": 6,
+                    "end_month": 6,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 30,
+                },
+            },
+        },
+        entry_id="test_cross_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type (week-based)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Week Schedule", "schedule_type": "week"},
+    )
+
+    # Try to add week schedule that overlaps with date schedule (June)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "6",
+            "start_week": 0,
+            "start_day_of_week": "0",
+            "end_month": "6",
+            "end_week": 4,
+            "end_day_of_week": "6",
+            "additional_yaml": "",
+        },
+    )
+
+    # Should detect overlap
+    assert result["type"] == FlowResultType.FORM
+    assert "base" in result["errors"]
+
+
+
+async def test_options_add_schedule_invalid_day_of_week_type(hass: HomeAssistant):
+    """Test validation when day_of_week is not an integer."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_dow_type_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "DOW Type Schedule", "schedule_type": "week"},
+    )
+
+    # This should succeed with string values that get converted
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "6",
+            "start_week": 0,
+            "start_day_of_week": "0",
+            "end_month": "8",
+            "end_week": 2,
+            "end_day_of_week": "4",
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_add_schedule_week_number_validation(hass: HomeAssistant):
+    """Test week number validation with float conversion."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_week_num_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Week Number Schedule", "schedule_type": "week"},
+    )
+
+    # Configure with float week values (should be converted to int)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "1",
+            "start_week": 0.0,  # Float value
+            "start_day_of_week": "0",
+            "end_month": "12",
+            "end_week": 4.0,  # Float value
+            "end_day_of_week": "6",
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_add_schedule_day_float_conversion(hass: HomeAssistant):
+    """Test day value float to int conversion."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_day_float_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+
+    # Start add schedule flow
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+
+    # Enter schedule name and type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Day Float Schedule", "schedule_type": "date"},
+    )
+
+    # Configure with float day values (from NumberSelector)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "6",
+            "start_day": 1.0,  # Float value
+            "end_month": "8",
+            "end_day": 31.0,  # Float value
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+
+async def test_translation_fallback_paths(hass: HomeAssistant):
+    """Test translation fallback when translations are not available."""
+    from custom_components.scheduler.config_flow import (
+        _get_schedule_type_options,
+        _get_month_options,
+        _get_day_of_week_options,
+    )
+
+    # Test with no translations loaded
+    hass.data["translations"] = {}
+
+    # Should return options with default English labels
+    schedule_options = _get_schedule_type_options(hass)
+    assert len(schedule_options) == 2
+    assert schedule_options[0]["value"] == "date"
+    assert schedule_options[1]["value"] == "week"
+
+    month_options = _get_month_options(hass)
+    assert len(month_options) == 12
+    assert month_options[0]["value"] == "1"
+    assert month_options[11]["value"] == "12"
+
+    dow_options = _get_day_of_week_options(hass)
+    assert len(dow_options) == 7
+    assert dow_options[0]["value"] == "0"
+    assert dow_options[6]["value"] == "6"
+
+
+async def test_check_overlap_functions():
+    """Test overlap checking functions directly."""
+    from custom_components.scheduler.config_flow import (
+        check_date_overlap,
+        check_week_overlap,
+        check_date_week_overlap,
+    )
+
+    # Test date overlap - no overlap
+    assert not check_date_overlap(1, 1, 6, 30, 7, 1, 12, 31)
+
+    # Test date overlap - with overlap
+    assert check_date_overlap(1, 1, 6, 30, 5, 1, 8, 31)
+
+    # Test date overlap - wrap around both
+    assert check_date_overlap(11, 1, 2, 28, 12, 1, 1, 31)
+
+    # Test week overlap - no overlap
+    assert not check_week_overlap(1, 0, 0, 6, 0, 6, 7, 0, 0, 12, 0, 6)
+
+    # Test week overlap - with overlap
+    assert check_week_overlap(1, 0, 0, 12, 4, 6, 6, 0, 0, 8, 2, 4)
+
+    # Test date-week overlap
+    assert check_date_week_overlap(6, 1, 6, 30, 6, 0, 0, 6, 4, 6)
+
+
+
+async def test_handle_validation_error_function():
+    """Test the handle_validation_error function."""
+    from custom_components.scheduler.config_flow import handle_validation_error
+
+    # Test overlap error
+    error_key, placeholders = handle_validation_error(
+        ValueError("Schedule overlaps with existing schedule 'Test'")
+    )
+    assert error_key == "schedule_overlap"
+
+    # Test YAML error
+    error_key, placeholders = handle_validation_error(ValueError("Invalid YAML"))
+    assert error_key == "invalid_yaml"
+
+    # Test month error
+    error_key, placeholders = handle_validation_error(
+        ValueError("Start month must be between 1 and 12")
+    )
+    assert error_key == "invalid_month_range"
+
+    # Test day of week error
+    error_key, placeholders = handle_validation_error(
+        ValueError("Day of week must be between 0 and 6")
+    )
+    assert error_key == "invalid_day_of_week"
+
+    # Test week error
+    error_key, placeholders = handle_validation_error(
+        ValueError("Start week must be before end week")
+    )
+    assert error_key == "invalid_week_range"
+
+    # Test day error
+    error_key, placeholders = handle_validation_error(
+        ValueError("Start day must be between 1 and 31")
+    )
+    assert error_key == "invalid_day_range"
+
+    # Test generic error
+    error_key, placeholders = handle_validation_error(ValueError("Unknown error"))
+    assert error_key == "invalid_input"
+
+
+
+async def test_validate_schedule_input_missing_fields():
+    """Test validation with missing required fields."""
+    from custom_components.scheduler.config_flow import validate_schedule_input
+
+    # Test missing start_day for date schedule
+    with pytest.raises(ValueError, match="Start day must be provided"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": 1,
+                "end_month": 12,
+                "end_day": 31,
+            },
+        )
+
+    # Test missing end_day for date schedule
+    with pytest.raises(ValueError, match="End day must be provided"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": 1,
+                "start_day": 1,
+                "end_month": 12,
+            },
+        )
+
+    # Test missing start_day_of_week for week schedule
+    with pytest.raises(ValueError, match="Start day of week must be provided"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "end_month": 12,
+                "start_week": 0,
+                "end_week": 4,
+                "end_day_of_week": 6,
+            },
+        )
+
+    # Test missing end_day_of_week for week schedule
+    with pytest.raises(ValueError, match="End day of week must be provided"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "end_month": 12,
+                "start_week": 0,
+                "end_week": 4,
+                "start_day_of_week": 0,
+            },
+        )
+
+    # Test missing start_week for week schedule
+    with pytest.raises(ValueError, match="Start week must be provided"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "end_month": 12,
+                "start_day_of_week": 0,
+                "end_day_of_week": 6,
+                "end_week": 4,
+            },
+        )
+
+    # Test missing end_week for week schedule
+    with pytest.raises(ValueError, match="End week must be provided"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "end_month": 12,
+                "start_week": 0,
+                "start_day_of_week": 0,
+                "end_day_of_week": 6,
+            },
+        )
+
+
+async def test_validate_schedule_input_type_errors():
+    """Test validation with wrong types."""
+    from custom_components.scheduler.config_flow import validate_schedule_input
+
+    # Test non-integer month values (after string conversion fails)
+    with pytest.raises(ValueError, match="Months must be integers"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": None,  # Will fail type check
+                "start_day": 1,
+                "end_month": 12,
+                "end_day": 31,
+            },
+        )
+
+
+async def test_validate_schedule_input_range_errors():
+    """Test validation with out of range values."""
+    from custom_components.scheduler.config_flow import validate_schedule_input
+
+    # Test day out of range
+    with pytest.raises(ValueError, match="Start day must be between 1 and 31"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": 1,
+                "start_day": 0,
+                "end_month": 12,
+                "end_day": 31,
+            },
+        )
+
+    with pytest.raises(ValueError, match="End day must be between 1 and 31"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": 1,
+                "start_day": 1,
+                "end_month": 12,
+                "end_day": 32,
+            },
+        )
+
+    # Test day_of_week out of range
+    with pytest.raises(ValueError, match="Start day of week must be between 0 and 6"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "start_week": 0,
+                "start_day_of_week": 7,
+                "end_month": 12,
+                "end_week": 4,
+                "end_day_of_week": 6,
+            },
+        )
+
+    with pytest.raises(ValueError, match="End day of week must be between 0 and 6"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "start_week": 0,
+                "start_day_of_week": 0,
+                "end_month": 12,
+                "end_week": 4,
+                "end_day_of_week": 7,
+            },
+        )
+
+    # Test week out of range
+    with pytest.raises(ValueError, match="Start week must be between 0 and 4"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "start_week": 5,
+                "start_day_of_week": 0,
+                "end_month": 12,
+                "end_week": 4,
+                "end_day_of_week": 6,
+            },
+        )
+
+    with pytest.raises(ValueError, match="End week must be between 0 and 4"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "week",
+                "start_month": 1,
+                "start_week": 0,
+                "start_day_of_week": 0,
+                "end_month": 12,
+                "end_week": 5,
+                "end_day_of_week": 6,
+            },
+        )
+
+    # Test month out of range
+    with pytest.raises(ValueError, match="Start month must be between 1 and 12"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": 0,
+                "start_day": 1,
+                "end_month": 12,
+                "end_day": 31,
+            },
+        )
+
+    with pytest.raises(ValueError, match="End month must be between 1 and 12"):
+        await validate_schedule_input(
+            None,
+            {
+                "name": "Test",
+                "schedule_type": "date",
+                "start_month": 1,
+                "start_day": 1,
+                "end_month": 13,
+                "end_day": 31,
+            },
+        )
+
+
+
+async def test_config_flow_description_placeholders(hass: HomeAssistant):
+    """Test that config flow shows description placeholders."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    # Check that description placeholders are present
+    assert result["type"] == FlowResultType.FORM
+    assert "description_placeholders" in result
+    assert "info" in result["description_placeholders"]

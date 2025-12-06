@@ -157,5 +157,20 @@
         "sunday": "Sunday"
       }
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "hub": {
+        "name": "Scheduler"
+      },
+      "schedule": {
+        "name": "{schedule_name}"
+      }
+    },
+    "calendar": {
+      "scheduler": {
+        "name": "Scheduler"
+      }
+    }
   }
 }

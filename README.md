@@ -33,8 +33,17 @@ A custom Home Assistant integration for scheduling automation tasks.
 ## Features
 
 - Easy configuration through the UI
-- Schedule automation tasks
+- Schedule automation tasks based on date ranges or week patterns
+- Binary sensors for each schedule that activate during configured periods
+- Calendar integration showing all active schedules
+- Hub device that aggregates all schedules
 - Local polling for reliability
+
+### Calendar Integration
+
+The Scheduler integration automatically creates a calendar entity that displays all your schedules as calendar events. Each schedule appears as an all-day event on the days when it's active. This makes it easy to visualize your schedules in Home Assistant's calendar view.
+
+The calendar entity is assigned to the Scheduler hub device and updates automatically when schedules are added, modified, or deleted.
 
 ## Support
 

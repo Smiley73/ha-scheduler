@@ -4,7 +4,13 @@ select = [
     "F",  # pyflakes
     "I",  # isort
 ]
-ignore = []
+ignore = [
+    "E501",  # Line too long - will address in future refactoring
+]
 
 [lint.per-file-ignores]
 "tests/*" = ["E501"]
+
+[format]
+indent-style = "space"
+quote-style = "double"
