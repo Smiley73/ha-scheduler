@@ -9,6 +9,7 @@ from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 
@@ -140,10 +141,12 @@ class SchedulerCalendar(CalendarEntity):
                 )
 
                 if schedule_start and schedule_end:
+                    # Create end datetime at 23:59:59 on the end date
+                    end_datetime = datetime.combine(schedule_end, datetime.max.time().replace(microsecond=0))
                     events.append(
                         CalendarEvent(
-                            start=schedule_start,
-                            end=schedule_end + timedelta(days=1),  # End is exclusive
+                            start=dt_util.start_of_local_day(datetime.combine(schedule_start, datetime.min.time())),
+                            end=dt_util.as_local(end_datetime),
                             summary=schedule_name,
                             description=f"Schedule: {schedule_name} ({schedule_type})",
                             uid=f"{schedule_id}_{schedule_start.isoformat()}",
@@ -234,9 +237,11 @@ class SchedulerCalendar(CalendarEntity):
             if self._is_date_active(
                 current_date, schedule_data, "week", start_month, end_month
             ):
+                # Create end datetime at 23:59:59 on the same date
+                end_datetime = datetime.combine(current_date, datetime.max.time().replace(microsecond=0))
                 event = CalendarEvent(
-                    start=current_date,
-                    end=current_date + timedelta(days=1),
+                    start=dt_util.start_of_local_day(datetime.combine(current_date, datetime.min.time())),
+                    end=dt_util.as_local(end_datetime),
                     summary=schedule_name,
                     description=f"Schedule: {schedule_name} (week-based)",
                     uid=f"{schedule_id}_{current_date.isoformat()}",

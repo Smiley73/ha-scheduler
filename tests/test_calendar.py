@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 from homeassistant.components.calendar import CalendarEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.scheduler.calendar import SchedulerCalendar
@@ -76,8 +77,10 @@ async def test_calendar_events_date_schedule(hass: HomeAssistant, mock_entry_wit
     
     # Should have a single event spanning the entire schedule
     assert len(summer_events) == 1
-    assert summer_events[0].start == datetime(2024, 6, 1).date()
-    assert summer_events[0].end == datetime(2024, 9, 1).date()  # End is exclusive, so Sept 1
+    assert summer_events[0].start == dt_util.start_of_local_day(datetime(2024, 6, 1))
+    # End should be 23:59:59 on August 31
+    expected_end = dt_util.as_local(datetime(2024, 8, 31, 23, 59, 59))
+    assert summer_events[0].end == expected_end
 
 
 async def test_calendar_events_week_schedule(hass: HomeAssistant, mock_entry_with_schedules):
@@ -167,8 +170,10 @@ async def test_calendar_month_wrap_around(hass: HomeAssistant):
     # Should have a single event spanning the wrap-around period
     assert len(events) == 1
     assert events[0].summary == "Winter Schedule"
-    assert events[0].start == datetime(2024, 11, 1).date()
-    assert events[0].end == datetime(2025, 3, 1).date()  # End is exclusive
+    assert events[0].start == dt_util.start_of_local_day(datetime(2024, 11, 1))
+    # End should be 23:59:59 on February 28
+    expected_end = dt_util.as_local(datetime(2025, 2, 28, 23, 59, 59))
+    assert events[0].end == expected_end
 
 
 async def test_calendar_multi_year_schedule(hass: HomeAssistant):
@@ -204,12 +209,12 @@ async def test_calendar_multi_year_schedule(hass: HomeAssistant):
     assert all(e.summary == "Summer Schedule" for e in events)
     
     # Check 2024 event
-    assert events[0].start == datetime(2024, 6, 1).date()
-    assert events[0].end == datetime(2024, 9, 1).date()
+    assert events[0].start == dt_util.start_of_local_day(datetime(2024, 6, 1))
+    assert events[0].end == dt_util.as_local(datetime(2024, 8, 31, 23, 59, 59))
     
     # Check 2025 event
-    assert events[1].start == datetime(2025, 6, 1).date()
-    assert events[1].end == datetime(2025, 9, 1).date()
+    assert events[1].start == dt_util.start_of_local_day(datetime(2025, 6, 1))
+    assert events[1].end == dt_util.as_local(datetime(2025, 8, 31, 23, 59, 59))
 
 
 async def test_calendar_leap_year_feb_29(hass: HomeAssistant):
@@ -241,8 +246,8 @@ async def test_calendar_leap_year_feb_29(hass: HomeAssistant):
     
     assert len(events) == 1
     assert events[0].summary == "February Schedule"
-    assert events[0].start == datetime(2024, 2, 1).date()
-    assert events[0].end == datetime(2024, 3, 1).date()  # Feb 29 + 1 day
+    assert events[0].start == dt_util.start_of_local_day(datetime(2024, 2, 1))
+    assert events[0].end == dt_util.as_local(datetime(2024, 2, 29, 23, 59, 59))
     
     # Test non-leap year 2023 (Feb has 28 days)
     start_date = datetime(2023, 1, 1)
@@ -252,8 +257,8 @@ async def test_calendar_leap_year_feb_29(hass: HomeAssistant):
     # Should still create event, but end on Feb 28
     assert len(events) == 1
     assert events[0].summary == "February Schedule"
-    assert events[0].start == datetime(2023, 2, 1).date()
-    assert events[0].end == datetime(2023, 3, 1).date()  # Feb 28 + 1 day
+    assert events[0].start == dt_util.start_of_local_day(datetime(2023, 2, 1))
+    assert events[0].end == dt_util.as_local(datetime(2023, 2, 28, 23, 59, 59))
 
 
 async def test_calendar_invalid_date_feb_31(hass: HomeAssistant):
@@ -284,8 +289,8 @@ async def test_calendar_invalid_date_feb_31(hass: HomeAssistant):
     
     # Should handle gracefully - use last valid day (Feb 29 in 2024)
     assert len(events) == 1
-    assert events[0].start == datetime(2024, 2, 29).date()
-    assert events[0].end == datetime(2024, 3, 1).date()
+    assert events[0].start == dt_util.start_of_local_day(datetime(2024, 2, 29))
+    assert events[0].end == dt_util.as_local(datetime(2024, 2, 29, 23, 59, 59))
 
 
 async def test_calendar_30_day_month_with_day_31(hass: HomeAssistant):
@@ -327,13 +332,13 @@ async def test_calendar_30_day_month_with_day_31(hass: HomeAssistant):
     
     # April schedule should end on April 30
     april_event = [e for e in events if e.summary == "April Schedule"][0]
-    assert april_event.start == datetime(2024, 4, 1).date()
-    assert april_event.end == datetime(2024, 5, 1).date()  # April 30 + 1 day
+    assert april_event.start == dt_util.start_of_local_day(datetime(2024, 4, 1))
+    assert april_event.end == dt_util.as_local(datetime(2024, 4, 30, 23, 59, 59))
     
     # June schedule should be June 30 (adjusted from invalid 31)
     june_event = [e for e in events if e.summary == "June Schedule"][0]
-    assert june_event.start == datetime(2024, 6, 30).date()
-    assert june_event.end == datetime(2024, 7, 1).date()
+    assert june_event.start == dt_util.start_of_local_day(datetime(2024, 6, 30))
+    assert june_event.end == dt_util.as_local(datetime(2024, 6, 30, 23, 59, 59))
 
 
 async def test_calendar_wrap_around_multiple_years(hass: HomeAssistant):
@@ -367,14 +372,14 @@ async def test_calendar_wrap_around_multiple_years(hass: HomeAssistant):
     assert len(events) == 3
     
     # Check each event spans Dec 15 to Feb 15
-    assert events[0].start == datetime(2023, 12, 15).date()
-    assert events[0].end == datetime(2024, 2, 16).date()
+    assert events[0].start == dt_util.start_of_local_day(datetime(2023, 12, 15))
+    assert events[0].end == dt_util.as_local(datetime(2024, 2, 15, 23, 59, 59))
     
-    assert events[1].start == datetime(2024, 12, 15).date()
-    assert events[1].end == datetime(2025, 2, 16).date()
+    assert events[1].start == dt_util.start_of_local_day(datetime(2024, 12, 15))
+    assert events[1].end == dt_util.as_local(datetime(2025, 2, 15, 23, 59, 59))
     
-    assert events[2].start == datetime(2025, 12, 15).date()
-    assert events[2].end == datetime(2026, 2, 16).date()
+    assert events[2].start == dt_util.start_of_local_day(datetime(2025, 12, 15))
+    assert events[2].end == dt_util.as_local(datetime(2026, 2, 15, 23, 59, 59))
 
 
 async def test_calendar_empty_date_range(hass: HomeAssistant):
