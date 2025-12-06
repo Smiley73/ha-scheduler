@@ -142,10 +142,14 @@ class SchedulerCalendar(CalendarEntity):
 
                 if schedule_start and schedule_end:
                     # Create end datetime at 23:59:59 on the end date
-                    end_datetime = datetime.combine(schedule_end, datetime.max.time().replace(microsecond=0))
+                    end_datetime = datetime.combine(
+                        schedule_end, datetime.max.time().replace(microsecond=0)
+                    )
                     events.append(
                         CalendarEvent(
-                            start=dt_util.start_of_local_day(datetime.combine(schedule_start, datetime.min.time())),
+                            start=dt_util.start_of_local_day(
+                                datetime.combine(schedule_start, datetime.min.time())
+                            ),
                             end=dt_util.as_local(end_datetime),
                             summary=schedule_name,
                             description=f"Schedule: {schedule_name} ({schedule_type})",
@@ -238,9 +242,13 @@ class SchedulerCalendar(CalendarEntity):
                 current_date, schedule_data, "week", start_month, end_month
             ):
                 # Create end datetime at 23:59:59 on the same date
-                end_datetime = datetime.combine(current_date, datetime.max.time().replace(microsecond=0))
+                end_datetime = datetime.combine(
+                    current_date, datetime.max.time().replace(microsecond=0)
+                )
                 event = CalendarEvent(
-                    start=dt_util.start_of_local_day(datetime.combine(current_date, datetime.min.time())),
+                    start=dt_util.start_of_local_day(
+                        datetime.combine(current_date, datetime.min.time())
+                    ),
                     end=dt_util.as_local(end_datetime),
                     summary=schedule_name,
                     description=f"Schedule: {schedule_name} (week-based)",
