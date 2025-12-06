@@ -24,7 +24,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Scheduler binary sensor platform."""
+    from homeassistant.helpers import entity_registry as er
+    
     schedules = entry.data.get("schedules", {})
+    entity_reg = er.async_get(hass)
     
     entities = []
     
@@ -32,6 +35,22 @@ async def async_setup_entry(
     schedule_sensors = []
     for schedule_id, schedule_data in schedules.items():
         sensor = SchedulerBinarySensor(hass, entry, schedule_id, schedule_data)
+        
+        # Pre-register entity with custom entity_id to ensure prefix
+        schedule_name = schedule_data.get("name", "Schedule")
+        suggested_entity_id = f"scheduler_{schedule_name.lower().replace(' ', '_')}"
+        unique_id = f"{entry.entry_id}_{schedule_id}"
+        
+        # Check if entity exists, if not create it with our suggested ID
+        existing_entity_id = entity_reg.async_get_entity_id("binary_sensor", DOMAIN, unique_id)
+        if not existing_entity_id:
+            entity_reg.async_get_or_create(
+                "binary_sensor",
+                DOMAIN,
+                unique_id,
+                suggested_object_id=suggested_entity_id,
+            )
+        
         entities.append(sensor)
         schedule_sensors.append(sensor)
     
@@ -59,6 +78,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
         self._schedule_id = schedule_id
         self._schedule_data = schedule_data
         schedule_name = schedule_data.get("name", "Schedule")
+        # Display name without prefix
         self._attr_name = schedule_name
         self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
         self._attr_should_poll = False
@@ -188,6 +208,7 @@ class SchedulerBinarySensor(BinarySensorEntity):
         if self._schedule_id in schedules:
             self._schedule_data = schedules[self._schedule_id]
             schedule_name = self._schedule_data.get("name", "Schedule")
+            # Update entity name (device name provides prefix)
             self._attr_name = schedule_name
         
         self._update_state()

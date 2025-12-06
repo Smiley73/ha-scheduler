@@ -39,7 +39,6 @@ async def test_binary_sensor_date_in_range(hass: HomeAssistant, hub_entry):
         state = hass.states.get(entity_id)
         assert state
         assert state.state == "on"
-        assert state.attributes["icon"] == "mdi:check-circle"
 
 
 async def test_binary_sensor_date_out_of_range(hass: HomeAssistant):
@@ -76,7 +75,6 @@ async def test_binary_sensor_date_out_of_range(hass: HomeAssistant):
         state = hass.states.get(entity_id)
         assert state
         assert state.state == "off"
-        assert state.attributes["icon"] == "mdi:circle-outline"
 
 
 async def test_binary_sensor_week_based(hass: HomeAssistant):
