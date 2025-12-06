@@ -117,6 +117,16 @@ class SchedulerCalendar(CalendarEntity):
         end_date: datetime,
     ) -> list[CalendarEvent]:
         """Generate calendar events for a single schedule."""
+        if schedule_type == "nth-day":
+            # Generate events for nth-day schedules
+            return self._generate_nth_day_events(
+                schedule_id,
+                schedule_name,
+                schedule_data,
+                start_date,
+                end_date,
+            )
+
         start_month = schedule_data.get("start_month", 1)
         end_month = schedule_data.get("end_month", 12)
 
@@ -383,3 +393,98 @@ class SchedulerCalendar(CalendarEntity):
 
             # Check if current day is within the calculated range
             return start_date_candidate <= current_day <= end_date_candidate
+
+    def _generate_nth_day_events(
+        self,
+        schedule_id: str,
+        schedule_name: str,
+        schedule_data: dict,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> list[CalendarEvent]:
+        """Generate calendar events for nth-day schedules."""
+        target_month = schedule_data.get("month", 1)
+        occurrence = schedule_data.get("occurrence", 0)
+        day_of_week = schedule_data.get("day_of_week", 0)
+        start_offset = schedule_data.get("start_offset", 0)
+        end_offset = schedule_data.get("end_offset", 0)
+
+        events = []
+        start_year = start_date.year
+        end_year = end_date.year
+
+        for year in range(start_year, end_year + 1):
+            # Calculate the target date
+            target_date = self._calculate_nth_day(
+                year, target_month, occurrence, day_of_week
+            )
+
+            if target_date is None:
+                continue
+
+            # Calculate the date range with offsets
+            range_start = target_date - timedelta(days=start_offset)
+            range_end = target_date + timedelta(days=end_offset)
+
+            # Check if this event overlaps with the requested range
+            if range_end < start_date.date() or range_start > end_date.date():
+                continue
+
+            # Create the event
+            end_datetime = datetime.combine(
+                range_end, datetime.max.time().replace(microsecond=0)
+            )
+            events.append(
+                CalendarEvent(
+                    start=dt_util.start_of_local_day(
+                        datetime.combine(range_start, datetime.min.time())
+                    ),
+                    end=dt_util.as_local(end_datetime),
+                    summary=schedule_name,
+                    description=f"Schedule: {schedule_name} (nth-day)",
+                    uid=f"{schedule_id}_{range_start.isoformat()}",
+                )
+            )
+
+        return events
+
+    def _calculate_nth_day(
+        self, year: int, month: int, occurrence: int, day_of_week: int
+    ) -> datetime.date | None:
+        """Calculate the nth occurrence of a day of week in a month.
+
+        Args:
+            year: The year
+            month: The month (1-12)
+            occurrence: The occurrence (0=first, 1=second, 2=third, 3=fourth, 4=last)
+            day_of_week: The day of week (0=Monday, 6=Sunday)
+
+        Returns:
+            The date of the nth occurrence, or None if it doesn't exist
+        """
+        import calendar
+
+        if occurrence == 4:  # Last occurrence
+            # Start from the last day of the month and work backwards
+            last_day = calendar.monthrange(year, month)[1]
+            for day in range(last_day, 0, -1):
+                try:
+                    check_date = datetime(year, month, day).date()
+                    if check_date.weekday() == day_of_week:
+                        return check_date
+                except ValueError:
+                    continue
+            return None
+        else:
+            # Find the nth occurrence (0-3)
+            count = 0
+            for day in range(1, 32):
+                try:
+                    check_date = datetime(year, month, day).date()
+                    if check_date.weekday() == day_of_week:
+                        if count == occurrence:
+                            return check_date
+                        count += 1
+                except ValueError:
+                    break
+            return None

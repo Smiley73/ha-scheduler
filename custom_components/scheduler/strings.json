@@ -106,6 +106,26 @@
           "end_day_of_week": "Day of the week when the schedule ends",
           "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
         }
+      },
+      "nth_day_config": {
+        "title": "Configure Nth-Day Schedule",
+        "description": "Set a date range around a specific occurrence of a weekday in a month",
+        "data": {
+          "month": "Month",
+          "occurrence": "Occurrence",
+          "day_of_week": "Day of Week",
+          "start_offset": "Days Before (Start Offset)",
+          "end_offset": "Days After (End Offset)",
+          "additional_yaml": "Additional YAML Configuration (Optional)"
+        },
+        "data_description": {
+          "month": "The month for this schedule",
+          "occurrence": "Which occurrence of the day (first, second, third, fourth, or last)",
+          "day_of_week": "The day of the week",
+          "start_offset": "How many days before the target date should the schedule be active (0-30)",
+          "end_offset": "How many days after the target date should the schedule be active (0-30)",
+          "additional_yaml": "Optional YAML configuration for advanced settings. Leave empty if not needed."
+        }
       }
     },
     "error": {
@@ -127,7 +147,8 @@
     "schedule_type": {
       "options": {
         "date": "By Date",
-        "week": "By Week of Month"
+        "week": "By Week of Month",
+        "nth-day": "By Nth Day of Month"
       }
     },
     "month": {
@@ -155,6 +176,15 @@
         "friday": "Friday",
         "saturday": "Saturday",
         "sunday": "Sunday"
+      }
+    },
+    "occurrence": {
+      "options": {
+        "first": "First",
+        "second": "Second",
+        "third": "Third",
+        "fourth": "Fourth",
+        "last": "Last"
       }
     }
   },

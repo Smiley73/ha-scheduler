@@ -25,19 +25,96 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 
 ## Configuration
 
+### Initial Setup
+
 1. Go to Settings -> Devices & Services
 2. Click "+ Add Integration"
 3. Search for "Scheduler"
-4. Follow the configuration steps
+4. Click "Submit" to create the Scheduler hub
+
+### Adding Schedules
+
+1. Go to Settings -> Devices & Services
+2. Find the "Scheduler" integration
+3. Click "Configure"
+4. Select "Add Schedule"
+5. Enter a name and choose a schedule type (Date, Week, or Nth-Day)
+6. Configure the schedule parameters based on the type selected
+7. (Optional) Add YAML configuration for custom attributes
+
+### Managing Schedules
+
+From the Configure menu, you can:
+- **Add Schedule**: Create a new schedule
+- **Edit Schedule**: Modify an existing schedule's parameters
+- **Rename Schedule**: Change a schedule's name
+- **Remove Schedule**: Delete a schedule
+
+The integration automatically prevents overlapping schedules to avoid conflicts.
 
 ## Features
 
 - Easy configuration through the UI
-- Schedule automation tasks based on date ranges or week patterns
+- Three flexible schedule types: date-based, week-based, and nth-day
 - Binary sensors for each schedule that activate during configured periods
 - Additional configuration for each sensor to provide schedule specific values
 - Calendar integration showing all active schedules
 - Hub device that aggregates all schedules
+- Automatic overlap detection to prevent conflicting schedules
+
+## Schedule Types
+
+The Scheduler integration supports three types of schedules to cover different use cases:
+
+### 1. Date-Based Schedules
+
+**Use for:** Fixed date ranges like holiday seasons, summer months, or specific date periods.
+
+**Configuration:**
+- Start Month & Day: When the schedule begins (e.g., November 15)
+- End Month & Day: When the schedule ends (e.g., January 10)
+
+**Examples:**
+- Christmas lights: November 25 - January 6
+- Summer pool schedule: June 1 - August 31
+- Tax season reminder: February 1 - April 15
+
+**Supports wrap-around:** Yes (e.g., November to February crosses year boundary)
+
+### 2. Week-Based Schedules
+
+**Use for:** Schedules based on specific weeks within months, like "first week of every month" or "last two weeks of December."
+
+**Configuration:**
+- Start Month, Week (0-4), and Day of Week: When the schedule begins
+- End Month, Week (0-4), and Day of Week: When the schedule ends
+- Week 0 = first week, Week 4 = last week
+
+**Examples:**
+- First Monday of every month: Week 0, Monday to Week 0, Monday
+- Last week of December: Week 4, Monday to Week 4, Sunday
+- Mid-month period: Week 2, Monday to Week 3, Friday
+
+**Note:** All days between the start and end dates are active, not just the specified days of the week.
+
+### 3. Nth-Day Schedules
+
+**Use for:** Schedules around specific occurrences of weekdays in a month, like "Thanksgiving" or "second Tuesday of March."
+
+**Configuration:**
+- Month: Target month (1-12)
+- Occurrence: Which occurrence (First, Second, Third, Fourth, or Last)
+- Day of Week: Target weekday (Monday-Sunday)
+- Start Offset: Days before the target date to activate (0-30)
+- End Offset: Days after the target date to stay active (0-30)
+
+**Examples:**
+- Thanksgiving (4th Thursday of November): Month=11, Occurrence=Fourth, Day=Thursday, Offsets=0/0
+- Mother's Day weekend (2nd Sunday of May, Friday-Monday): Month=5, Occurrence=Second, Day=Sunday, Start Offset=2, End Offset=1
+- Memorial Day (Last Monday of May): Month=5, Occurrence=Last, Day=Monday, Offsets=0/0
+- Tax deadline prep (around April 15): Calculate 3rd Monday of April with appropriate offsets
+
+**Perfect for:** US holidays, recurring events based on "nth weekday of month" patterns, and creating date ranges around specific days.
 
 ### Calendar Integration
 

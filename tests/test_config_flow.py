@@ -1297,9 +1297,10 @@ async def test_translation_fallback_paths(hass: HomeAssistant):
 
     # Should return options with default English labels
     schedule_options = _get_schedule_type_options(hass)
-    assert len(schedule_options) == 2
+    assert len(schedule_options) == 3
     assert schedule_options[0]["value"] == "date"
     assert schedule_options[1]["value"] == "week"
+    assert schedule_options[2]["value"] == "nth-day"
 
     month_options = _get_month_options(hass)
     assert len(month_options) == 12
@@ -1623,3 +1624,309 @@ async def test_config_flow_description_placeholders(hass: HomeAssistant):
     assert result["type"] == FlowResultType.FORM
     assert "description_placeholders" in result
     assert "info" in result["description_placeholders"]
+
+
+async def test_options_add_nth_day_schedule(hass: HomeAssistant, empty_hub_entry):
+    """Test adding an nth-day schedule."""
+    empty_hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(empty_hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(empty_hub_entry.entry_id)
+    assert result["type"] == FlowResultType.MENU
+
+    # Select add schedule
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "add_schedule"
+
+    # Enter schedule name and select nth-day type
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Thanksgiving", "schedule_type": "nth-day"},
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "nth_day_config"
+
+    # Configure nth-day schedule (4th Thursday of November)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "11",
+            "occurrence": "3",  # Fourth (0-indexed)
+            "day_of_week": "3",  # Thursday
+            "start_offset": 0,
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    # Verify schedule was added
+    entry = hass.config_entries.async_get_entry(empty_hub_entry.entry_id)
+    schedules = entry.data["schedules"]
+    assert len(schedules) == 1
+    schedule_data = list(schedules.values())[0]
+    assert schedule_data["name"] == "Thanksgiving"
+    assert schedule_data["schedule_type"] == "nth-day"
+    assert schedule_data["month"] == 11
+    assert schedule_data["occurrence"] == 3
+
+
+async def test_options_add_nth_day_overlap_same_type(hass: HomeAssistant):
+    """Test that overlapping nth-day schedules are rejected."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "thanksgiving": {
+                    "name": "Thanksgiving",
+                    "schedule_type": "nth-day",
+                    "month": 11,
+                    "occurrence": 3,  # Fourth Thursday
+                    "day_of_week": 3,
+                    "start_offset": 1,
+                    "end_offset": 1,
+                },
+            }
+        },
+        entry_id="test_nth_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Black Friday", "schedule_type": "nth-day"},
+    )
+
+    # Try to add overlapping schedule (4th Friday of November with offset)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "11",
+            "occurrence": "3",  # Fourth Friday
+            "day_of_week": "4",
+            "start_offset": 2,  # Would overlap with Thanksgiving
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert "errors" in result
+    assert "base" in result["errors"]
+
+
+async def test_options_add_nth_day_no_overlap_different_month(hass: HomeAssistant):
+    """Test that nth-day schedules in different months don't overlap."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "thanksgiving": {
+                    "name": "Thanksgiving",
+                    "schedule_type": "nth-day",
+                    "month": 11,
+                    "occurrence": 3,
+                    "day_of_week": 3,
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            }
+        },
+        entry_id="test_nth_no_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Christmas", "schedule_type": "nth-day"},
+    )
+
+    # Add non-overlapping schedule (4th Thursday of December)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "12",
+            "occurrence": "3",
+            "day_of_week": "3",
+            "start_offset": 0,
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == "create_entry"
+
+
+async def test_options_add_nth_day_overlap_with_date(hass: HomeAssistant):
+    """Test that nth-day schedule overlaps with date schedule."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "november": {
+                    "name": "All November",
+                    "schedule_type": "date",
+                    "start_month": 11,
+                    "start_day": 1,
+                    "end_month": 11,
+                    "end_day": 30,
+                },
+            }
+        },
+        entry_id="test_nth_date_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Thanksgiving", "schedule_type": "nth-day"},
+    )
+
+    # Try to add nth-day schedule that falls within November
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "11",
+            "occurrence": "3",
+            "day_of_week": "3",
+            "start_offset": 0,
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert "errors" in result
+    assert "base" in result["errors"]
+
+
+async def test_options_add_date_overlap_with_nth_day(hass: HomeAssistant):
+    """Test that date schedule overlaps with existing nth-day schedule."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "thanksgiving": {
+                    "name": "Thanksgiving",
+                    "schedule_type": "nth-day",
+                    "month": 11,
+                    "occurrence": 3,
+                    "day_of_week": 3,
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            }
+        },
+        entry_id="test_date_nth_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "November", "schedule_type": "date"},
+    )
+
+    # Try to add date schedule that includes Thanksgiving
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "start_month": "11",
+            "start_day": 1,
+            "end_month": "11",
+            "end_day": 30,
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert "errors" in result
+    assert "base" in result["errors"]
+
+
+async def test_options_add_nth_day_overlap_with_week(hass: HomeAssistant):
+    """Test that nth-day schedule overlaps with week schedule."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "november_weeks": {
+                    "name": "November Weeks",
+                    "schedule_type": "week",
+                    "start_month": 11,
+                    "start_week": 3,
+                    "start_day_of_week": 0,
+                    "end_month": 11,
+                    "end_week": 4,
+                    "end_day_of_week": 6,
+                },
+            }
+        },
+        entry_id="test_nth_week_overlap_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Thanksgiving", "schedule_type": "nth-day"},
+    )
+
+    # Try to add nth-day schedule that falls within the week range
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "11",
+            "occurrence": "3",  # Fourth Thursday (likely in week 3-4)
+            "day_of_week": "3",
+            "start_offset": 0,
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+
+    assert result["type"] == "form"
+    assert "errors" in result
+    assert "base" in result["errors"]

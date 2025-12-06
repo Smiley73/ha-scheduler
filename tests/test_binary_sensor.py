@@ -988,3 +988,216 @@ async def test_binary_sensor_week_schedule_includes_all_days(hass: HomeAssistant
             # Clean up
             await hass.config_entries.async_remove(entry.entry_id)
             await hass.async_block_till_done()
+
+
+async def test_binary_sensor_nth_day_second_tuesday(hass: HomeAssistant):
+    """Test nth-day schedule for second Tuesday of March."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "nth_day_schedule": {
+                    "name": "Second Tuesday",
+                    "schedule_type": "nth-day",
+                    "month": 3,  # March
+                    "occurrence": 1,  # Second (0=first, 1=second)
+                    "day_of_week": 1,  # Tuesday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            },
+        },
+        entry_id="test_nth_day_hub",
+    )
+
+    # March 2025: Second Tuesday is March 11
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 3, 11)
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_second_tuesday"
+        state = hass.states.get(entity_id)
+        assert state
+        assert state.state == "on"
+        assert state.attributes["schedule_type"] == "nth-day"
+        assert state.attributes["month"] == 3
+        assert state.attributes["occurrence"] == 1
+        assert state.attributes["day_of_week"] == 1
+
+
+async def test_binary_sensor_nth_day_with_offsets(hass: HomeAssistant):
+    """Test nth-day schedule with start and end offsets."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "nth_day_offset_schedule": {
+                    "name": "Third Friday with Offsets",
+                    "schedule_type": "nth-day",
+                    "month": 6,  # June
+                    "occurrence": 2,  # Third (0=first, 1=second, 2=third)
+                    "day_of_week": 4,  # Friday
+                    "start_offset": 3,  # 3 days before
+                    "end_offset": 2,  # 2 days after
+                },
+            },
+        },
+        entry_id="test_nth_day_offset_hub",
+    )
+
+    # June 2025: Third Friday is June 20
+    # With offsets: active from June 17 (20-3) to June 22 (20+2)
+    test_cases = [
+        (datetime(2025, 6, 16), False, "Day before range"),
+        (datetime(2025, 6, 17), True, "First day of range (3 days before)"),
+        (datetime(2025, 6, 20), True, "Target day (third Friday)"),
+        (datetime(2025, 6, 22), True, "Last day of range (2 days after)"),
+        (datetime(2025, 6, 23), False, "Day after range"),
+    ]
+
+    for test_date, expected_state, description in test_cases:
+        with patch(
+            "custom_components.scheduler.binary_sensor.datetime"
+        ) as mock_datetime:
+            mock_datetime.now.return_value = test_date
+            mock_datetime.side_effect = lambda *args, **kwargs: datetime(
+                *args, **kwargs
+            )
+
+            entry = MockConfigEntry(
+                domain=DOMAIN,
+                title="Scheduler",
+                data=hub_entry.data,
+                entry_id=f"test_nth_offset_{test_date.day}",
+            )
+            entry.add_to_hass(hass)
+            await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+
+            state = hass.states.get("binary_sensor.scheduler_third_friday_with_offsets")
+            assert state is not None, f"Sensor not found for {description}"
+
+            actual_state = state.state == "on"
+            assert actual_state == expected_state, (
+                f"{description}: Expected {'ON' if expected_state else 'OFF'}, "
+                f"got {state.state}"
+            )
+
+            await hass.config_entries.async_remove(entry.entry_id)
+            await hass.async_block_till_done()
+
+
+async def test_binary_sensor_nth_day_last_occurrence(hass: HomeAssistant):
+    """Test nth-day schedule for last Monday of December."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "last_monday_schedule": {
+                    "name": "Last Monday",
+                    "schedule_type": "nth-day",
+                    "month": 12,  # December
+                    "occurrence": 4,  # Last
+                    "day_of_week": 0,  # Monday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            },
+        },
+        entry_id="test_last_monday_hub",
+    )
+
+    # December 2025: Last Monday is December 29
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 12, 29)
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_last_monday"
+        state = hass.states.get(entity_id)
+        assert state
+        assert state.state == "on"
+        assert state.attributes["occurrence"] == 4  # Last
+
+
+async def test_binary_sensor_nth_day_first_occurrence(hass: HomeAssistant):
+    """Test nth-day schedule for first Sunday of January."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "first_sunday_schedule": {
+                    "name": "First Sunday",
+                    "schedule_type": "nth-day",
+                    "month": 1,  # January
+                    "occurrence": 0,  # First
+                    "day_of_week": 6,  # Sunday
+                    "start_offset": 1,
+                    "end_offset": 1,
+                },
+            },
+        },
+        entry_id="test_first_sunday_hub",
+    )
+
+    # January 2025: First Sunday is January 5
+    # With offsets: active from January 4 to January 6
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 1, 5)
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_first_sunday"
+        state = hass.states.get(entity_id)
+        assert state
+        assert state.state == "on"
+
+
+async def test_binary_sensor_nth_day_out_of_range(hass: HomeAssistant):
+    """Test nth-day schedule when current date is outside the range."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "nth_day_schedule": {
+                    "name": "Fourth Thursday",
+                    "schedule_type": "nth-day",
+                    "month": 11,  # November (Thanksgiving)
+                    "occurrence": 3,  # Fourth (0-indexed)
+                    "day_of_week": 3,  # Thursday
+                    "start_offset": 0,
+                    "end_offset": 0,
+                },
+            },
+        },
+        entry_id="test_nth_out_hub",
+    )
+
+    # Test in December (outside November)
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 12, 1)
+        mock_datetime.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_fourth_thursday"
+        state = hass.states.get(entity_id)
+        assert state
+        assert state.state == "off"
