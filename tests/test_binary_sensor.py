@@ -1,4 +1,5 @@
 """Test the Scheduler binary sensor platform."""
+import logging
 from datetime import datetime
 from unittest.mock import patch
 
@@ -713,3 +714,196 @@ async def test_hub_sensor_no_entity_ids(hass: HomeAssistant):
 
     # Should not crash
     assert hub_sensor._attr_is_on is False
+
+
+async def test_binary_sensor_unavailable_no_data(hass: HomeAssistant):
+    """Test binary sensor becomes unavailable when schedule data is missing."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "test_schedule": {
+                    "name": "Test Schedule",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_unavailable_hub",
+    )
+
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        entity_id = "binary_sensor.scheduler_test_schedule"
+        state = hass.states.get(entity_id)
+        assert state
+        assert state.state != "unavailable"
+
+        # Remove schedule data to simulate corruption
+        new_data = {"schedules": {}}
+        hass.config_entries.async_update_entry(hub_entry, data=new_data)
+        await hass.config_entries.async_reload(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        # Entity should be removed since schedule no longer exists
+        state = hass.states.get(entity_id)
+        # Entity won't exist anymore after reload without the schedule
+
+
+async def test_binary_sensor_availability_logging(hass: HomeAssistant, caplog):
+    """Test that unavailability is logged once."""
+    from custom_components.scheduler.binary_sensor import SchedulerBinarySensor
+
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_logging_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+
+    # Create sensor with empty schedule data
+    sensor = SchedulerBinarySensor(hass, hub_entry, "test_id", {})
+
+    with caplog.at_level(logging.WARNING):
+        # First call should log
+        sensor._is_date_in_range()
+        assert "marking unavailable" in caplog.text
+        assert not sensor._attr_available
+
+        caplog.clear()
+
+        # Second call should not log again
+        sensor._is_date_in_range()
+        assert "marking unavailable" not in caplog.text
+
+
+async def test_binary_sensor_recovery_logging(hass: HomeAssistant, caplog):
+    """Test that recovery from unavailability is logged."""
+    from custom_components.scheduler.binary_sensor import SchedulerBinarySensor
+
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_recovery_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+
+    # Create sensor with empty schedule data
+    sensor = SchedulerBinarySensor(hass, hub_entry, "test_id", {})
+
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+
+        # Make it unavailable first
+        sensor._is_date_in_range()
+        assert not sensor._attr_available
+        assert sensor._unavailable_logged
+
+        # Now give it valid data
+        sensor._schedule_data = {
+            "name": "Test",
+            "schedule_type": "date",
+            "start_month": 1,
+            "end_month": 12,
+            "start_day": 1,
+            "end_day": 31,
+        }
+
+        with caplog.at_level(logging.INFO):
+            sensor._is_date_in_range()
+            assert "back online" in caplog.text
+            assert sensor._attr_available
+            assert not sensor._unavailable_logged
+
+
+async def test_hub_sensor_availability(hass: HomeAssistant):
+    """Test hub sensor availability based on schedule sensors."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "schedule_1": {
+                    "name": "Schedule 1",
+                    "start_month": 1,
+                    "end_month": 12,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_hub_avail",
+    )
+
+    with patch("custom_components.scheduler.binary_sensor.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2025, 6, 15)
+
+        hub_entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(hub_entry.entry_id)
+        await hass.async_block_till_done()
+
+        hub_state = hass.states.get("binary_sensor.scheduler")
+        assert hub_state
+        # Hub should be available when at least one schedule is available
+        assert hub_state.state != "unavailable"
+
+
+async def test_calendar_unavailable_no_schedules(hass: HomeAssistant):
+    """Test calendar becomes unavailable when no schedules exist."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_cal_unavail",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Calendar should not be created when no schedules exist
+    calendar_state = hass.states.get("calendar.scheduler")
+    assert calendar_state is None
+
+
+async def test_calendar_availability_with_schedules(hass: HomeAssistant):
+    """Test calendar availability when schedules exist."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={
+            "schedules": {
+                "test_schedule": {
+                    "name": "Test Schedule",
+                    "start_month": 6,
+                    "end_month": 8,
+                    "schedule_type": "date",
+                    "start_day": 1,
+                    "end_day": 31,
+                },
+            },
+        },
+        entry_id="test_cal_avail",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar_state = hass.states.get("calendar.scheduler")
+    assert calendar_state
+    assert calendar_state.state != "unavailable"

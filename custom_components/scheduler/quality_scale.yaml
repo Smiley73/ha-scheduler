@@ -79,14 +79,14 @@ rules:
     status: done
     comment: 94% test coverage with 79 tests
 
-  # Silver Tier (Optional - not targeting)
+  # Silver Tier
   entity-unavailable:
-    status: exempt
-    comment: Not targeting Silver tier - entities always available for local schedules
+    status: done
+    comment: Entities marked unavailable when schedule data is missing or corrupted, with proper logging
 
   parallel-updates:
-    status: exempt
-    comment: Not targeting Silver tier - no parallel update concerns
+    status: done
+    comment: PARALLEL_UPDATES = 0 set in both binary_sensor.py and calendar.py (unlimited for local read-only operations)
 
   # Gold Tier (Optional - not targeting)
   devices:

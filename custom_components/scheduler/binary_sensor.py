@@ -19,6 +19,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# No parallel update limits needed - all operations are local and read-only
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -86,6 +89,8 @@ class SchedulerBinarySensor(BinarySensorEntity):
         self._attr_name = schedule_name
         self._attr_unique_id = f"{entry.entry_id}_{schedule_id}"
         self._attr_should_poll = False
+        self._attr_available = True
+        self._unavailable_logged = False
         self._attr_device_info = {
             "identifiers": {(DOMAIN, schedule_id)},
             "name": schedule_name,
@@ -102,6 +107,22 @@ class SchedulerBinarySensor(BinarySensorEntity):
 
     def _is_date_in_range(self) -> bool:
         """Check if current date is within the configured range."""
+        # Validate schedule data exists and has required fields
+        if not self._schedule_data:
+            if not self._unavailable_logged:
+                _LOGGER.warning(
+                    "Schedule %s has no data, marking unavailable", self._schedule_id
+                )
+                self._unavailable_logged = True
+            self._attr_available = False
+            return False
+
+        # Mark as available if we have valid data
+        if not self._attr_available and self._unavailable_logged:
+            _LOGGER.info("Schedule %s is back online", self._schedule_id)
+            self._unavailable_logged = False
+        self._attr_available = True
+
         now = datetime.now()
         current_month = now.month
         current_day = now.day
@@ -215,6 +236,17 @@ class SchedulerBinarySensor(BinarySensorEntity):
             schedule_name = self._schedule_data.get("name", "Schedule")
             # Update entity name (device name provides prefix)
             self._attr_name = schedule_name
+        else:
+            # Schedule was removed from config
+            if not self._unavailable_logged:
+                _LOGGER.warning(
+                    "Schedule %s no longer exists in config, marking unavailable",
+                    self._schedule_id,
+                )
+                self._unavailable_logged = True
+            self._attr_available = False
+            self._schedule_data = {}
+            return
 
         self._update_state()
         self._update_extra_state_attributes()
@@ -236,6 +268,7 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         self._attr_name = "Scheduler"
         self._attr_unique_id = f"{entry.entry_id}_hub"
         self._attr_should_poll = False
+        self._attr_available = True
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scheduler_hub")},
             "name": "Scheduler",
@@ -284,15 +317,22 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
     def _update_state(self) -> None:
         """Update the sensor state based on schedule sensors."""
         active_schedules = []
+        available_count = 0
 
         # Find all active schedules by checking actual state from state machine
         for sensor in self._schedule_sensors:
             # Check if entity exists and is enabled in the state machine
             if sensor.entity_id:
                 state = self._hass.states.get(sensor.entity_id)
+                # Count available sensors
+                if state and state.state != "unavailable":
+                    available_count += 1
                 # Only consider if state exists and is "on"
                 if state and state.state == "on":
                     active_schedules.append(sensor)
+
+        # Hub is available if at least one schedule sensor is available
+        self._attr_available = available_count > 0
 
         # Set state to true if any schedule is active
         self._attr_is_on = len(active_schedules) > 0

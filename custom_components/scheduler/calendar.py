@@ -14,6 +14,9 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# No parallel update limits needed - all operations are local and read-only
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -38,6 +41,7 @@ class SchedulerCalendar(CalendarEntity):
         self._entry = entry
         self._attr_name = "Scheduler"
         self._attr_unique_id = f"{entry.entry_id}_calendar"
+        self._attr_available = True
         self._attr_device_info = {
             "identifiers": {(DOMAIN, "scheduler_hub")},
             "name": "Scheduler",
@@ -48,6 +52,13 @@ class SchedulerCalendar(CalendarEntity):
     @property
     def event(self) -> CalendarEvent | None:
         """Return the next upcoming event."""
+        # Check if we have valid schedule data
+        schedules = self._entry.data.get("schedules", {})
+        if not schedules:
+            self._attr_available = False
+            return None
+
+        self._attr_available = True
         events = self._get_events(datetime.now(), datetime.now() + timedelta(days=365))
         if events:
             return events[0]
@@ -57,6 +68,13 @@ class SchedulerCalendar(CalendarEntity):
         self, hass: HomeAssistant, start_date: datetime, end_date: datetime
     ) -> list[CalendarEvent]:
         """Return calendar events within a datetime range."""
+        # Check if we have valid schedule data
+        schedules = self._entry.data.get("schedules", {})
+        if not schedules:
+            self._attr_available = False
+            return []
+
+        self._attr_available = True
         return self._get_events(start_date, end_date)
 
     def _get_events(
@@ -101,17 +119,23 @@ class SchedulerCalendar(CalendarEntity):
         if schedule_type == "date":
             start_day = schedule_data.get("start_day", 1)
             end_day = schedule_data.get("end_day", 31)
-            
+
             # Generate events for each year in the requested range
             events = []
             start_year = start_date.year
             end_year = end_date.year
-            
+
             for year in range(start_year, end_year + 1):
                 schedule_start, schedule_end = self._calculate_schedule_dates_for_year(
-                    year, start_month, end_month, start_day, end_day, start_date, end_date
+                    year,
+                    start_month,
+                    end_month,
+                    start_day,
+                    end_day,
+                    start_date,
+                    end_date,
                 )
-                
+
                 if schedule_start and schedule_end:
                     events.append(
                         CalendarEvent(
@@ -122,7 +146,7 @@ class SchedulerCalendar(CalendarEntity):
                             uid=f"{schedule_id}_{schedule_start.isoformat()}",
                         )
                     )
-            
+
             return events
         else:
             # For week-based schedules, still generate individual events
@@ -159,20 +183,18 @@ class SchedulerCalendar(CalendarEntity):
             # Normal schedule within same year
             schedule_start = self._get_valid_date(year, start_month, start_day)
             schedule_end = self._get_valid_date(year, end_month, end_day)
-        
+
         # If either date is invalid, skip this schedule instance
         if schedule_start is None or schedule_end is None:
             return None, None
-        
+
         # Ensure the schedule overlaps with the requested range
         if schedule_end < range_start.date() or schedule_start > range_end.date():
             return None, None
-        
+
         return schedule_start, schedule_end
 
-    def _get_valid_date(
-        self, year: int, month: int, day: int
-    ) -> datetime.date | None:
+    def _get_valid_date(self, year: int, month: int, day: int) -> datetime.date | None:
         """Get a valid date, adjusting for invalid dates like Feb 29 in non-leap years."""
         try:
             return datetime(year, month, day).date()
@@ -180,7 +202,7 @@ class SchedulerCalendar(CalendarEntity):
             # Invalid date - try to find the last valid day of the month
             # This handles cases like Feb 29-31 in non-leap years
             import calendar
-            
+
             last_day = calendar.monthrange(year, month)[1]
             if day > last_day:
                 # Use the last valid day of the month
