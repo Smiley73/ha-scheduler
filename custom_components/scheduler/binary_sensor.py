@@ -218,15 +218,19 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
             "model": "Hub",
         }
         self._attr_extra_state_attributes = {}
+        self._attr_is_on = False
         self._unsub_state_listener = None
-        self._update_state()
+        # Don't call _update_state() here - entity_ids aren't set yet
 
     async def async_added_to_hass(self) -> None:
         """Run when entity is added to hass."""
         await super().async_added_to_hass()
         
+        # Now that entities are added, do initial state update
+        self._update_state()
+        
         # Track state changes of all schedule sensors
-        entity_ids = [sensor.entity_id for sensor in self._schedule_sensors]
+        entity_ids = [sensor.entity_id for sensor in self._schedule_sensors if sensor.entity_id]
         
         @callback
         def state_change_listener(event):
@@ -234,9 +238,10 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
             self._update_state()
             self.async_write_ha_state()
         
-        self._unsub_state_listener = async_track_state_change_event(
-            self._hass, entity_ids, state_change_listener
-        )
+        if entity_ids:
+            self._unsub_state_listener = async_track_state_change_event(
+                self._hass, entity_ids, state_change_listener
+            )
         
         # Update every hour as well
         async_track_time_interval(
@@ -253,10 +258,14 @@ class SchedulerHubBinarySensor(BinarySensorEntity):
         """Update the sensor state based on schedule sensors."""
         active_schedules = []
         
-        # Find all active schedules
+        # Find all active schedules by checking actual state from state machine
         for sensor in self._schedule_sensors:
-            if sensor.is_on:
-                active_schedules.append(sensor)
+            # Check if entity exists and is enabled in the state machine
+            if sensor.entity_id:
+                state = self._hass.states.get(sensor.entity_id)
+                # Only consider if state exists and is "on"
+                if state and state.state == "on":
+                    active_schedules.append(sensor)
         
         # Set state to true if any schedule is active
         self._attr_is_on = len(active_schedules) > 0
