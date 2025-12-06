@@ -683,6 +683,32 @@ async def validate_schedule_input(
         if not 0 <= end_offset <= 30:
             raise ValueError("End offset must be between 0 and 30")
 
+        # Validate that the nth occurrence exists in the target month
+        test_range = calculate_nth_day_range(
+            month, occurrence, day_of_week, start_offset, end_offset
+        )
+        if test_range is None:
+            from .const import DAY_NAMES, OCCURRENCE_NAMES
+
+            occurrence_name = (
+                OCCURRENCE_NAMES[occurrence]
+                if 0 <= occurrence < len(OCCURRENCE_NAMES)
+                else str(occurrence)
+            )
+            day_name = (
+                DAY_NAMES[day_of_week]
+                if 0 <= day_of_week < len(DAY_NAMES)
+                else str(day_of_week)
+            )
+            month_name = (
+                MONTH_NAMES[month - 1] if 1 <= month <= len(MONTH_NAMES) else str(month)
+            )
+
+            raise ValueError(
+                f"The {occurrence_name} {day_name} does not exist in {month_name}. "
+                f"Please choose a different occurrence or month."
+            )
+
         # Remove fields from other schedule types
         data.pop("start_month", None)
         data.pop("end_month", None)

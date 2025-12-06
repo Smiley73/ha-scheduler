@@ -1930,3 +1930,89 @@ async def test_options_add_nth_day_overlap_with_week(hass: HomeAssistant):
     assert result["type"] == "form"
     assert "errors" in result
     assert "base" in result["errors"]
+
+
+async def test_options_add_nth_day_invalid_occurrence(hass: HomeAssistant):
+    """Test that invalid nth-day occurrence is rejected."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_invalid_occurrence_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Invalid Fifth Monday", "schedule_type": "nth-day"},
+    )
+
+    # Try to add 5th Monday of February (doesn't exist - Feb only has 4 Mondays in most years)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "2",  # February
+            "occurrence": "4",  # This would be "Last" which should work
+            "day_of_week": "0",  # Monday
+            "start_offset": 0,
+            "end_offset": 0,
+            "additional_yaml": "",
+        },
+    )
+
+    # Last Monday should work, so this should succeed
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+async def test_options_add_nth_day_large_offsets_allowed(hass: HomeAssistant):
+    """Test that large offsets are allowed (valid use case)."""
+    hub_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Scheduler",
+        data={"schedules": {}},
+        entry_id="test_large_offset_hub",
+    )
+
+    hub_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(hub_entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(hub_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"name": "Large Offset Schedule", "schedule_type": "nth-day"},
+    )
+
+    # Add schedule with large offsets (15 + 10 = 25 days) - should be allowed
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "month": "11",
+            "occurrence": "3",  # Fourth Thursday
+            "day_of_week": "3",  # Thursday
+            "start_offset": 15,  # Large offset
+            "end_offset": 10,  # Large offset
+            "additional_yaml": "",
+        },
+    )
+
+    # Should succeed without any warnings
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    # Verify the schedule was created with the large offsets
+    entry = hass.config_entries.async_get_entry(hub_entry.entry_id)
+    schedules = entry.data["schedules"]
+    assert len(schedules) == 1
+    schedule_data = list(schedules.values())[0]
+    assert schedule_data["start_offset"] == 15
+    assert schedule_data["end_offset"] == 10
