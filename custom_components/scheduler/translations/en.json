@@ -2,79 +2,149 @@
   "config": {
     "step": {
       "user": {
-        "title": "Add scheduler",
-        "description": "Create a new scheduler with its own calendar",
+        "title": "Set up Scheduler",
+        "description": "Create a scheduler calendar entity",
         "data": {
           "name": "Name"
         }
       }
+    },
+    "abort": {
+      "already_configured": "Scheduler is already configured"
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Manage scheduler",
-        "description": "Current schedules:\n\n{schedules}",
+        "title": "Manage Scheduler",
         "menu_options": {
-          "add": "Add schedule",
-          "edit": "Edit schedule",
-          "remove": "Remove schedule",
-          "configure": "Default configuration"
+          "add_schedule": "Add schedule",
+          "edit_schedule": "Edit schedule",
+          "remove_schedule": "Remove schedule",
+          "default_configuration": "Default configuration"
         }
       },
       "add_schedule": {
         "title": "Add schedule",
-        "description": "Create a new all-day schedule",
+        "description": "Select the type of schedule to create",
+        "data": {
+          "schedule_type": "Schedule type"
+        }
+      },
+      "configure_date": {
+        "title": "Configure date schedule",
+        "description": "Create a schedule based on specific dates (e.g., March 15 to June 20)",
         "data": {
           "name": "Schedule name",
-          "start_date": "Start date",
-          "end_date": "End date"
+          "start_month": "Start month",
+          "start_day": "Start day",
+          "end_month": "End month",
+          "end_day": "End day",
+          "configuration": "Configuration (YAML)"
         }
       },
-      "select_schedule_to_edit": {
-        "title": "Select schedule to edit",
-        "description": "Choose a schedule to edit",
+      "configure_week": {
+        "title": "Configure week schedule",
+        "description": "Create a schedule based on week of month (e.g., First Monday of March to Last Friday of June)",
         "data": {
-          "schedule": "Schedule"
+          "name": "Schedule name",
+          "start_month": "Start month",
+          "start_week": "Start week",
+          "start_day_of_week": "Start day of week",
+          "end_month": "End month",
+          "end_week": "End week",
+          "end_day_of_week": "End day of week",
+          "configuration": "Configuration (YAML)"
         }
       },
-      "select_schedule_to_remove": {
-        "title": "Select schedule to remove",
-        "description": "Choose a schedule to remove",
+      "configure_nth_day": {
+        "title": "Configure nth day schedule",
+        "description": "Create a schedule based on nth occurrence of a weekday (e.g., Second Tuesday of March, 2 days before to 3 days after)",
         "data": {
-          "schedule": "Schedule"
+          "name": "Schedule name",
+          "month": "Month",
+          "occurrence": "Occurrence",
+          "day_of_week": "Day of week",
+          "start_offset": "Days before",
+          "end_offset": "Days after",
+          "configuration": "Configuration (YAML)"
         }
       },
       "edit_schedule": {
         "title": "Edit schedule",
-        "description": "Update this schedule",
+        "description": "Select a schedule to edit",
         "data": {
-          "name": "Schedule name",
-          "start_date": "Start date",
-          "end_date": "End date"
+          "schedule_id": "Schedule"
         }
       },
       "remove_schedule": {
         "title": "Remove schedule",
-        "description": "Are you sure you want to remove '{schedule_name}' ({start_date} to {end_date})?",
+        "description": "Are you sure you want to remove '{schedule_name}' ({schedule_type})?",
         "data": {
+          "schedule_id": "Schedule",
           "confirm": "Confirm removal"
         }
       },
-      "configure": {
+      "default_configuration": {
         "title": "Default configuration",
-        "description": "Provide a YAML structure for default configuration. This will be stored in the 'default_configuration' attribute.",
+        "description": "Set the default YAML configuration for all schedules. This will be used when a schedule doesn't have its own configuration.",
         "data": {
           "configuration": "Default configuration (YAML)"
         }
       }
     },
     "error": {
-      "overlap": "This schedule overlaps with an existing schedule",
-      "end_before_start": "End date must be after start date",
-      "invalid_date": "Invalid date format",
-      "invalid_yaml": "Invalid YAML format",
-      "not_dict": "Configuration must be a YAML structure, not a simple string"
+      "unknown": "Unexpected error occurred",
+      "no_schedules": "No schedules configured"
+    },
+    "abort": {
+      "no_schedules": "No schedules to edit or remove",
+      "not_confirmed": "Removal not confirmed"
+    }
+  },
+  "selector": {
+    "schedule_type": {
+      "options": {
+        "date": "By Date",
+        "week": "By Week of Month",
+        "nth-day": "By Nth Day of Month"
+      }
+    },
+    "month": {
+      "options": {
+        "january": "January",
+        "february": "February",
+        "march": "March",
+        "april": "April",
+        "may": "May",
+        "june": "June",
+        "july": "July",
+        "august": "August",
+        "september": "September",
+        "october": "October",
+        "november": "November",
+        "december": "December"
+      }
+    },
+    "day_of_week": {
+      "options": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
+      }
+    },
+    "occurrence": {
+      "options": {
+        "first": "First",
+        "second": "Second",
+        "third": "Third",
+        "fourth": "Fourth",
+        "last": "Last"
+      }
     }
   }
 }

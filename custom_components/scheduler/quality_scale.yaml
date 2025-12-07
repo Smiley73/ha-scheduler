@@ -1,8 +1,24 @@
 rules:
+  # Bronze
   config-flow: done
   entity-unique-id: done
   action-setup:
     status: exempt
     comment: Helper integration does not register custom actions.
+  
+  # Silver
   entity-unavailable: done
   parallel-updates: done
+  
+  # Gold
+  devices:
+    status: exempt
+    comment: Helper integration does not create devices.
+  diagnostics: done
+  entity-translations: done
+  exception-translations:
+    status: exempt
+    comment: Integration uses direct error messages in config flow.
+  icon-translations:
+    status: exempt
+    comment: Calendar entity uses standard calendar icon.

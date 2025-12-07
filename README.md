@@ -45,10 +45,9 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 ### Managing Schedules
 
 From the Configure menu, you can:
-- **Add Schedule**: Create a new schedule
-- **Edit Schedule**: Modify an existing schedule's parameters
-- **Rename Schedule**: Change a schedule's name
-- **Remove Schedule**: Delete a schedule
+- **Add Schedule**: Create a new schedule with optional configuration
+- **Remove Schedule**: Delete an existing schedule
+- **Edit Default Configuration**: Set default configuration that applies to all schedules
 
 The integration automatically prevents overlapping schedules to avoid conflicts.
 
@@ -56,10 +55,9 @@ The integration automatically prevents overlapping schedules to avoid conflicts.
 
 - Easy configuration through the UI
 - Three flexible schedule types: date-based, week-based, and nth-day
-- Binary sensors for each schedule that activate during configured periods
-- Additional configuration for each sensor to provide schedule specific values
-- Calendar integration showing all active schedules
-- Hub device that aggregates all schedules
+- Calendar entity showing all active schedules as events
+- Optional YAML configuration per schedule for custom attributes
+- Default configuration that applies to all schedules
 - Automatic overlap detection to prevent conflicting schedules
 
 ## Schedule Types
@@ -118,149 +116,287 @@ The Scheduler integration supports three types of schedules to cover different u
 
 ### Calendar Integration
 
-The Scheduler integration automatically creates a calendar entity that displays all your schedules as calendar events. 
+The Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`) that displays all your schedules as calendar events. Each schedule appears as an event during its active period, making it easy to visualize your schedules in Home Assistant's calendar view.
 
-The calendar entity is assigned to the Scheduler hub device and updates automatically when schedules are added, modified, or deleted.
+**Calendar Features:**
+- Automatically updates when schedules are added, modified, or deleted
+- Shows the current active event (if any) in the calendar entity state
+- Each event includes the schedule name and optional configuration in the description
+- Events span the full duration of each schedule period
+- Supports year-wrapping schedules (e.g., November to February)
+
+**Using the Calendar:**
+- View in the Calendar dashboard
+- Use `calendar.get_events` service to query upcoming schedules
+- Access the current event via `calendar.<scheduler_name>.event`
+- Check if a schedule is active: `state_attr('calendar.<scheduler_name>', 'message')` will show the current event name
 
 ## Advanced Configuration
 
-Each schedule allows to specify additional yaml configuration that can be access through the either the specific binary_sensor for the schedule or the aggregate one. The configuration is available through the `config` attribute.
+### Schedule-Specific Configuration
 
-The examples below "work on my machine" and are provided for reference only. Tweak it based on your needs.
+Each schedule can have optional YAML configuration that provides custom attributes for that schedule. This configuration is included in the calendar event's description field.
 
-#### Example Lighting for Christmas Schedule:
+**Example: Christmas Lighting Schedule**
 
-Add the below to the advanced configration for the schedule.
+When adding a schedule, you can include configuration like:
 
-```
+```yaml
 colors:
   - red
   - green
-brightness:
-  - 50
-  - 20
+brightness: 50
+effect: twinkle
 ```
 
-#### Custom Sensor
+### Default Configuration
 
-A custom senor to change the light color and brightnes once every minute based on the provided list. Add this to your `templates.yaml`.
+You can also set a default configuration that applies to all schedules that don't have their own configuration. Access this from the Configure menu -> "Edit Default Configuration".
 
-```
-- sensor:
-  - name: "Motion Lights Seasonal Color"
-    unique_id: motion_lights_seasonal_color
-    state: >
-      {% if is_state('binary_sensor.scheduler', 'on') %}
-        {% set colors = state_attr('binary_sensor.scheduler', 'config')['colors'] %}
-      {% else %}
-        {% set colors = ['yellow'] %}
-      {% endif %}
-      {{ colors[now().minute % (colors | length)] }}
-    attributes:
-        brightness_pct: >
-          {% if is_state('binary_sensor.scheduler', 'on') %}
-            {% set brightness = state_attr('binary_sensor.scheduler', 'config')['brightness'] %}
-          {% else %}
-            {% set brightness = [50] %}
-          {% endif %}
-          {{ brightness[now().minute % (brightness | length)] }}
+**Example Default Configuration:**
+
+```yaml
+mode: normal
+brightness: 75
 ```
 
-#### Example automation to change lights
+### Accessing Configuration in Automations
 
+The configuration is available in the `description` attribute on the calendar entity when a schedule is active. This makes it easy to access schedule-specific settings in your automations.
+
+**Check if a schedule is currently active:**
+
+```yaml
+condition: template
+value_template: "{{ state_attr('calendar.my_scheduler', 'message') != None }}"
 ```
+
+**Access configuration directly from the calendar entity:**
+
+When a schedule is active, the `description` attribute contains the schedule's configuration dict (or the default configuration if the schedule doesn't have its own):
+
+```yaml
+variables:
+  # Get configuration from the active schedule
+  config: "{{ state_attr('calendar.my_scheduler', 'description') | default({}) }}"
+  color: "{{ config.color | default('white') }}"
+  brightness: "{{ config.brightness | default(50) }}"
+```
+
+**Alternative: Use calendar.get_events service:**
+
+You can also get configuration via the calendar.get_events service:
+
+```yaml
+- service: calendar.get_events
+  target:
+    entity_id: calendar.my_scheduler
+  data:
+    duration:
+      hours: 1
+  response_variable: schedule_events
+- variables:
+    current_event: "{{ schedule_events['calendar.my_scheduler'].events[0] if schedule_events['calendar.my_scheduler'].events else none }}"
+    config: "{{ current_event.description if current_event else {} }}"
+```
+
+### Example 1: Multiple Holiday Schedules with Configuration
+
+**Setup: Create schedules with specific configurations**
+
+1. **Christmas Schedule** (Nov 25 - Jan 6):
+```yaml
+color: red
+brightness: 75
+effect: twinkle
+```
+
+2. **Halloween Schedule** (Oct 25 - Oct 31):
+```yaml
+color: orange
+brightness: 100
+effect: flash
+```
+
+3. **Summer Schedule** (Jun 1 - Aug 31):
+```yaml
+color: blue
+brightness: 50
+effect: none
+```
+
+**Automation: Apply schedule configuration to lights**
+
+```yaml
 alias: Seasonal Lights
-description: ""
+description: "Automatically adjust lights based on active schedule configuration"
 triggers:
-  - event: sunset
+  - platform: sun
+    event: sunset
     offset: "-00:30:00"
-    id: sunset
-    trigger: sun
-  - entity_id:
-      - light.side_door_patio_light
-      - light.front_porch_light
-    to: "off"
-    id: light_off
-    trigger: state
-  - entity_id:
-      - sensor.motion_lights_seasonal_color
-    id: colorchange
-    from: null
-    to: null
-    for:
-      hours: 0
-      minutes: 0
-      seconds: 1
-    trigger: state
+  - platform: state
+    entity_id: calendar.holiday_scheduler
+    attribute: message
 conditions:
-  - condition: state
-    entity_id: binary_sensor.scheduler
-    state:
-      - "on"
-  - condition: state
-    entity_id: input_boolean.seasonal_night_lights_enabled
-    state: "on"
+  - condition: template
+    value_template: "{{ state_attr('calendar.holiday_scheduler', 'message') != None }}"
   - condition: sun
-    before: sunrise
     after: sunset
-    enabled: true
-    before_offset: "+00:30:00"
-    after_offset: "-00:30:00"
+    before: sunrise
 actions:
   - variables:
-      color_name: |
-        {{ states('sensor.motion_lights_seasonal_color') }}
-      brightness_pct: |
-        {{ state_attr('sensor.motion_lights_seasonal_color', 'brightness_pct')
-        }}
-      lights:
-        - light.front_porch_light
-        - light.side_door_patio_light
-      motion_timers:
-        - timer.front_porch_light
-        - timer.side_door_patio_light
-  - repeat:
-      count: "{{ lights | count }}"
-      sequence:
-        - variables:
-            light: |
-              {{ lights[repeat.index - 1] }}
-            motion_timer: |
-              {{ motion_timers[repeat.index - 1] }}
-        - if:
-            - condition: template
-              value_template: |
-                {{ is_state (motion_timer, 'idle') }}
-              alias: Motion light not active
-            - alias: Light off or dim
-              condition: or
-              conditions:
-                - condition: template
-                  value_template: |
-                    {{ is_state (light, 'off') }}
-                - condition: template
-                  value_template: |
-                    {{ (state_attr(light, 'brightness') | int) <= 140}}
-          then:
-            - data:
-                brightness_pct: 0
-                transition: 1
-              target:
-                entity_id: "{{ light }}"
-              action: light.turn_on
-            - delay:
-                hours: 0
-                minutes: 0
-                seconds: 0
-                milliseconds: 500
-            - data:
-                color_name: "{{ color_name }}"
-                brightness_pct: "{{ brightness_pct }}"
-                transition: 1
-              target:
-                entity_id: "{{ light }}"
-              action: light.turn_on
-mode: single
+      # Get configuration from the active schedule
+      config: "{{ state_attr('calendar.holiday_scheduler', 'description') | default({}) }}"
+      color: "{{ config.color | default('white') }}"
+      brightness: "{{ config.brightness | default(50) }}"
+      effect: "{{ config.effect | default('none') }}"
+  - service: light.turn_on
+    target:
+      entity_id: 
+        - light.front_porch
+        - light.back_yard
+    data:
+      color_name: "{{ color }}"
+      brightness_pct: "{{ brightness }}"
+      effect: "{{ effect }}"
+mode: restart
+```
+
+### Example 2: Dynamic Color Rotation
+
+**Schedule Configuration:**
+
+```yaml
+colors:
+  - red
+  - green
+  - white
+brightness: 60
+change_interval: 300  # seconds
+```
+
+**Template Sensor** (add to `configuration.yaml`):
+
+Note: Template sensors cannot directly call services, so for dynamic color rotation, use an automation that updates an input_select or helper entity based on the schedule configuration.
+
+**Automation for color rotation:**
+
+```yaml
+alias: Rotate Holiday Colors
+triggers:
+  - platform: time_pattern
+    minutes: "/5"  # Every 5 minutes
+  - platform: state
+    entity_id: calendar.holiday_scheduler
+    attribute: message
+conditions:
+  - condition: template
+    value_template: "{{ state_attr('calendar.holiday_scheduler', 'message') != None }}"
+  - condition: sun
+    after: sunset
+    before: sunrise
+actions:
+  - variables:
+      config: "{{ state_attr('calendar.holiday_scheduler', 'description') | default({}) }}"
+      colors: "{{ config.colors | default(['white']) }}"
+      interval: "{{ config.change_interval | default(300) }}"
+      index: "{{ (now().timestamp() // interval) | int % (colors | length) }}"
+      current_color: "{{ colors[index] }}"
+      brightness: "{{ config.brightness | default(50) }}"
+  - service: light.turn_on
+    target:
+      entity_id: light.front_porch
+    data:
+      color_name: "{{ current_color }}"
+      brightness_pct: "{{ brightness }}"
+mode: restart
+```
+
+### Example 3: Thermostat Schedule with Temperature Settings
+
+**Setup: Create seasonal thermostat schedules**
+
+1. **Winter Schedule** (Nov 1 - Mar 31):
+```yaml
+heat_temp: 70
+cool_temp: 78
+mode: heat
+```
+
+2. **Summer Schedule** (Jun 1 - Aug 31):
+```yaml
+heat_temp: 68
+cool_temp: 74
+mode: cool
+```
+
+3. **Spring/Fall Schedule** (Apr 1 - May 31, Sep 1 - Oct 31):
+```yaml
+heat_temp: 68
+cool_temp: 76
+mode: auto
+```
+
+**Automation: Apply thermostat settings**
+
+```yaml
+alias: Seasonal Thermostat
+description: "Adjust thermostat based on seasonal schedule"
+triggers:
+  - platform: state
+    entity_id: calendar.thermostat_scheduler
+    attribute: message
+  - platform: homeassistant
+    event: start
+conditions:
+  - condition: template
+    value_template: "{{ state_attr('calendar.thermostat_scheduler', 'message') != None }}"
+actions:
+  - variables:
+      config: "{{ state_attr('calendar.thermostat_scheduler', 'description') | default({}) }}"
+  - service: climate.set_temperature
+    target:
+      entity_id: climate.main_thermostat
+    data:
+      temperature: "{{ config.heat_temp }}"
+      target_temp_high: "{{ config.cool_temp }}"
+      target_temp_low: "{{ config.heat_temp }}"
+      hvac_mode: "{{ config.mode }}"
+mode: restart
+```
+
+### Example 4: Schedule Change Notifications
+
+Get notified when schedules change with details about the new configuration:
+
+```yaml
+alias: Schedule Change Notification
+triggers:
+  - platform: state
+    entity_id: calendar.my_scheduler
+    attribute: message
+actions:
+  - variables:
+      schedule_name: "{{ state_attr('calendar.my_scheduler', 'message') }}"
+      config: "{{ state_attr('calendar.my_scheduler', 'description') | default({}) }}"
+  - service: notify.mobile_app
+    data:
+      title: "Schedule Changed"
+      message: >
+        Now active: {{ schedule_name }}
+        {% if config %}
+        Settings: {{ config | tojson }}
+        {% endif %}
+mode: restart
+```
+
+### Tips for Using Configuration
+
+1. **Keep it simple**: Store only the values you need (colors, temperatures, modes, etc.)
+2. **Use defaults**: Always provide default values in templates with `| default(value)`
+3. **Test your YAML**: Invalid YAML in the configuration field will prevent the schedule from saving
+4. **Access nested values**: Use dot notation or bracket notation: `config.settings.brightness` or `config['settings']['brightness']`
+5. **Default configuration**: Set common values in the default configuration, override per schedule as needed
 ```
 
 ## Support
