@@ -1,5 +1,5 @@
 {
-  "domain": "scheduler",
+  "domain": "ha-scheduler",
   "name": "Scheduler",
   "codeowners": ["@Smiley73"],
   "config_flow": true,
