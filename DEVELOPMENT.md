@@ -130,13 +130,13 @@ pytest tests/ -v
 ### Run Tests with Coverage Report
 
 ```bash
-pytest tests/ --cov=custom_components/scheduler --cov-report=term
+pytest tests/ --cov=custom_components/ha_scheduler --cov-report=term
 ```
 
 ### Run Tests with Detailed Coverage (shows missing lines)
 
 ```bash
-pytest tests/ --cov=custom_components/scheduler --cov-report=term-missing
+pytest tests/ --cov=custom_components/ha_scheduler --cov-report=term-missing
 ```
 
 ### Run a Specific Test File
@@ -169,20 +169,20 @@ git commit --no-verify
 
 ```bash
 # Check for issues
-ruff check custom_components/scheduler/ tests/
+ruff check custom_components/ha_scheduler/ tests/
 
 # Auto-fix issues
-ruff check --fix custom_components/scheduler/ tests/
+ruff check --fix custom_components/ha_scheduler/ tests/
 ```
 
 ### Run Code Formatting with Ruff
 
 ```bash
 # Check formatting
-ruff format --check custom_components/scheduler/ tests/
+ruff format --check custom_components/ha_scheduler/ tests/
 
 # Auto-format code
-ruff format custom_components/scheduler/ tests/
+ruff format custom_components/ha_scheduler/ tests/
 ```
 
 ### Manual Pre-commit Check
@@ -225,7 +225,7 @@ pip install homeassistant
 mkdir -p config/custom_components
 
 # Symlink your integration
-ln -s /path/to/ha-scheduler/custom_components/scheduler config/custom_components/scheduler
+ln -s /path/to/ha-scheduler/custom_components/ha_scheduler config/custom_components/ha_scheduler
 ```
 
 #### 3. Start Home Assistant
@@ -257,7 +257,7 @@ If you already have Home Assistant installed, you can test your integration ther
 2. Create a symlink to your development directory:
 
 ```bash
-ln -s /path/to/ha-scheduler/custom_components/scheduler ~/.homeassistant/custom_components/scheduler
+ln -s /path/to/ha-scheduler/custom_components/ha_scheduler ~/.homeassistant/custom_components/ha_scheduler
 ```
 
 3. Restart Home Assistant
@@ -267,7 +267,7 @@ ln -s /path/to/ha-scheduler/custom_components/scheduler ~/.homeassistant/custom_
 1. Copy the integration to your Home Assistant custom_components directory:
 
 ```bash
-cp -r custom_components/scheduler ~/.homeassistant/custom_components/
+cp -r custom_components/ha_scheduler ~/.homeassistant/custom_components/
 ```
 
 2. Restart Home Assistant after each change
@@ -299,14 +299,14 @@ Add to your Home Assistant `configuration.yaml`:
 logger:
   default: info
   logs:
-    custom_components.scheduler: debug
+    custom_components.ha_scheduler: debug
 ```
 
 ### View Logs
 
 ```bash
 # Follow logs in real-time
-tail -f ~/.homeassistant/home-assistant.log | grep scheduler
+tail -f ~/.homeassistant/home-assistant.log | grep ha_scheduler
 ```
 
 ### Using pytest with pdb
@@ -347,7 +347,7 @@ Check the Actions tab in GitHub to see results. Pre-commit hooks catch most issu
 
 3. **Run tests** to ensure everything works:
    ```bash
-   pytest tests/ --cov=custom_components/scheduler
+   pytest tests/ --cov=custom_components/ha_scheduler
    ```
 
 4. **Commit your changes** (pre-commit hooks run automatically):
@@ -401,7 +401,7 @@ pip install -r requirements.txt
 
 Run with detailed coverage to see which lines aren't covered:
 ```bash
-pytest tests/ --cov=custom_components/scheduler --cov-report=term-missing
+pytest tests/ --cov=custom_components/ha_scheduler --cov-report=term-missing
 ```
 
 Then add tests to cover those lines.
@@ -418,10 +418,10 @@ If pre-commit hooks fail:
 For manual fixes:
 ```bash
 # Fix linting issues
-ruff check --fix custom_components/scheduler/ tests/
+ruff check --fix custom_components/ha_scheduler/ tests/
 
 # Format code
-ruff format custom_components/scheduler/ tests/
+ruff format custom_components/ha_scheduler/ tests/
 
 # Run all checks
 pre-commit run --all-files

@@ -271,7 +271,7 @@ Present menu with four options:
 
 ### File Structure
 ```
-custom_components/scheduler/
+custom_components/ha_scheduler/
 ├── __init__.py                 # Setup/unload entry points
 ├── manifest.json              # Integration metadata
 ├── const.py                   # Constants (DOMAIN, month/day/occurrence names)
@@ -287,7 +287,7 @@ custom_components/scheduler/
 ### const.py
 Define constants:
 ```python
-DOMAIN = "scheduler"
+DOMAIN = "ha-scheduler"
 
 MONTH_NAMES = ["january", "february", "march", ...]  # 12 items
 DAY_NAMES = ["monday", "tuesday", "wednesday", ...]  # 7 items

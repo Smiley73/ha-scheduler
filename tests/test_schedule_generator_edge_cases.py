@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from custom_components.scheduler.schedule_generator import (
+from custom_components.ha_scheduler.schedule_generator import (
     _get_nth_weekday,
     check_overlap,
     generate_schedule_dates,
