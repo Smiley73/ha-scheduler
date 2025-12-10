@@ -6,8 +6,6 @@
 
 A custom Home Assistant integration to support seasonal schedules, like holiday lighting.
 
-> **WARNING:** I'm working on a complete refactor of this leveraging only calendar events. Check the v2 branch for details. You will not be able to migrate old v0.1.x configurations.
-
 > **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev), an AI-powered IDE designed for developers. Kiro combines intelligent code generation with deep integration understanding to accelerate development while maintaining code quality.
 
 ## Installation
@@ -32,19 +30,21 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 ### Initial Setup
 
 1. Go to Settings -> Devices & Services
-2. Click "+ Add Integration"
-3. Search for "Scheduler"
-4. Click "Submit" to create the Scheduler hub
+2. Click the "Helpers" tab
+3. Click "+ Create Helper" and select "Scheduler"
+4. Provide a name for the scheduler and click "Submit" to create it
 
 ### Adding Schedules
 
 1. Go to Settings -> Devices & Services
-2. Find the "Scheduler" integration
-3. Click "Configure"
-4. Select "Add Schedule"
-5. Enter a name and choose a schedule type (Date, Week, or Nth-Day)
-6. Configure the schedule parameters based on the type selected
-7. (Optional) Add YAML configuration for custom attributes
+2. Click the "Helpers" tab
+3. Find the "Scheduler" helper and open it by clicking on it
+4. Click the "Settings" icon (gear symbol in the upper right corner)
+5. Select "Scheduler Options"
+6. Select "Add Schedule"
+7. Enter a name and choose a schedule type (Date, Week, or Nth-Day)
+8. Configure the schedule parameters based on the type selected
+9. (Optional) Add YAML configuration for custom attributes
 
 ### Managing Schedules
 
@@ -294,8 +294,10 @@ triggers:
     entity_id: calendar.holiday_scheduler
     attribute: message
 conditions:
-  - condition: template
-    value_template: "{{ state_attr('calendar.holiday_scheduler', 'message') != None }}"
+  - condition: state
+    entity_id: calendar.holiday_scheduler
+    state:
+      - "on"
   - condition: sun
     after: sunset
     before: sunrise
@@ -353,8 +355,10 @@ triggers:
   - platform: homeassistant
     event: start
 conditions:
-  - condition: template
-    value_template: "{{ state_attr('calendar.thermostat_scheduler', 'message') != None }}"
+  - condition: state
+    entity_id: calendar.thermostat_scheduler
+    state:
+      - "on"
 actions:
   - variables:
       config: "{{ state_attr('calendar.thermostat_scheduler', 'description') | default({}) }}"
@@ -401,7 +405,6 @@ mode: restart
 3. **Test your YAML**: Invalid YAML in the configuration field will prevent the schedule from saving
 4. **Access nested values**: Use dot notation or bracket notation: `config.settings.brightness` or `config['settings']['brightness']`
 5. **Default configuration**: Set common values in the default configuration, override per schedule as needed
-```
 
 ## Support
 
