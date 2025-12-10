@@ -88,7 +88,7 @@
       },
       "remove_schedule": {
         "title": "Remove schedule",
-        "description": "Are you sure you want to remove '{schedule_name}' ({schedule_type})?",
+        "description": "Are you sure you want to remove {schedule_name} ({schedule_type})?",
         "data": {
           "schedule_id": "Schedule",
           "confirm": "Confirm removal"
