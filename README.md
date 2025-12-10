@@ -135,7 +135,7 @@ The Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`
 - View in the Calendar dashboard
 - Use `calendar.get_events` service to query upcoming schedules
 - Access the current event via `calendar.<scheduler_name>.event`
-- Check if a schedule is active: `state_attr('calendar.<scheduler_name>', 'message')` will show the current event name
+- If a schedule is active `calendar.<scheduler_name>` will have the state `on`
 
 ## Advanced Configuration
 
@@ -244,8 +244,10 @@ triggers:
     entity_id: calendar.holiday_scheduler
     attribute: message
 conditions:
-  - condition: template
-    value_template: "{{ state_attr('calendar.holiday_scheduler', 'message') != None }}"
+  - condition: state
+    entity_id: calendar.holiday_scheduler
+    state:
+      - "on"
   - condition: sun
     after: sunset
     before: sunrise
