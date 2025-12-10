@@ -621,7 +621,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         schedule_options = [
             SelectOptionDict(value=sid, label=sdata["name"])
-            for sid, sdata in schedules.items()
+            for sid, sdata in sorted(
+                schedules.items(), key=lambda x: x[1]["name"].lower()
+            )
         ]
 
         return self.async_show_form(
@@ -682,7 +684,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         schedule_options = [
             SelectOptionDict(value=sid, label=sdata["name"])
-            for sid, sdata in schedules.items()
+            for sid, sdata in sorted(
+                schedules.items(), key=lambda x: x[1]["name"].lower()
+            )
         ]
 
         return self.async_show_form(
