@@ -1,6 +1,6 @@
 # Home Assistant Scheduler Integration - Specification
 
-**Objective**: Create a Home Assistant custom integration called "Scheduler" that allows users to create recurring annual calendar schedules with flexible date patterns and optional YAML configuration.
+**Objective**: Create a Home Assistant custom integration called "HA Scheduler" that allows users to create recurring annual calendar schedules with flexible date patterns and optional YAML configuration.
 
 ## Overview
 

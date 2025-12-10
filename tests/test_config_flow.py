@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.scheduler.const import DOMAIN
+from custom_components.ha_scheduler.const import DOMAIN
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -22,7 +22,7 @@ async def test_form(hass: HomeAssistant) -> None:
     assert result.get("errors") is None or result["errors"] == {}
 
     with patch(
-        "custom_components.scheduler.async_setup_entry",
+        "custom_components.ha_scheduler.async_setup_entry",
         return_value=True,
     ) as mock_setup_entry:
         result2 = await hass.config_entries.flow.async_configure(
