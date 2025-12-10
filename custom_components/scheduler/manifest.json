@@ -1,12 +1,13 @@
 {
   "domain": "scheduler",
   "name": "Scheduler",
-  "codeowners": ["@hz"],
+  "codeowners": ["@Smiley73"],
   "config_flow": true,
   "documentation": "https://github.com/hz/ha-scheduler",
   "integration_type": "helper",
   "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
   "quality_scale": "gold",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "0.2.0"
 }
