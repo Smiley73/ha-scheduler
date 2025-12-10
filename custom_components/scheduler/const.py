@@ -2,7 +2,7 @@
 
 DOMAIN = "scheduler"
 
-# Month names for translation keys
+# Month names for display
 MONTH_NAMES = [
     "january",
     "february",
@@ -18,7 +18,7 @@ MONTH_NAMES = [
     "december",
 ]
 
-# Day of week names for translation keys
+# Day of week names for display (Monday = 0, Sunday = 6)
 DAY_NAMES = [
     "monday",
     "tuesday",
@@ -29,7 +29,7 @@ DAY_NAMES = [
     "sunday",
 ]
 
-# Occurrence names for nth-day schedules
+# Occurrence names for display (0-4 = first-fifth, but 4 displays as "Last")
 OCCURRENCE_NAMES = [
     "first",
     "second",
