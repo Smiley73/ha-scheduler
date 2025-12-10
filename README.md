@@ -6,6 +6,8 @@
 
 A custom Home Assistant integration to support seasonal schedules, like holiday lighting.
 
+> **Breaking Change:** Due to a naming conflict with another integration, the installation directory of this component has changed from `scheduler` to `ha_scheduler`. The integration domain remains `ha-scheduler`. If upgrading from a previous version, you may need to remove the old integration and reinstall.
+
 > **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev), an AI-powered IDE designed for developers. Kiro combines intelligent code generation with deep integration understanding to accelerate development while maintaining code quality.
 
 ## Installation
