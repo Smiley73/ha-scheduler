@@ -1,6 +1,6 @@
 """Constants for the Scheduler integration."""
 
-DOMAIN = "ha-scheduler"
+DOMAIN = "ha_scheduler"
 
 # Month names for display
 MONTH_NAMES = [
