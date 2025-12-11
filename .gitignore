@@ -56,3 +56,6 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test utilities
+test_imports.py
