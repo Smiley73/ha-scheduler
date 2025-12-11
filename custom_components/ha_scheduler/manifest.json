@@ -1,6 +1,6 @@
 {
-  "domain": "scheduler",
-  "name": "Scheduler",
+  "domain": "ha-scheduler",
+  "name": "HA Scheduler",
   "codeowners": ["@Smiley73"],
   "config_flow": true,
   "documentation": "https://github.com/hz/ha-scheduler",
