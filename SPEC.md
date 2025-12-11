@@ -1,6 +1,11 @@
 # Home Assistant Scheduler Integration - Specification
 
-**Objective**: Create a Home Assistant custom integration called "Scheduler" that allows users to create recurring annual calendar schedules with flexible date patterns and optional YAML configuration.
+**Domain**: `ha_scheduler`  
+**Version**: 0.2.0  
+**Quality Scale**: Gold  
+**Status**: Implemented and functional
+
+**Objective**: Create a Home Assistant custom integration called "HA Scheduler" that allows users to create recurring annual calendar schedules with flexible date patterns and optional YAML configuration.
 
 ## Overview
 
@@ -271,7 +276,7 @@ Present menu with four options:
 
 ### File Structure
 ```
-custom_components/scheduler/
+custom_components/ha_scheduler/
 ├── __init__.py                 # Setup/unload entry points
 ├── manifest.json              # Integration metadata
 ├── const.py                   # Constants (DOMAIN, month/day/occurrence names)
@@ -280,6 +285,7 @@ custom_components/scheduler/
 ├── schedule_generator.py      # Date calculation logic
 ├── diagnostics.py             # Diagnostics data collection
 ├── strings.json              # UI text and translations
+├── quality_scale.yaml         # Home Assistant quality scale compliance
 └── translations/
     └── en.json               # English translations
 ```
@@ -287,7 +293,7 @@ custom_components/scheduler/
 ### const.py
 Define constants:
 ```python
-DOMAIN = "scheduler"
+DOMAIN = "ha_scheduler"
 
 MONTH_NAMES = ["january", "february", "march", ...]  # 12 items
 DAY_NAMES = ["monday", "tuesday", "wednesday", ...]  # 7 items
@@ -481,7 +487,7 @@ Include `data_description` for configuration fields:
 - Use proper type hints (Python 3.13+)
 - Pass ruff linting and formatting
 - Integration type: `helper`
-- Quality scale: Silver or Gold
+- Quality scale: Gold
 - All-day events only (no time components)
 - Proper error handling with translated messages
 
