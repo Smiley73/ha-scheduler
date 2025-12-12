@@ -6,7 +6,16 @@
 
 A custom Home Assistant integration to support seasonal schedules, like holiday lighting.
 
-> **WARNING:** I'm working on a complete refactor of this leveraging only calendar events. Check the v2 branch for details. You will not be able to migrate old v0.1.x configurations.
+## ⚠️ Breaking Change in v0.3.0
+
+**Important:** Version 0.3.0 introduces a breaking change. The Home Assistant domain has been renamed from `scheduler` to `ha_scheduler`. This change was necessary to avoid conflicts with other integrations.
+
+**Migration Required:**
+1. **Remove the old integration** from Settings → Devices & Services before updating
+2. **Reinstall** the integration after updating to v0.3.0
+3. **Recreate all schedules** - your previous schedules will not be migrated automatically
+
+We apologize for the inconvenience, but this change ensures better compatibility and follows Home Assistant naming conventions.
 
 > **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev), an AI-powered IDE designed for developers. Kiro combines intelligent code generation with deep integration understanding to accelerate development while maintaining code quality.
 
@@ -24,7 +33,7 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 
 ### Manual Installation
 
-1. Copy the `custom_components/scheduler` directory to your Home Assistant's `custom_components` directory
+1. Copy the `custom_components/ha_scheduler` directory to your Home Assistant's `custom_components` directory
 2. Restart Home Assistant
 
 ## Configuration

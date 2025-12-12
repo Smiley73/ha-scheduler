@@ -407,7 +407,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             ),
             vol.Required(
-                "start_week", default=defaults.get("start_week", 0)
+                "start_week", default=str(defaults.get("start_week", 0))
             ): SelectSelector(
                 SelectSelectorConfig(
                     options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
@@ -428,7 +428,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             ),
             vol.Required(
-                "end_week", default=defaults.get("end_week", 4)
+                "end_week", default=str(defaults.get("end_week", 4))
             ): SelectSelector(
                 SelectSelectorConfig(
                     options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN

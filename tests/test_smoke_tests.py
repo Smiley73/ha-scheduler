@@ -5,7 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.scheduler.const import DOMAIN
+from custom_components.ha_scheduler.const import DOMAIN
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -100,7 +100,7 @@ async def test_options_flow_accessible(hass: HomeAssistant) -> None:
 
 async def test_diagnostics_accessible(hass: HomeAssistant) -> None:
     """Smoke test: Diagnostics can be retrieved."""
-    from custom_components.scheduler.diagnostics import (
+    from custom_components.ha_scheduler.diagnostics import (
         async_get_config_entry_diagnostics,
     )
 
@@ -169,7 +169,7 @@ async def test_calendar_with_schedules(hass: HomeAssistant) -> None:
     # Check that calendar can generate events
     from datetime import datetime
 
-    from custom_components.scheduler.calendar import SchedulerCalendar
+    from custom_components.ha_scheduler.calendar import SchedulerCalendar
 
     calendar_entity = SchedulerCalendar(entry)
     events = await calendar_entity.async_get_events(
