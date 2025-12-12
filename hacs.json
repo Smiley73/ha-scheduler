@@ -1,5 +1,5 @@
 {
-  "name": "Scheduler",
+  "name": "HA Scheduler",
   "render_readme": true,
   "content_in_root": false,
   "filename": "ha_scheduler"
