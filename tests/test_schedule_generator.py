@@ -43,7 +43,7 @@ def test_generate_by_week() -> None:
     schedule = {
         "schedule_type": "week",
         "start_month": 3,
-        "start_week": 0,  # First week
+        "start_week": 1,  # Second week (has Monday)
         "start_day_of_week": 0,  # Monday
         "end_month": 6,
         "end_week": 4,  # Last week
@@ -52,9 +52,9 @@ def test_generate_by_week() -> None:
 
     dates = generate_schedule_dates(schedule, 2024)
     assert len(dates) == 1
-    # First Monday of March 2024 is March 4
+    # Monday of second week of March 2024 is March 4
     assert dates[0][0] == date(2024, 3, 4)
-    # Last Friday of June 2024 is June 28
+    # Friday of last week of June 2024 is June 28
     assert dates[0][1] == date(2024, 6, 28)
 
 

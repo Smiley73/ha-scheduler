@@ -37,3 +37,15 @@ OCCURRENCE_NAMES = [
     "fourth",
     "last",
 ]
+
+# Week occurrence options with type support
+# Format: "occurrence_type" where occurrence is 0-4 and type is "partial" or "full"
+# For occurrences 1-4 (second, third, fourth, last), type doesn't matter as they're always full weeks
+WEEK_OCCURRENCE_OPTIONS = [
+    ("0_partial", "first"),  # First week (may start in previous month)
+    ("0_full", "first_full"),  # First full week (entirely within month)
+    ("1", "second"),  # Second week
+    ("2", "third"),  # Third week
+    ("3", "fourth"),  # Fourth week
+    ("4", "last"),  # Last week
+]

@@ -63,11 +63,24 @@ async def test_complete_add_date_schedule_flow(hass: HomeAssistant) -> None:
     # Wait for the update to propagate
     await hass.async_block_till_done()
 
-    # Verify the schedule was saved - check the original entry object
-    # Note: MockConfigEntry updates in place, so we check the original entry
-    schedules = entry.options.get("schedules", {})
+    # Verify the schedule was saved - check the updated entry
+    updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
 
-    print(f"\nSchedules after add: {schedules}")
+    print(f"\nEntry options after add: {updated_entry.options}")
+
+    # Check both legacy and new structure
+    legacy_schedules = updated_entry.options.get("schedules", {})
+    services = updated_entry.options.get("services", {})
+
+    if services:
+        # New service-based structure
+        default_service = services.get("default", {})
+        schedules = default_service.get("schedules", {})
+    else:
+        # Legacy structure
+        schedules = legacy_schedules
+
+    print(f"Schedules after add: {schedules}")
     print(f"Number of schedules: {len(schedules)}")
 
     assert len(schedules) == 1
@@ -116,7 +129,11 @@ async def test_add_multiple_schedules(hass: HomeAssistant) -> None:
 
     # Verify first schedule
     updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    schedules = updated_entry.options.get("schedules", {})
+    services = updated_entry.options.get("services", {})
+    if services:
+        schedules = services.get("default", {}).get("schedules", {})
+    else:
+        schedules = updated_entry.options.get("schedules", {})
     print(f"\nSchedules after first add: {schedules}")
     assert len(schedules) == 1
 
@@ -143,7 +160,11 @@ async def test_add_multiple_schedules(hass: HomeAssistant) -> None:
 
     # Verify both schedules
     updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    schedules = updated_entry.options.get("schedules", {})
+    services = updated_entry.options.get("services", {})
+    if services:
+        schedules = services.get("default", {}).get("schedules", {})
+    else:
+        schedules = updated_entry.options.get("schedules", {})
     print(f"\nSchedules after second add: {schedules}")
     assert len(schedules) == 2
 
@@ -213,5 +234,9 @@ async def test_add_schedule_with_overlap_error(hass: HomeAssistant) -> None:
 
     # Verify only one schedule exists
     updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    schedules = updated_entry.options.get("schedules", {})
+    services = updated_entry.options.get("services", {})
+    if services:
+        schedules = services.get("default", {}).get("schedules", {})
+    else:
+        schedules = updated_entry.options.get("schedules", {})
     assert len(schedules) == 1

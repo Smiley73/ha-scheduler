@@ -22,7 +22,7 @@ from homeassistant.helpers.selector import (
     TemplateSelector,
 )
 
-from .const import DAY_NAMES, DOMAIN, MONTH_NAMES, OCCURRENCE_NAMES
+from .const import DAY_NAMES, DOMAIN, MONTH_NAMES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,10 +44,12 @@ def _get_day_of_week_options() -> list[SelectOptionDict]:
 
 
 def _get_occurrence_options() -> list[SelectOptionDict]:
-    """Get occurrence options (values are integers 0-4)."""
+    """Get occurrence options with week type support for week schedules."""
+    from .const import WEEK_OCCURRENCE_OPTIONS
+
     return [
-        SelectOptionDict(value=str(i), label=OCCURRENCE_NAMES[i].capitalize())
-        for i in range(5)
+        SelectOptionDict(value=value, label=label.capitalize())
+        for value, label in WEEK_OCCURRENCE_OPTIONS
     ]
 
 
@@ -73,7 +75,7 @@ def _validate_yaml_config(yaml_str: str) -> dict | None:
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Scheduler."""
 
-    VERSION = 1
+    VERSION = 2
     MINOR_VERSION = 1
 
     async def async_step_user(
@@ -83,24 +85,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            name = user_input.get("name", "Scheduler").strip()
+            name = user_input.get("scheduler_name", "Scheduler").strip()
 
             # Check for duplicate scheduler names
             existing_entries = self._async_current_entries()
             if any(entry.title.lower() == name.lower() for entry in existing_entries):
-                errors["name"] = "Name already exists. Please choose a different name."
+                errors["scheduler_name"] = "duplicate_scheduler_name"
             else:
                 return self.async_create_entry(
                     title=name,
-                    data={},
-                    options={"schedules": {}},
+                    data={"scheduler_name": name},
+                    options={
+                        "services": {
+                            "default": {
+                                "name": name,
+                                "schedules": {},
+                                "configuration": {},
+                            }
+                        }
+                    },
                 )
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Optional("name", default="Scheduler"): str,
+                    vol.Optional("scheduler_name", default="Scheduler"): str,
                 }
             ),
             errors=errors,
@@ -122,6 +132,50 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self._schedule_id: str | None = None
         self._schedule_data: dict[str, Any] = {}
+        self._service_id: str = "default"  # Default service for now
+        self._holiday_data: dict[str, Any] = {}
+
+    def _get_service_schedules(self) -> dict[str, Any]:
+        """Get schedules for the current service."""
+        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+        if not entry:
+            return {}
+
+        # Handle both new service-based structure and legacy structure
+        services = entry.options.get("services", {})
+        if services:
+            return services.get(self._service_id, {}).get("schedules", {})
+        else:
+            # Legacy structure
+            return entry.options.get("schedules", {})
+
+    def _update_service_schedules(self, schedules: dict[str, Any]) -> dict[str, Any]:
+        """Update schedules for the current service and return updated options."""
+        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+
+        # Handle both new service-based structure and legacy structure
+        services = entry.options.get("services", {})
+        if services:
+            # New service-based structure
+            new_services = dict(services)
+
+            # Ensure service exists
+            if self._service_id not in new_services:
+                new_services[self._service_id] = {
+                    "name": entry.title,
+                    "schedules": {},
+                    "configuration": {},
+                }
+
+            new_services[self._service_id] = {
+                **new_services[self._service_id],
+                "schedules": schedules,
+            }
+
+            return {**entry.options, "services": new_services}
+        else:
+            # Legacy structure - update directly
+            return {**entry.options, "schedules": schedules}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -133,6 +187,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "add_schedule",
                 "edit_schedule",
                 "remove_schedule",
+                "import_holidays",
                 "default_configuration",
             ],
         )
@@ -201,13 +256,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     config_dict = _validate_yaml_config(config_yaml)
                     if config_dict:
                         data["configuration"] = config_dict
-                # If configuration is empty, explicitly don't include the key in data
 
-                # Check for overlaps and name conflicts - get fresh options from config entries
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Get current schedules
+                schedules = self._get_service_schedules()
 
                 # Check for duplicate schedule names
                 schedule_name = data["name"].strip().lower()
@@ -241,12 +292,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     # Save schedule
                     new_schedules = dict(schedules)
                     new_schedules[self._schedule_id] = data
-
-                    # Get fresh entry again before update to ensure we have latest options
-                    entry = self.hass.config_entries.async_get_entry(
-                        self.config_entry.entry_id
-                    )
-                    updated_options = {**entry.options, "schedules": new_schedules}
+                    updated_options = self._update_service_schedules(new_schedules)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -314,17 +360,63 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         if user_input is not None:
             try:
+                # Parse start week (may include type for first week)
+                start_week_value = user_input["start_week"]
+                if "_" in start_week_value:
+                    start_week, start_week_type = start_week_value.split("_", 1)
+                    start_week = int(start_week)
+                else:
+                    start_week = int(start_week_value)
+                    start_week_type = "partial"  # Default for non-first weeks
+
+                # Parse end week (may include type for first week)
+                end_week_value = user_input["end_week"]
+                if "_" in end_week_value:
+                    end_week, end_week_type = end_week_value.split("_", 1)
+                    end_week = int(end_week)
+                else:
+                    end_week = int(end_week_value)
+                    end_week_type = "partial"  # Default for non-first weeks
+
                 data = {
                     "name": user_input["name"],
                     "schedule_type": "week",
                     "start_month": int(user_input["start_month"]),
-                    "start_week": int(user_input["start_week"]),
-                    "start_day_of_week": int(user_input["start_day_of_week"]),
+                    "start_week": start_week,
                     "end_month": int(user_input["end_month"]),
-                    "end_week": int(user_input["end_week"]),
-                    "end_day_of_week": int(user_input["end_day_of_week"]),
+                    "end_week": end_week,
                     "uid": self._schedule_id,
                 }
+
+                # Add week types if they're for first week (occurrence 0)
+                if start_week == 0:
+                    data["start_week_type"] = start_week_type
+                if end_week == 0:
+                    data["end_week_type"] = end_week_type
+
+                # Add day of week fields only if they are specified (not empty)
+                if (
+                    user_input.get("start_day_of_week")
+                    and user_input["start_day_of_week"] != ""
+                ):
+                    data["start_day_of_week"] = int(user_input["start_day_of_week"])
+
+                if (
+                    user_input.get("end_day_of_week")
+                    and user_input["end_day_of_week"] != ""
+                ):
+                    data["end_day_of_week"] = int(user_input["end_day_of_week"])
+
+                # Add country code if available from Home Assistant config
+                try:
+                    if (
+                        hasattr(self.hass.config, "country")
+                        and self.hass.config.country
+                    ):
+                        data["country_code"] = self.hass.config.country
+                except AttributeError:
+                    # Fallback - try to get from locale or default to None
+                    pass
 
                 config_yaml = user_input.get("configuration") or ""
                 config_yaml = (
@@ -335,11 +427,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get fresh options from config entries
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Get current schedules
+                schedules = self._get_service_schedules()
 
                 # Check for duplicate schedule names
                 schedule_name = data["name"].strip().lower()
@@ -372,12 +461,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if not errors:
                     new_schedules = dict(schedules)
                     new_schedules[self._schedule_id] = data
-
-                    # Get fresh entry again before update
-                    entry = self.hass.config_entries.async_get_entry(
-                        self.config_entry.entry_id
-                    )
-                    updated_options = {**entry.options, "schedules": new_schedules}
+                    updated_options = self._update_service_schedules(new_schedules)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -397,6 +481,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
 
+        # Convert stored week values back to combined format for display
+        start_week_default = defaults.get("start_week", 0)
+        start_week_type = defaults.get("start_week_type", "partial")
+        if start_week_default == 0:
+            start_week_display = f"{start_week_default}_{start_week_type}"
+        else:
+            start_week_display = str(start_week_default)
+
+        end_week_default = defaults.get("end_week", 4)
+        end_week_type = defaults.get("end_week_type", "partial")
+        if end_week_default == 0:
+            end_week_display = f"{end_week_default}_{end_week_type}"
+        else:
+            end_week_display = str(end_week_default)
+
         schema_dict = {
             vol.Required("name", default=defaults.get("name", "My Schedule")): str,
             vol.Required(
@@ -406,18 +505,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "start_week", default=str(defaults.get("start_week", 0))
-            ): SelectSelector(
+            vol.Required("start_week", default=start_week_display): SelectSelector(
                 SelectSelectorConfig(
                     options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "start_day_of_week", default=str(defaults.get("start_day_of_week", 0))
+            vol.Optional(
+                "start_day_of_week", default=str(defaults.get("start_day_of_week", ""))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_day_of_week_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=[SelectOptionDict(value="", label="Whole week")]
+                    + _get_day_of_week_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
             vol.Required(
@@ -427,18 +526,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "end_week", default=str(defaults.get("end_week", 4))
-            ): SelectSelector(
+            vol.Required("end_week", default=end_week_display): SelectSelector(
                 SelectSelectorConfig(
                     options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "end_day_of_week", default=str(defaults.get("end_day_of_week", 6))
+            vol.Optional(
+                "end_day_of_week", default=str(defaults.get("end_day_of_week", ""))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_day_of_week_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=[SelectOptionDict(value="", label="Whole week")]
+                    + _get_day_of_week_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
         }
@@ -481,11 +580,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get fresh options from config entries
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Get current schedules
+                schedules = self._get_service_schedules()
 
                 # Check for duplicate schedule names
                 schedule_name = data["name"].strip().lower()
@@ -518,12 +614,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if not errors:
                     new_schedules = dict(schedules)
                     new_schedules[self._schedule_id] = data
-
-                    # Get fresh entry again before update
-                    entry = self.hass.config_entries.async_get_entry(
-                        self.config_entry.entry_id
-                    )
-                    updated_options = {**entry.options, "schedules": new_schedules}
+                    updated_options = self._update_service_schedules(new_schedules)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -592,8 +683,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Select a schedule to edit."""
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        schedules = entry.options.get("schedules", {}) if entry else {}
+        schedules = self._get_service_schedules()
 
         if not schedules:
             return self.async_abort(reason="no_schedules")
@@ -643,34 +733,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Remove a schedule."""
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        schedules = entry.options.get("schedules", {}) if entry else {}
+        schedules = self._get_service_schedules()
 
         if not schedules:
             return self.async_abort(reason="no_schedules")
-
-        if self._schedule_id and user_input is not None:
-            if user_input.get("confirm"):
-                # Get fresh entry before update
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
-                new_schedules = dict(schedules)
-                new_schedules.pop(self._schedule_id, None)
-
-                updated_options = {**entry.options, "schedules": new_schedules}
-
-                return self.async_create_entry(title="", data=updated_options)
-
-            return self.async_abort(reason="not_confirmed")
 
         if user_input is not None:
             self._schedule_id = user_input["schedule_id"]
             schedule = schedules[self._schedule_id]
 
             return self.async_show_form(
-                step_id="remove_schedule",
+                step_id="remove_schedule_confirm",
                 data_schema=vol.Schema(
                     {
                         vol.Required("confirm", default=False): bool,
@@ -702,6 +775,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
         )
 
+    async def async_step_remove_schedule_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Confirm schedule removal."""
+        schedules = self._get_service_schedules()
+
+        if user_input is not None:
+            if user_input.get("confirm"):
+                # Remove schedule
+                new_schedules = dict(schedules)
+                new_schedules.pop(self._schedule_id, None)
+                updated_options = self._update_service_schedules(new_schedules)
+
+                return self.async_create_entry(title="", data=updated_options)
+
+            return self.async_abort(reason="not_confirmed")
+
+        # This should not happen as we redirect here from remove_schedule
+        return self.async_abort(reason="unknown")
+
     async def async_step_default_configuration(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -722,7 +815,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 entry = self.hass.config_entries.async_get_entry(
                     self.config_entry.entry_id
                 )
-                updated_options = {**entry.options, "configuration": config_dict or {}}
+                services = entry.options.get("services", {})
+                new_services = dict(services)
+
+                # Ensure service exists
+                if self._service_id not in new_services:
+                    new_services[self._service_id] = {
+                        "name": entry.title,
+                        "schedules": {},
+                        "configuration": {},
+                    }
+
+                new_services[self._service_id] = {
+                    **new_services[self._service_id],
+                    "configuration": config_dict or {},
+                }
+
+                updated_options = {**entry.options, "services": new_services}
 
                 return self.async_create_entry(title="", data=updated_options)
 
@@ -733,7 +842,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
 
-        current_config = self.config_entry.options.get("configuration", {})
+        # Get current service configuration
+        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+        services = entry.options.get("services", {}) if entry else {}
+        current_config = services.get(self._service_id, {}).get("configuration", {})
         config_str = yaml.dump(current_config) if current_config else ""
 
         return self.async_show_form(
@@ -747,3 +859,345 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             errors=errors,
         )
+
+    async def async_step_import_holidays(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Import holidays - step 1: select country."""
+        if user_input is not None:
+            self._holiday_data = {"country": user_input["country"]}
+            return await self.async_step_import_holidays_categories()
+
+        try:
+            from .holiday_importer import get_supported_countries
+
+            countries = await get_supported_countries()
+
+            if not countries:
+                return self.async_abort(reason="no_countries_available")
+
+            country_options = [
+                SelectOptionDict(value=code, label=name)
+                for code, name in sorted(countries.items(), key=lambda x: x[1])
+            ]
+
+            return self.async_show_form(
+                step_id="import_holidays",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("country"): SelectSelector(
+                            SelectSelectorConfig(
+                                options=country_options,
+                                mode=SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    }
+                ),
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to load countries: %s", e)
+            return self.async_abort(reason="import_error")
+
+    async def async_step_import_holidays_categories(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Import holidays - step 2: select categories."""
+        if user_input is not None:
+            self._holiday_data["categories"] = user_input.get("categories", ["public"])
+            return await self.async_step_import_holidays_select()
+
+        try:
+            from .holiday_importer import get_available_categories
+
+            country = self._holiday_data.get("country")
+            if not country:
+                return self.async_abort(reason="import_error")
+            categories = await get_available_categories(country)
+
+            if not categories:
+                # Skip to next step with default
+                self._holiday_data["categories"] = ["public"]
+                return await self.async_step_import_holidays_select()
+
+            category_options = [
+                SelectOptionDict(value=code, label=name)
+                for code, name in categories.items()
+            ]
+
+            return self.async_show_form(
+                step_id="import_holidays_categories",
+                data_schema=vol.Schema(
+                    {
+                        vol.Optional("categories", default=["public"]): SelectSelector(
+                            SelectSelectorConfig(
+                                options=category_options,
+                                mode=SelectSelectorMode.LIST,
+                                multiple=True,
+                            )
+                        ),
+                    }
+                ),
+                description_placeholders={"country": self._holiday_data["country"]},
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to load categories: %s", e)
+            return self.async_abort(reason="import_error")
+
+    async def async_step_import_holidays_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Import holidays - step 3: select specific holidays."""
+        if user_input is not None:
+            selected_holidays = user_input.get("holidays", [])
+            overwrite_existing = user_input.get("overwrite_existing", False)
+            skip_on_overlap = user_input.get("skip_on_overlap", True)
+            include_country_name = user_input.get("include_country_name", False)
+
+            if not selected_holidays:
+                return self.async_show_form(
+                    step_id="import_holidays_select",
+                    data_schema=await self._get_holiday_selection_schema(),
+                    errors={"holidays": "Please select at least one holiday to import"},
+                )
+
+            return await self._import_selected_holidays(
+                selected_holidays,
+                overwrite_existing,
+                skip_on_overlap,
+                include_country_name,
+            )
+
+        return self.async_show_form(
+            step_id="import_holidays_select",
+            data_schema=await self._get_holiday_selection_schema(),
+        )
+
+    async def _get_holiday_selection_schema(self) -> vol.Schema:
+        """Get the schema for holiday selection."""
+        try:
+            from .holiday_importer import get_holidays_for_country
+
+            # Ensure _holiday_data is initialized
+            if not hasattr(self, "_holiday_data") or not self._holiday_data:
+                return vol.Schema(
+                    {
+                        vol.Optional("holidays", default=[]): SelectSelector(
+                            SelectSelectorConfig(options=[], multiple=True)
+                        ),
+                    }
+                )
+
+            country = self._holiday_data.get("country")
+            categories = self._holiday_data.get("categories", ["public"])
+
+            if not country:
+                return vol.Schema(
+                    {
+                        vol.Optional("holidays", default=[]): SelectSelector(
+                            SelectSelectorConfig(options=[], multiple=True)
+                        ),
+                    }
+                )
+
+            holidays_data = await get_holidays_for_country(country, categories)
+
+            _LOGGER.debug(
+                "Got %d holidays for country %s, categories %s",
+                len(holidays_data) if holidays_data else 0,
+                country,
+                categories,
+            )
+
+            if not holidays_data:
+                return vol.Schema(
+                    {
+                        vol.Optional("holidays", default=[]): SelectSelector(
+                            SelectSelectorConfig(options=[], multiple=True)
+                        ),
+                    }
+                )
+
+            # Create options with pattern descriptions
+            holiday_options = []
+            for holiday_name, holiday_info in sorted(holidays_data.items()):
+                if holiday_info is None:
+                    _LOGGER.warning("Holiday info is None for %s", holiday_name)
+                    continue
+
+                pattern = holiday_info.get("pattern")
+                if pattern is None:
+                    _LOGGER.warning("Pattern is None for %s", holiday_name)
+                    description = "No pattern available"
+                else:
+                    description = pattern.get("description", "Unknown pattern")
+
+                label = f"{holiday_name} ({description})"
+                holiday_options.append(
+                    SelectOptionDict(value=holiday_name, label=label)
+                )
+
+            # Get all holiday names for default selection
+            all_holiday_names = [option["value"] for option in holiday_options]
+
+            return vol.Schema(
+                {
+                    vol.Optional("holidays", default=all_holiday_names): SelectSelector(
+                        SelectSelectorConfig(
+                            options=holiday_options,
+                            mode=SelectSelectorMode.LIST,
+                            multiple=True,
+                        )
+                    ),
+                    vol.Optional("overwrite_existing", default=False): bool,
+                    vol.Optional("skip_on_overlap", default=True): bool,
+                    vol.Optional("include_country_name", default=False): bool,
+                }
+            )
+
+        except Exception as e:
+            _LOGGER.error("Failed to get holidays: %s", e)
+            return vol.Schema(
+                {
+                    vol.Optional("holidays", default=[]): SelectSelector(
+                        SelectSelectorConfig(options=[], multiple=True)
+                    ),
+                }
+            )
+
+    async def _import_selected_holidays(
+        self,
+        selected_holidays: list[str],
+        overwrite_existing: bool,
+        skip_on_overlap: bool,
+        include_country_name: bool = False,
+    ) -> FlowResult:
+        """Import the selected holidays as schedules."""
+        try:
+            from .holiday_importer import get_holidays_for_country
+            from .schedule_generator import check_overlap
+
+            country = self._holiday_data.get("country")
+            categories = self._holiday_data.get("categories", ["public"])
+
+            if not country:
+                return self.async_show_form(
+                    step_id="import_holidays_select",
+                    data_schema=await self._get_holiday_selection_schema(),
+                    errors={"base": "Country not selected"},
+                )
+
+            all_holidays = await get_holidays_for_country(country, categories)
+
+            # Get current schedules
+            schedules = self._get_service_schedules()
+            new_schedules = dict(schedules)
+
+            imported_count = 0
+            skipped_count = 0
+            overwritten_count = 0
+            errors = []
+
+            for holiday_name in selected_holidays:
+                if holiday_name not in all_holidays:
+                    errors.append(f"Holiday '{holiday_name}' not found")
+                    continue
+
+                holiday_info = all_holidays[holiday_name]
+                pattern = holiday_info.get("pattern")
+
+                if not pattern:
+                    errors.append(f"Could not determine pattern for '{holiday_name}'")
+                    continue
+
+                # Create schedule from pattern
+                if include_country_name:
+                    schedule_name = f"{holiday_name} ({country})"
+                else:
+                    schedule_name = holiday_name
+                schedule = {
+                    "uid": str(uuid.uuid4()),
+                    "name": schedule_name,
+                    **{k: v for k, v in pattern.items() if k != "description"},
+                }
+
+                # Check for existing schedule with same name
+                existing_schedule_id = None
+                for sid, existing_schedule in schedules.items():
+                    if existing_schedule["name"].lower() == schedule_name.lower():
+                        existing_schedule_id = sid
+                        break
+
+                if existing_schedule_id:
+                    if overwrite_existing:
+                        # Overwrite existing schedule
+                        schedule["uid"] = existing_schedule_id
+                        new_schedules[existing_schedule_id] = schedule
+                        overwritten_count += 1
+                        continue
+                    else:
+                        # Skip existing
+                        skipped_count += 1
+                        errors.append(
+                            f"Schedule '{schedule_name}' already exists (skipped)"
+                        )
+                        continue
+
+                # Check for overlaps with other schedules
+                existing_schedules_list = [
+                    s for sid, s in new_schedules.items() if sid != schedule["uid"]
+                ]
+                has_overlap, conflicting_name = check_overlap(
+                    schedule, existing_schedules_list
+                )
+
+                if has_overlap:
+                    if skip_on_overlap:
+                        skipped_count += 1
+                        errors.append(
+                            f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
+                        )
+                        continue
+                    else:
+                        # Import anyway despite overlap
+                        pass
+
+                # Add the schedule
+                new_schedules[schedule["uid"]] = schedule
+                imported_count += 1
+
+            # Update schedules if any were imported or overwritten
+            if imported_count > 0 or overwritten_count > 0:
+                updated_options = self._update_service_schedules(new_schedules)
+
+                # Create success message
+                messages = []
+                if imported_count > 0:
+                    messages.append(f"Imported {imported_count} holiday(s)")
+                if overwritten_count > 0:
+                    messages.append(
+                        f"Overwritten {overwritten_count} existing schedule(s)"
+                    )
+                if skipped_count > 0:
+                    messages.append(f"Skipped {skipped_count} holiday(s)")
+
+                success_message = ", ".join(messages)
+
+                return self.async_create_entry(
+                    title="", data=updated_options, description=success_message
+                )
+            else:
+                # Nothing was imported
+                error_message = "No holidays were imported. " + "; ".join(errors[:3])
+                return self.async_show_form(
+                    step_id="import_holidays_select",
+                    data_schema=await self._get_holiday_selection_schema(),
+                    errors={"base": error_message},
+                )
+
+        except Exception as e:
+            _LOGGER.exception("Failed to import holidays")
+            return self.async_show_form(
+                step_id="import_holidays_select",
+                data_schema=await self._get_holiday_selection_schema(),
+                errors={"base": f"Import failed: {str(e)}"},
+            )

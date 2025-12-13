@@ -1,6 +1,6 @@
 # Scheduler for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
 [![GitHub Release](https://img.shields.io/github/release/Smiley73/ha-scheduler.svg)](https://github.com/Smiley73/ha-scheduler/releases)
 [![License](https://img.shields.io/github/license/Smiley73/ha-scheduler.svg)](LICENSE)
 
@@ -11,9 +11,11 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 - [⚠️ Breaking Change in v0.3.0](#️-breaking-change-in-v030)
 - [Installation](#installation)
 - [Configuration](#configuration)
+  - [Holiday Import Feature](#holiday-import-feature)
 - [Features](#features)
 - [Schedule Types](#schedule-types)
 - [Advanced Configuration](#advanced-configuration)
+  - [Enhanced Week Schedule Examples](#enhanced-week-schedule-examples)
 - [Diagnostics](#diagnostics)
 - [Support](#support)
 - [License](#license)
@@ -74,14 +76,120 @@ We apologize for the inconvenience, but this change ensures better compatibility
 From the Configure menu, you can:
 - **Add Schedule**: Create a new schedule with optional configuration
 - **Remove Schedule**: Delete an existing schedule
+- **Import Holidays**: Import holidays from any supported country as schedules
 - **Edit Default Configuration**: Set default configuration that applies to all schedules
 
 The integration automatically prevents overlapping schedules to avoid conflicts.
+
+### Holiday Import Feature
+
+The Scheduler integration includes a powerful holiday import feature that allows you to automatically create schedules for holidays from any supported country using the Python `holidays` library.
+
+#### How to Import Holidays
+
+1. Go to Settings → Devices & Services
+2. Find your Scheduler integration and click "Configure"
+3. Select "Import Holidays"
+4. **Step 1**: Choose a country from the extensive list of available options (e.g., US, CA, GB, DE, FR, AU, etc.)
+5. **Step 2**: Select holiday categories available for that country (Public, Bank, School, Observance, etc.)
+6. **Step 3**: Choose specific holidays and configure import options:
+   - **Holidays to import**: Select from the list with automatically detected pattern descriptions
+   - **Overwrite existing**: Replace schedules with the same name
+   - **Skip on overlap**: Skip holidays that would conflict with existing schedules
+   - **Include country name**: Add country code to schedule names (e.g., "Independence Day (USA)" vs "Independence Day")
+
+#### Smart Pattern Detection
+
+The holiday import feature automatically analyzes multiple years of holiday data to determine the best schedule type:
+
+- **Fixed Date Holidays** (e.g., Independence Day - July 4th, Christmas - December 25th)
+  - Creates "Date" type schedules with the same date every year
+  - Pattern: `Fixed date: July 04`
+
+- **Variable Date Holidays** (e.g., Martin Luther King Jr. Day - 3rd Monday in January)
+  - Creates "Nth-Day" type schedules that automatically adjust each year
+  - Pattern: `Third Monday of January`
+
+- **Multi-Day Holidays** (e.g., Easter weekend spanning multiple days)
+  - Creates "Week" type schedules for holidays that span consecutive days within the same week
+  - Pattern: `First week of April (Friday to Monday)` (example)
+
+- **Complex Variable Holidays** (e.g., Thanksgiving - 4th Thursday in November)
+  - Automatically calculates the correct occurrence and weekday
+  - Pattern: `Fourth Thursday of November`
+
+- **Fallback Handling**: For holidays with unpredictable patterns, creates single-date schedules using a representative year
+
+#### Supported Countries and Categories
+
+- **Countries**: Extensive support through the Python `holidays` library including:
+  - **Major countries**: US, Canada, UK, Germany, France, Australia, New Zealand, Japan, South Korea
+  - **European Union**: All EU member states with country-specific holidays
+  - **Americas**: North, Central, and South American countries
+  - **Asia-Pacific**: Most Asian and Pacific region countries
+  - **Africa & Middle East**: Many African and Middle Eastern countries
+
+- **Categories** (varies by country):
+  - **Public**: National/federal holidays and official observances
+  - **Bank**: Banking and financial sector holidays
+  - **School**: Educational institution holidays and breaks
+  - **Observance**: Cultural, religious, and traditional observances
+  - **Optional**: Regional or optional holidays
+  - **Government**: Government office closures
+  - **Financial**: Financial market holidays
+
+#### Pattern Analysis Process
+
+The import feature analyzes 3 years of holiday data (2023-2025) to detect patterns:
+
+1. **Data Collection**: Retrieves holiday dates for multiple years
+2. **Pattern Recognition**: Analyzes date consistency and variations
+3. **Schedule Type Selection**: Chooses the most appropriate schedule type
+4. **Validation**: Ensures patterns work correctly across years
+
+#### Conflict Management
+
+The import feature includes comprehensive conflict detection:
+
+- **Name Conflicts**: Option to overwrite existing schedules with identical names
+- **Date Overlaps**: Option to skip holidays that would conflict with existing schedule periods
+- **Clear Feedback**: Detailed reporting of what was imported, skipped, or overwritten
+- **Preview Mode**: See what would be imported before making changes
+
+#### Examples
+
+**Import US Federal Holidays:**
+1. Select "United States" → "Public" → Choose holidays like:
+   - Independence Day → `Fixed date: July 04`
+   - Thanksgiving → `Fourth Thursday of November`
+   - Martin Luther King Jr. Day → `Third Monday of January`
+   - Memorial Day → `Last Monday of May`
+
+**Import UK Bank Holidays:**
+1. Select "United Kingdom" → "Bank" → Choose holidays like:
+   - Christmas Day → `Fixed date: December 25`
+   - Easter Monday → `Variable date pattern`
+   - Spring Bank Holiday → `Last Monday of May`
+   - Summer Bank Holiday → `Last Monday of August`
+
+**Import German Public Holidays:**
+1. Select "Germany" → "Public" → Choose holidays like:
+   - German Unity Day → `Fixed date: October 03`
+   - Easter Monday → `Variable date pattern`
+   - Christmas Day → `Fixed date: December 25`
+
+**Import Canadian Holidays:**
+1. Select "Canada" → "Public" → Choose holidays like:
+   - Canada Day → `Fixed date: July 01`
+   - Thanksgiving → `Second Monday of October`
+   - Victoria Day → `Third Monday of May`
 
 ## Features
 
 - Easy configuration through the UI
 - Three flexible schedule types: date-based, week-based, and nth-day
+- **Enhanced week-based schedules** with optional day restrictions, country-specific week starts, and partial/full week types
+- **Holiday import feature** supporting 100+ countries with automatic pattern detection
 - Calendar entity showing all active schedules as events
 - Optional YAML configuration per schedule for custom attributes
 - Default configuration that applies to all schedules
@@ -108,17 +216,36 @@ The Scheduler integration supports three types of schedules to cover different u
 
 ### 2. Week-Based Schedules
 
-**Use for:** Schedules based on specific weeks within months, like "first week of every month" or "last two weeks of December."
+**Use for:** Schedules based on specific weeks within months, like "first week of every month," "last two weeks of December," or entire weeks without specific day restrictions.
 
-**Configuration:**
-- Start Month, Week (0-4), and Day of Week: When the schedule begins
-- End Month, Week (0-4), and Day of Week: When the schedule ends
-- Week 0 = first week, Week 4 = last week
+**Enhanced Configuration Options:**
+- **Start Month & Week (0-4)**: When the schedule begins (Week 0 = first week, Week 4 = last week)
+- **End Month & Week (0-4)**: When the schedule ends
+- **Day of Week (Optional)**: Specific days within the week range
+- **Week Type**: How first/last weeks are calculated
+- **Country Code**: Determines week start day (Sunday vs Monday)
+
+**Week Types:**
+- **Partial** (default): First week includes any days in the month, even if week starts in previous month
+- **Full**: First week must be entirely within the month
+
+**Day of Week Options:**
+- **Both days specified**: Traditional behavior - specific day range (e.g., Monday to Friday)
+- **Start day only**: From specified day to end of week period
+- **End day only**: From start of week period to specified day  
+- **No days specified**: Entire week(s) are active
+
+**Country-Specific Week Starts:**
+- **Sunday-first countries**: US, CA, JP, KR, and many others
+- **Monday-first countries**: Most of Europe, AU, NZ (default)
 
 **Examples:**
-- First Monday of every month: Week 0, Monday to Week 0, Monday
-- Last week of December: Week 4, Monday to Week 4, Sunday
-- Mid-month period: Week 2, Monday to Week 3, Friday
+- **Entire first week of every month**: Week 0 to Week 0 (no day restrictions)
+- **First Monday of every month**: Week 0, Monday to Week 0, Monday
+- **Last week of December**: Week 4, Monday to Week 4, Sunday  
+- **Mid-month period**: Week 2, Monday to Week 3, Friday
+- **Whole weeks 2-3**: Week 1 to Week 2 (no day restrictions)
+- **US-style first full week**: Week 0, Week Type: Full, Country: US
 
 **Note:** All days between the start and end dates are active, not just the specified days of the week.
 
@@ -432,6 +559,85 @@ actions:
 mode: restart
 ```
 
+### Enhanced Week Schedule Examples
+
+The enhanced week-based schedules support flexible configurations for different use cases:
+
+#### Example 1: Whole Week Schedules
+
+**Monthly Deep Cleaning (First Full Week):**
+```yaml
+# Schedule Configuration
+Schedule Type: Week
+Start: Month 1, Week 0 (First), Week Type: Full
+End: Month 12, Week 0 (First), Week Type: Full
+Country: US  # Sunday-first weeks
+# No day restrictions - entire week is active
+```
+
+**Vacation Weeks (Last Two Weeks of July):**
+```yaml
+Schedule Type: Week  
+Start: Month 7, Week 2 (Third)
+End: Month 7, Week 4 (Last)
+# Covers two complete weeks
+```
+
+#### Example 2: Partial Week Schedules
+
+**Weekend Maintenance (Saturday-Sunday of Second Week):**
+```yaml
+Schedule Type: Week
+Start: Month 1, Week 1 (Second), Day: Saturday
+End: Month 12, Week 1 (Second), Day: Sunday
+# Repeats every month, second weekend
+```
+
+**Mid-Week Break (Wednesday to Friday of Third Week):**
+```yaml
+Schedule Type: Week
+Start: Month 1, Week 2 (Third), Day: Wednesday  
+End: Month 12, Week 2 (Third), Day: Friday
+```
+
+#### Example 3: Country-Specific Week Calculations
+
+**US Business Week (Monday-Friday, First Full Week):**
+```yaml
+Schedule Type: Week
+Start: Month 1, Week 0, Day: Monday, Week Type: Full
+End: Month 12, Week 0, Day: Friday, Week Type: Full
+Country: US
+# First full business week using US Sunday-first calendar
+```
+
+**European Work Schedule (Monday-Thursday, First Week):**
+```yaml
+Schedule Type: Week
+Start: Month 1, Week 0, Day: Monday, Week Type: Partial
+End: Month 12, Week 0, Day: Thursday, Week Type: Partial  
+Country: DE
+# First week using European Monday-first calendar
+```
+
+#### Example 4: Flexible Day Specifications
+
+**Start of Week Only (Monday to End of Week):**
+```yaml
+Schedule Type: Week
+Start: Month 1, Week 0, Day: Monday
+End: Month 12, Week 0
+# From Monday through end of first week (Sunday in US, Sunday in Europe)
+```
+
+**End of Week Only (Start of Week to Friday):**
+```yaml
+Schedule Type: Week
+Start: Month 1, Week 0
+End: Month 12, Week 0, Day: Friday
+# From start of first week through Friday
+```
+
 ### Tips for Using Configuration
 
 1. **Keep it simple**: Store only the values you need (colors, temperatures, modes, etc.)
@@ -439,6 +645,8 @@ mode: restart
 3. **Test your YAML**: Invalid YAML in the configuration field will prevent the schedule from saving
 4. **Access nested values**: Use dot notation or bracket notation: `config.settings.brightness` or `config['settings']['brightness']`
 5. **Default configuration**: Set common values in the default configuration, override per schedule as needed
+6. **Week schedules**: Use country codes for proper week start calculations (US=Sunday-first, most others=Monday-first)
+7. **Week types**: Use "full" for schedules that must be entirely within the month, "partial" for flexibility
 
 ## Diagnostics
 

@@ -3,8 +3,102 @@
 from __future__ import annotations
 
 import calendar
+import logging
 from datetime import date, timedelta
 from typing import Any
+
+# Babel imports moved inside functions to avoid blocking I/O during module import
+
+_LOGGER = logging.getLogger(__name__)
+
+# Fallback mapping for countries where Babel doesn't have locale data
+# or where the locale data differs from common practice
+# 0 = Monday, 6 = Sunday
+COUNTRY_FIRST_WEEKDAY_FALLBACK = {
+    # Countries that commonly use Sunday as first day but may not be in Babel
+    "JP": 6,  # Japan - commonly uses Sunday in business/calendar contexts
+    "KR": 6,  # South Korea
+    "MX": 6,  # Mexico
+    "IL": 6,  # Israel
+    "SA": 6,  # Saudi Arabia
+    "AE": 6,  # UAE
+    "EG": 6,  # Egypt
+    "PH": 6,  # Philippines
+    "TW": 6,  # Taiwan
+    "HK": 6,  # Hong Kong
+    "SG": 6,  # Singapore
+    "TH": 6,  # Thailand
+    "MY": 6,  # Malaysia
+    "ID": 6,  # Indonesia
+    "VN": 6,  # Vietnam
+    # Add more as needed for countries not well-covered by Babel
+}
+
+
+def get_country_first_weekday(country_code: str | None = None) -> int:
+    """Get the first weekday for a country (0=Monday, 6=Sunday).
+
+    Uses Babel's locale data to determine the first day of the week for different countries.
+    This provides more comprehensive and up-to-date locale information than a static mapping.
+
+    Args:
+        country_code: ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB')
+
+    Returns:
+        0 for Monday-first countries, 6 for Sunday-first countries
+    """
+    if not country_code:
+        return 0  # Default to Monday
+
+    country_upper = country_code.upper()
+
+    try:
+        # Lazy import to avoid blocking I/O during module import
+        from babel import Locale
+
+        # Try to create a locale from the country code
+        # We use English as the language since we only care about the territory
+        locale_str = f"en_{country_upper}"
+        locale = Locale.parse(locale_str)
+
+        # Get the first day of the week
+        # Babel uses 0=Monday, 6=Sunday which matches our expected format
+        first_day = locale.first_week_day
+        return first_day
+
+    except ImportError as e:
+        _LOGGER.debug("Babel not available for weekday detection: %s", e)
+
+        # Check our fallback mapping for countries not well-covered by Babel
+        if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
+            _LOGGER.debug("Using fallback weekday data for country %s", country_code)
+            return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
+
+        return 0  # Default to Monday if Babel is not available
+
+    except Exception as e:  # Catch UnknownLocaleError, ValueError, etc.
+        # Try alternative locale formats for countries that might not have en_XX
+        try:
+            from babel import Locale
+
+            # Some countries might have their own primary language locale
+            locale = Locale.parse(country_code.lower())
+            first_day = locale.first_week_day
+            return first_day
+        except Exception:  # Any error in fallback attempt
+            pass
+
+        # Check our fallback mapping for countries not well-covered by Babel
+        if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
+            _LOGGER.debug("Using fallback weekday data for country %s", country_code)
+            return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
+
+        _LOGGER.debug(
+            "Could not determine first weekday for country %s: %s. Using Monday as default.",
+            country_code,
+            e,
+        )
+        return 0  # Default to Monday if locale is unknown
 
 
 def generate_schedule_dates(
@@ -36,6 +130,11 @@ def _generate_by_date(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
     Handles year wrapping (e.g., Dec 15 to Jan 15).
     """
+    # Check for required fields
+    required_fields = ["start_month", "start_day", "end_month", "end_day"]
+    if not all(field in schedule for field in required_fields):
+        return []
+
     start_month = schedule["start_month"]
     start_day = schedule["start_day"]
     end_month = schedule["end_month"]
@@ -72,32 +171,169 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
     Handles year wrapping only when end_month < start_month
     (e.g., last Monday of December to first Friday of January).
+
+    If day_of_week fields are not specified, the schedule applies to the whole week.
     """
+    # Check for required fields (day_of_week fields are now optional)
+    required_fields = ["start_month", "start_week", "end_month", "end_week"]
+    if not all(field in schedule for field in required_fields):
+        return []
+
     start_month = schedule["start_month"]
     start_week = schedule["start_week"]
-    start_day_of_week = schedule["start_day_of_week"]
+    start_day_of_week = schedule.get("start_day_of_week")
     end_month = schedule["end_month"]
     end_week = schedule["end_week"]
-    end_day_of_week = schedule["end_day_of_week"]
+    end_day_of_week = schedule.get("end_day_of_week")
+
+    # Get country code for determining first weekday
+    country_code = schedule.get("country_code")
+    first_weekday = get_country_first_weekday(country_code)
+
+    # Get week types (partial or full) for start and end weeks
+    start_week_type = schedule.get("start_week_type", "partial")
+    end_week_type = schedule.get("end_week_type", "partial")
 
     try:
-        start_date = _get_nth_weekday(year, start_month, start_week, start_day_of_week)
+        # If no specific days are specified, use the whole week
+        if start_day_of_week is None and end_day_of_week is None:
+            # Get the start of the specified week
+            week_start_date = _get_week_start(
+                year, start_month, start_week, first_weekday, start_week_type
+            )
+            if not week_start_date:
+                return []
 
-        if not start_date:
-            return []
+            # Get the end of the specified week
+            # If same month, use the same week type context as start for consistency
+            # If different month, use the end_week_type for that month
+            effective_end_week_type = (
+                start_week_type if start_month == end_month else end_week_type
+            )
+            if end_month < start_month:
+                # End is in next year
+                week_end_date = _get_week_end(
+                    year + 1,
+                    end_month,
+                    end_week,
+                    first_weekday,
+                    effective_end_week_type,
+                )
+            else:
+                # Same year
+                week_end_date = _get_week_end(
+                    year, end_month, end_week, first_weekday, effective_end_week_type
+                )
 
-        # Only wrap to next year if end month is explicitly before start month
-        if end_month < start_month:
-            # End is in next year (e.g., December to January)
-            end_date = _get_nth_weekday(year + 1, end_month, end_week, end_day_of_week)
+            if not week_end_date:
+                return []
+
+            return [(week_start_date, week_end_date)]
+
+        # If only start day is specified, use start day to end of week
+        elif start_day_of_week is not None and end_day_of_week is None:
+            # Get the specific day within the specified week
+            start_date = _get_weekday_in_week(
+                year,
+                start_month,
+                start_week,
+                start_day_of_week,
+                first_weekday,
+                start_week_type,
+            )
+            if not start_date:
+                return []
+
+            if end_month < start_month:
+                week_end_date = _get_week_end(
+                    year + 1, end_month, end_week, first_weekday, end_week_type
+                )
+            else:
+                week_end_date = _get_week_end(
+                    year, end_month, end_week, first_weekday, end_week_type
+                )
+
+            if not week_end_date:
+                return []
+
+            return [(start_date, week_end_date)]
+
+        # If only end day is specified, use start of week to end day
+        elif start_day_of_week is None and end_day_of_week is not None:
+            week_start_date = _get_week_start(
+                year, start_month, start_week, first_weekday, start_week_type
+            )
+            if not week_start_date:
+                return []
+
+            if end_month < start_month:
+                end_date = _get_weekday_in_week(
+                    year + 1,
+                    end_month,
+                    end_week,
+                    end_day_of_week,
+                    first_weekday,
+                    end_week_type,
+                )
+            else:
+                end_date = _get_weekday_in_week(
+                    year,
+                    end_month,
+                    end_week,
+                    end_day_of_week,
+                    first_weekday,
+                    end_week_type,
+                )
+
+            if not end_date:
+                return []
+
+            return [(week_start_date, end_date)]
+
+        # Both days specified - use weekday-in-week for precise control
         else:
-            # Same year - end month is same or after start month
-            end_date = _get_nth_weekday(year, end_month, end_week, end_day_of_week)
+            start_date = _get_weekday_in_week(
+                year,
+                start_month,
+                start_week,
+                start_day_of_week,
+                first_weekday,
+                start_week_type,
+            )
+            if not start_date:
+                return []
 
-        if not end_date:
-            return []
+            # Only wrap to next year if end month is explicitly before start month
+            if end_month < start_month:
+                # End is in next year (e.g., December to January)
+                end_date = _get_weekday_in_week(
+                    year + 1,
+                    end_month,
+                    end_week,
+                    end_day_of_week,
+                    first_weekday,
+                    end_week_type,
+                )
+            else:
+                # Same year - end month is same or after start month
+                # Use same week type context if same month
+                effective_end_week_type = (
+                    start_week_type if start_month == end_month else end_week_type
+                )
+                end_date = _get_weekday_in_week(
+                    year,
+                    end_month,
+                    end_week,
+                    end_day_of_week,
+                    first_weekday,
+                    effective_end_week_type,
+                )
 
-        return [(start_date, end_date)]
+            if not end_date:
+                return []
+
+            return [(start_date, end_date)]
+
     except (ValueError, KeyError):
         return []
 
@@ -113,6 +349,11 @@ def _generate_by_nth_day(
     - March 12, 2024
     - March 11, 2025
     """
+    # Check for required fields
+    required_fields = ["month", "occurrence", "day_of_week"]
+    if not all(field in schedule for field in required_fields):
+        return []
+
     month = schedule["month"]
     occurrence = schedule["occurrence"]
     day_of_week = schedule["day_of_week"]
@@ -131,6 +372,217 @@ def _generate_by_nth_day(
         return [(start_date, end_date)]
     except (ValueError, KeyError):
         return []
+
+
+def _get_week_start(
+    year: int,
+    month: int,
+    occurrence: int,
+    first_weekday: int = 0,
+    week_type: str = "partial",
+) -> date | None:
+    """Get the start of the nth week in a month.
+
+    Args:
+        year: Year
+        month: Month (1-12)
+        occurrence: Week occurrence (0-3 for first through fourth, 4 for last)
+        first_weekday: First day of week (0=Monday, 6=Sunday)
+        week_type: "partial" for first week (may start in previous month),
+                   "full" for first full week (entirely within month)
+
+    Returns:
+        Date of the first day of the specified week, or None if invalid
+    """
+    try:
+        # Get first day of month
+        first_day = date(year, month, 1)
+
+        # Handle "last" occurrence
+        if occurrence == 4:
+            # Start from last day of month and work backwards to find last week
+            last_day = calendar.monthrange(year, month)[1]
+            last_date = date(year, month, last_day)
+
+            # Find the start of the week containing the last day
+            days_back = (last_date.weekday() - first_weekday) % 7
+            week_start = last_date - timedelta(days=days_back)
+
+            # Make sure it's still in the same month
+            if week_start.month != month:
+                # If week start is in previous month, find the first day of month that's in this week
+                return date(year, month, 1)
+
+            return week_start
+
+        # Find the start of the first calendar week that has any days in this month
+        # Calculate how many days back from the first day to get to the week start
+        days_back = (first_day.weekday() - first_weekday) % 7
+        first_calendar_week_start = first_day - timedelta(days=days_back)
+
+        # Handle week type for the first week (occurrence 0)
+        if occurrence == 0:
+            if week_type == "full":
+                # For "full" week type, skip to the first full week entirely within the month
+                if first_calendar_week_start.month != month:
+                    # First week starts in previous month, so first full week is the next one
+                    return first_calendar_week_start + timedelta(weeks=1)
+                else:
+                    return first_calendar_week_start
+            else:
+                # For "partial" week type (default), use the first week even if it starts in previous month
+                if first_calendar_week_start.month != month:
+                    # Return the first day of the month as the start of the partial week
+                    return first_day
+                else:
+                    return first_calendar_week_start
+
+        # For subsequent weeks (occurrence > 0), calculate based on the actual first week
+        if week_type == "full":
+            # For full type, subsequent weeks are based on the first full week
+            if first_calendar_week_start.month != month:
+                # First full week starts in the next calendar week
+                first_full_week_start = first_calendar_week_start + timedelta(weeks=1)
+            else:
+                first_full_week_start = first_calendar_week_start
+            target_week_start = first_full_week_start + timedelta(weeks=occurrence)
+        else:
+            # For partial type, use calendar week boundaries
+            target_week_start = first_calendar_week_start + timedelta(weeks=occurrence)
+
+            # For partial type first week that was adjusted to start on first day of month,
+            # we need to adjust subsequent weeks to align with proper calendar weeks
+            if first_calendar_week_start.month != month and occurrence > 0:
+                # The first week was adjusted to start on the first day of month
+                # But subsequent weeks should follow calendar week boundaries
+                # So we need to find the next Sunday (or Monday) after the first day
+                days_to_next_week_start = (first_weekday - first_day.weekday()) % 7
+                if days_to_next_week_start == 0:
+                    days_to_next_week_start = (
+                        7  # If first day is already the week start day, go to next week
+                    )
+
+                next_calendar_week_start = first_day + timedelta(
+                    days=days_to_next_week_start
+                )
+                target_week_start = next_calendar_week_start + timedelta(
+                    weeks=occurrence - 1
+                )
+
+        # Verify it's still in the same month (at least partially)
+        if target_week_start.month > month or (
+            target_week_start.month < month and target_week_start.year >= year
+        ):
+            return None
+
+        return target_week_start
+    except (ValueError, OverflowError):
+        return None
+
+
+def _get_week_end(
+    year: int,
+    month: int,
+    occurrence: int,
+    first_weekday: int = 0,
+    week_type: str = "partial",
+) -> date | None:
+    """Get the end of the nth week in a month.
+
+    Args:
+        year: Year
+        month: Month (1-12)
+        occurrence: Week occurrence (0-3 for first through fourth, 4 for last)
+        first_weekday: First day of week (0=Monday, 6=Sunday)
+        week_type: "partial" for first week (may start in previous month),
+                   "full" for first full week (entirely within month)
+
+    Returns:
+        Date of the last day of the specified week, or None if invalid
+    """
+    try:
+        week_start = _get_week_start(year, month, occurrence, first_weekday, week_type)
+        if not week_start:
+            return None
+
+        # Get first day of month to check if this is a partial first week
+        first_day = date(year, month, 1)
+
+        # Calculate the theoretical calendar week end (6 days after calendar week start)
+        # Find the start of the calendar week that contains this week_start
+        days_back = (week_start.weekday() - first_weekday) % 7
+        calendar_week_start = week_start - timedelta(days=days_back)
+        calendar_week_end = calendar_week_start + timedelta(days=6)
+
+        # For the first week (occurrence 0) with partial type,
+        # if the week_start was adjusted to be the first day of month,
+        # we need to find the actual end of that partial week
+        if (
+            occurrence == 0
+            and week_type == "partial"
+            and week_start == first_day
+            and calendar_week_start.month != month
+        ):
+            # This is a partial first week that starts mid-calendar-week
+            # The end should be the end of the calendar week or end of month, whichever is earlier
+            last_day_of_month = date(year, month, calendar.monthrange(year, month)[1])
+            week_end = min(calendar_week_end, last_day_of_month)
+        else:
+            # For all other cases, use the full calendar week end
+            week_end = calendar_week_end
+
+        # Don't go beyond month boundary for any week except the last week
+        last_day_of_month = date(year, month, calendar.monthrange(year, month)[1])
+        if occurrence == 4 or week_end > last_day_of_month:
+            week_end = min(week_end, last_day_of_month)
+
+        return week_end
+    except (ValueError, OverflowError):
+        return None
+
+
+def _get_weekday_in_week(
+    year: int,
+    month: int,
+    week_occurrence: int,
+    day_of_week: int,
+    first_weekday: int = 0,
+    week_type: str = "partial",
+) -> date | None:
+    """Get a specific weekday within a specific week of a month.
+
+    Args:
+        year: Year
+        month: Month (1-12)
+        week_occurrence: Week occurrence (0-3 for first through fourth, 4 for last)
+        day_of_week: Day of week (0-6 for Monday through Sunday)
+        first_weekday: First day of week (0=Monday, 6=Sunday)
+        week_type: "partial" or "full" for first week handling
+
+    Returns:
+        Date of the specific weekday in the specific week, or None if it doesn't exist
+    """
+    try:
+        # Get the start and end of the specified week
+        week_start = _get_week_start(
+            year, month, week_occurrence, first_weekday, week_type
+        )
+        week_end = _get_week_end(year, month, week_occurrence, first_weekday, week_type)
+
+        if not week_start or not week_end:
+            return None
+
+        # Check each day in the week to find the requested weekday
+        current_date = week_start
+        while current_date <= week_end:
+            if current_date.weekday() == day_of_week:
+                return current_date
+            current_date += timedelta(days=1)
+
+        # The requested weekday doesn't exist in this week
+        return None
+    except (ValueError, OverflowError):
+        return None
 
 
 def _get_nth_weekday(

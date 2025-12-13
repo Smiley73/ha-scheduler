@@ -121,7 +121,7 @@ async def test_remove_schedule_flow_confirm_step(hass: HomeAssistant) -> None:
     )
 
     assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "remove_schedule"
+    assert result["step_id"] == "remove_schedule_confirm"
     assert result["description_placeholders"]["schedule_name"] == "Test Schedule"
     assert result["description_placeholders"]["schedule_type"] == "date"
 
@@ -170,8 +170,16 @@ async def test_remove_schedule_flow_confirm_removal(hass: HomeAssistant) -> None
     )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert "schedule_1" not in result["data"]["schedules"]
-    assert "schedule_2" in result["data"]["schedules"]
+
+    # Check both new service-based structure and legacy structure
+    services = result["data"].get("services", {})
+    if services:
+        schedules = services.get("default", {}).get("schedules", {})
+    else:
+        schedules = result["data"].get("schedules", {})
+
+    assert "schedule_1" not in schedules
+    assert "schedule_2" in schedules
 
 
 async def test_remove_schedule_flow_cancel_removal(hass: HomeAssistant) -> None:

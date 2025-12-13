@@ -3,6 +3,7 @@ pytest-homeassistant-custom-component>=0.13.0,<0.14.0
 pytest-cov>=4.1.0
 ruff>=0.1.0
 pre-commit>=3.5.0
+babel>=2.0.0
 # Fix for pycares/aiodns compatibility issue
 pycares>=4.3.0,<5.0.0
 aiodns>=3.1.0,<4.0.0
