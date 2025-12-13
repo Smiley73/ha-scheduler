@@ -286,7 +286,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             "description": f"Fixed date: {dates[0].strftime('%B %d')}",
         }
     else:
-        # Variable date - try to determine nth weekday pattern
+        # Variable date - try to determine pattern
         first_date = dates[0]
 
         # Check if all dates are in the same month and same weekday
@@ -327,6 +327,12 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
                     "December",
                 ]
 
+                # Check if this could be a week-based pattern instead
+                # Some holidays might span multiple days in the same week
+                week_pattern = _analyze_week_pattern(dates)
+                if week_pattern:
+                    return week_pattern
+
                 return {
                     "schedule_type": "nth-day",
                     "month": month,
@@ -337,6 +343,11 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
                     "description": f"{occurrence_names[occurrence]} {day_names[day_of_week]} of {month_names[month]}",
                 }
 
+        # Check for week-based patterns (holidays that span multiple days)
+        week_pattern = _analyze_week_pattern(dates)
+        if week_pattern:
+            return week_pattern
+
         # If we can't determine a clear pattern, default to first occurrence as date
         return {
             "schedule_type": "date",
@@ -346,6 +357,133 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             "end_day": first_date.day,
             "description": f"Variable date (using {first_date.year} date: {first_date.strftime('%B %d')})",
         }
+
+
+def _analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None:
+    """Analyze if dates follow a week-based pattern."""
+    if len(dates) < 2:
+        return None
+
+    # Group dates by year to analyze patterns
+    dates_by_year = {}
+    for d in dates:
+        if d.year not in dates_by_year:
+            dates_by_year[d.year] = []
+        dates_by_year[d.year].append(d)
+
+    # Check if we have consistent patterns across years
+    if len(dates_by_year) < 2:
+        return None
+
+    # Look for patterns where dates span multiple consecutive days in the same week/month
+    for year, year_dates in dates_by_year.items():
+        year_dates.sort()
+
+        # Check if dates are consecutive and in the same month
+        if len(year_dates) >= 2:
+            first_date = year_dates[0]
+            last_date = year_dates[-1]
+
+            # Check if they're in the same month and span multiple days
+            if (
+                first_date.month == last_date.month
+                and (last_date - first_date).days >= 1
+                and (last_date - first_date).days <= 6
+            ):  # Within a week
+                # Try to determine if this follows a week pattern
+                start_occurrence = calculate_occurrence(first_date)
+                end_occurrence = calculate_occurrence(last_date)
+
+                if start_occurrence is not None and end_occurrence is not None:
+                    # Check if this pattern is consistent across other years
+                    consistent = True
+                    for other_year, other_dates in dates_by_year.items():
+                        if other_year == year:
+                            continue
+
+                        other_dates.sort()
+                        if len(other_dates) >= 2:
+                            other_first = other_dates[0]
+                            other_last = other_dates[-1]
+
+                            other_start_occ = calculate_occurrence(other_first)
+                            other_end_occ = calculate_occurrence(other_last)
+
+                            if (
+                                other_first.month != first_date.month
+                                or other_start_occ != start_occurrence
+                                or other_end_occ != end_occurrence
+                                or other_first.weekday() != first_date.weekday()
+                                or other_last.weekday() != last_date.weekday()
+                            ):
+                                consistent = False
+                                break
+
+                    if consistent:
+                        occurrence_names = [
+                            "First",
+                            "Second",
+                            "Third",
+                            "Fourth",
+                            "Last",
+                        ]
+                        day_names = [
+                            "Monday",
+                            "Tuesday",
+                            "Wednesday",
+                            "Thursday",
+                            "Friday",
+                            "Saturday",
+                            "Sunday",
+                        ]
+                        month_names = [
+                            "",
+                            "January",
+                            "February",
+                            "March",
+                            "April",
+                            "May",
+                            "June",
+                            "July",
+                            "August",
+                            "September",
+                            "October",
+                            "November",
+                            "December",
+                        ]
+
+                        # Create week-based schedule with appropriate week types
+                        schedule = {
+                            "schedule_type": "week",
+                            "start_month": first_date.month,
+                            "start_week": start_occurrence,
+                            "start_day_of_week": first_date.weekday(),
+                            "end_month": last_date.month,
+                            "end_week": end_occurrence,
+                            "end_day_of_week": last_date.weekday(),
+                        }
+
+                        # Add week types for first weeks (occurrence 0)
+                        # Default to "partial" for holidays as they typically follow calendar weeks
+                        if start_occurrence == 0:
+                            schedule["start_week_type"] = "partial"
+                        if end_occurrence == 0:
+                            schedule["end_week_type"] = "partial"
+
+                        if start_occurrence == end_occurrence:
+                            # Same week, different days
+                            schedule["description"] = (
+                                f"{occurrence_names[start_occurrence]} week of {month_names[first_date.month]} ({day_names[first_date.weekday()]} to {day_names[last_date.weekday()]})"
+                            )
+                        else:
+                            # Different weeks
+                            schedule["description"] = (
+                                f"{occurrence_names[start_occurrence]} {day_names[first_date.weekday()]} to {occurrence_names[end_occurrence]} {day_names[last_date.weekday()]} of {month_names[first_date.month]}"
+                            )
+
+                        return schedule
+
+    return None
 
 
 def calculate_occurrence(target_date: date) -> int | None:

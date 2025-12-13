@@ -62,22 +62,36 @@ Define a schedule using specific calendar dates that repeat annually.
 **Example**: Summer vacation from June 1 to August 31
 
 #### 2. By Week of Month Schedule
-Define a schedule using week occurrences within months.
+Define a schedule using week occurrences within months with optional week type specification.
 
 **User Input**:
 - Start month (dropdown: January-December, stored as 1-12)
-- Start week (dropdown: First/Second/Third/Fourth/Last, stored as 0-4)
-- Start day of week (dropdown: Monday-Sunday, stored as 0-6 where 0=Monday)
+- Start week (dropdown: First/First full/Second/Third/Fourth/Last, stored as combined format)
+- Start day of week (dropdown: Monday-Sunday/Whole week, stored as 0-6 where 0=Monday, optional)
 - End month (dropdown: January-December, stored as 1-12)
-- End week (dropdown: First/Second/Third/Fourth/Last, stored as 0-4)
-- End day of week (dropdown: Monday-Sunday, stored as 0-6)
+- End week (dropdown: First/First full/Second/Third/Fourth/Last, stored as combined format)
+- End day of week (dropdown: Monday-Sunday/Whole week, stored as 0-6, optional)
+
+**Week Type Options**:
+- **First** (partial): First week of month, may start in previous month (default)
+- **First full**: First full week entirely within the month
+- **Second/Third/Fourth/Last**: Always full weeks within the month
+
+**Day of Week Options**:
+- **Specific day**: Schedule applies to specific weekday (e.g., Monday to Friday)
+- **Whole week**: Schedule applies to entire week (leave day fields empty)
 
 **Behavior**:
 - Dates vary each year based on calendar
 - Only wraps to next year if end month < start month
 - Week 4 (Last) means the last occurrence of that weekday in the month
+- Country-specific week start conventions (Sunday vs Monday) are automatically detected
+- Week type only applies to first week (occurrence 0), other weeks are always full
 
-**Example**: First Monday of March to Last Friday of June
+**Examples**: 
+- First Monday of March to Last Friday of June (specific days)
+- First full week of March to Second week of June (whole weeks)
+- First week of December to First week of January (year wrapping)
 
 #### 3. By Nth Day of Month Schedule
 Define a schedule centered on a specific weekday occurrence with offset days.
@@ -122,6 +136,12 @@ The system automatically analyzes holidays across multiple years to determine th
 - Date varies based on weekday occurrence in month
 - Creates "Nth-Day" type schedules  
 - Pattern description: "Third Monday of January", "Fourth Thursday of November"
+
+**Multi-Day Week Holidays** (e.g., Spring Break, Holiday Weeks):
+- Holidays spanning multiple consecutive days in the same week or across weeks
+- Creates "Week" type schedules with appropriate week types
+- Uses "partial" week type (default) for first weeks to match typical holiday patterns
+- Pattern description: "First week of March (Monday to Friday)", "First Monday to Second Friday of March"
 
 **Single Occurrence Holidays**:
 - Holidays with only one date in dataset
@@ -189,6 +209,11 @@ Present menu with five options:
 2. **Step 2**: Single-page form with all parameters
    - Schedule name (text input, required)
    - All schedule-specific parameters (dates/weeks/occurrences)
+   - **Week Type Integration**: For week schedules, week selectors show:
+     - "First" (partial week, may start in previous month)
+     - "First full" (full week entirely within month)
+     - "Second", "Third", "Fourth", "Last" (always full weeks)
+   - **Optional Day Fields**: Day of week fields can be left as "Whole week" for entire week scheduling
    - Configuration (YAML, optional, TemplateSelector)
    - Validate all inputs on this page
    - Show errors inline if validation fails
@@ -242,12 +267,12 @@ Present menu with five options:
    - Default to "Public" if no categories available
 
 3. **Step 3**: Select specific holidays and import options
-   - Multiple selection from available holidays with pattern descriptions
+   - Multiple selection from available holidays with pattern descriptions (all holidays selected by default)
    - Each holiday shows detected pattern (e.g., "Fixed date: July 04" or "Third Monday of January")
    - Import options:
      - **Overwrite existing**: Replace schedules with same name (default: false)
      - **Skip on overlap**: Skip holidays that would overlap with existing schedules (default: true)
-     - **Include country name**: Add country code to schedule names (default: true)
+     - **Include country name**: Add country code to schedule names (default: false)
    - Validation: At least one holiday must be selected
 
 4. **On Import**:
@@ -328,10 +353,13 @@ Present menu with five options:
                         # For schedule_type="week":
                         "start_month": 3,           # 1-12
                         "start_week": 0,            # 0-4 (0=first, 4=last)
-                        "start_day_of_week": 0,     # 0-6 (0=Monday)
+                        "start_week_type": "partial", # "partial" or "full" (only for start_week=0)
+                        "start_day_of_week": 0,     # 0-6 (0=Monday) - optional
                         "end_month": 6,             # 1-12
                         "end_week": 4,              # 0-4
-                        "end_day_of_week": 4,       # 0-6
+                        "end_week_type": "partial", # "partial" or "full" (only for end_week=0)
+                        "end_day_of_week": 4,       # 0-6 - optional
+                        "country_code": "US",       # ISO country code for week start detection - optional
                         
                         # For schedule_type="nth-day":
                         "month": 3,            # 1-12
@@ -355,8 +383,10 @@ Present menu with five options:
 - Schedule type field: `schedule_type` (values: "date", "week", "nth-day")
 - Offset fields: `start_offset`, `end_offset` (not "days_before"/"days_after")
 - Week occurrence: `start_week`, `end_week` (0-4)
+- Week type: `start_week_type`, `end_week_type` ("partial" or "full", only for occurrence 0)
 - Occurrence: `occurrence` (0-4 where 0=first, 4=last)
-- Day of week: `day_of_week`, `start_day_of_week`, `end_day_of_week` (0-6 where 0=Monday)
+- Day of week: `day_of_week`, `start_day_of_week`, `end_day_of_week` (0-6 where 0=Monday, optional for week schedules)
+- Country code: `country_code` (ISO 3166-1 alpha-2 format, optional, for week start detection)
 - Months: 1-12 (1=January, 12=December)
 
 ## Calendar Entity Implementation
@@ -636,9 +666,27 @@ Implement functions:
 - Clamp days to valid range for each month
 
 **`_generate_by_week(schedule: dict, year: int) -> list[tuple[date, date]]`**
-- Handle week-based schedules
+- Handle week-based schedules with week type support
+- Support optional day of week fields (whole week scheduling)
+- Use separate `start_week_type` and `end_week_type` for first weeks
+- Support country-specific week start conventions
 - Find nth occurrence of weekday in month
 - Only wrap to next year if end_month < start_month
+
+**`_get_week_start(year: int, month: int, occurrence: int, first_weekday: int, week_type: str) -> date`**
+- Find the start of the nth week in a month
+- Support "partial" (may start in previous month) and "full" (entirely within month) types
+- Handle country-specific first weekday (0=Monday, 6=Sunday)
+
+**`_get_week_end(year: int, month: int, occurrence: int, first_weekday: int, week_type: str) -> date`**
+- Find the end of the nth week in a month
+- Support week type for proper week boundary calculation
+- Handle month boundaries correctly
+
+**`get_country_first_weekday(country_code: str | None) -> int`**
+- Determine first weekday for a country (0=Monday, 6=Sunday)
+- Support 50+ countries with Sunday-first vs Monday-first conventions
+- Default to Monday-first (0) for unknown countries
 
 **`_generate_by_nth_day(schedule: dict, year: int) -> list[tuple[date, date]]`**
 - Handle nth-day schedules

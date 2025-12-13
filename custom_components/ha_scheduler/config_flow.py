@@ -22,7 +22,7 @@ from homeassistant.helpers.selector import (
     TemplateSelector,
 )
 
-from .const import DAY_NAMES, DOMAIN, MONTH_NAMES, OCCURRENCE_NAMES
+from .const import DAY_NAMES, DOMAIN, MONTH_NAMES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,10 +44,12 @@ def _get_day_of_week_options() -> list[SelectOptionDict]:
 
 
 def _get_occurrence_options() -> list[SelectOptionDict]:
-    """Get occurrence options (values are integers 0-4)."""
+    """Get occurrence options with week type support for week schedules."""
+    from .const import WEEK_OCCURRENCE_OPTIONS
+
     return [
-        SelectOptionDict(value=str(i), label=OCCURRENCE_NAMES[i].capitalize())
-        for i in range(5)
+        SelectOptionDict(value=value, label=label.capitalize())
+        for value, label in WEEK_OCCURRENCE_OPTIONS
     ]
 
 
@@ -88,9 +90,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Check for duplicate scheduler names
             existing_entries = self._async_current_entries()
             if any(entry.title.lower() == name.lower() for entry in existing_entries):
-                errors["scheduler_name"] = (
-                    "Name already exists. Please choose a different name."
-                )
+                errors["scheduler_name"] = "duplicate_scheduler_name"
             else:
                 return self.async_create_entry(
                     title=name,
@@ -360,17 +360,63 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         if user_input is not None:
             try:
+                # Parse start week (may include type for first week)
+                start_week_value = user_input["start_week"]
+                if "_" in start_week_value:
+                    start_week, start_week_type = start_week_value.split("_", 1)
+                    start_week = int(start_week)
+                else:
+                    start_week = int(start_week_value)
+                    start_week_type = "partial"  # Default for non-first weeks
+
+                # Parse end week (may include type for first week)
+                end_week_value = user_input["end_week"]
+                if "_" in end_week_value:
+                    end_week, end_week_type = end_week_value.split("_", 1)
+                    end_week = int(end_week)
+                else:
+                    end_week = int(end_week_value)
+                    end_week_type = "partial"  # Default for non-first weeks
+
                 data = {
                     "name": user_input["name"],
                     "schedule_type": "week",
                     "start_month": int(user_input["start_month"]),
-                    "start_week": int(user_input["start_week"]),
-                    "start_day_of_week": int(user_input["start_day_of_week"]),
+                    "start_week": start_week,
                     "end_month": int(user_input["end_month"]),
-                    "end_week": int(user_input["end_week"]),
-                    "end_day_of_week": int(user_input["end_day_of_week"]),
+                    "end_week": end_week,
                     "uid": self._schedule_id,
                 }
+
+                # Add week types if they're for first week (occurrence 0)
+                if start_week == 0:
+                    data["start_week_type"] = start_week_type
+                if end_week == 0:
+                    data["end_week_type"] = end_week_type
+
+                # Add day of week fields only if they are specified (not empty)
+                if (
+                    user_input.get("start_day_of_week")
+                    and user_input["start_day_of_week"] != ""
+                ):
+                    data["start_day_of_week"] = int(user_input["start_day_of_week"])
+
+                if (
+                    user_input.get("end_day_of_week")
+                    and user_input["end_day_of_week"] != ""
+                ):
+                    data["end_day_of_week"] = int(user_input["end_day_of_week"])
+
+                # Add country code if available from Home Assistant config
+                try:
+                    if (
+                        hasattr(self.hass.config, "country")
+                        and self.hass.config.country
+                    ):
+                        data["country_code"] = self.hass.config.country
+                except AttributeError:
+                    # Fallback - try to get from locale or default to None
+                    pass
 
                 config_yaml = user_input.get("configuration") or ""
                 config_yaml = (
@@ -435,6 +481,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
 
+        # Convert stored week values back to combined format for display
+        start_week_default = defaults.get("start_week", 0)
+        start_week_type = defaults.get("start_week_type", "partial")
+        if start_week_default == 0:
+            start_week_display = f"{start_week_default}_{start_week_type}"
+        else:
+            start_week_display = str(start_week_default)
+
+        end_week_default = defaults.get("end_week", 4)
+        end_week_type = defaults.get("end_week_type", "partial")
+        if end_week_default == 0:
+            end_week_display = f"{end_week_default}_{end_week_type}"
+        else:
+            end_week_display = str(end_week_default)
+
         schema_dict = {
             vol.Required("name", default=defaults.get("name", "My Schedule")): str,
             vol.Required(
@@ -444,18 +505,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "start_week", default=str(defaults.get("start_week", 0))
-            ): SelectSelector(
+            vol.Required("start_week", default=start_week_display): SelectSelector(
                 SelectSelectorConfig(
                     options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "start_day_of_week", default=str(defaults.get("start_day_of_week", 0))
+            vol.Optional(
+                "start_day_of_week", default=str(defaults.get("start_day_of_week", ""))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_day_of_week_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=[SelectOptionDict(value="", label="Whole week")]
+                    + _get_day_of_week_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
             vol.Required(
@@ -465,18 +526,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "end_week", default=str(defaults.get("end_week", 4))
-            ): SelectSelector(
+            vol.Required("end_week", default=end_week_display): SelectSelector(
                 SelectSelectorConfig(
                     options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
                 )
             ),
-            vol.Required(
-                "end_day_of_week", default=str(defaults.get("end_day_of_week", 6))
+            vol.Optional(
+                "end_day_of_week", default=str(defaults.get("end_day_of_week", ""))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_day_of_week_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=[SelectOptionDict(value="", label="Whole week")]
+                    + _get_day_of_week_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
         }
@@ -881,7 +942,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             selected_holidays = user_input.get("holidays", [])
             overwrite_existing = user_input.get("overwrite_existing", False)
             skip_on_overlap = user_input.get("skip_on_overlap", True)
-            include_country_name = user_input.get("include_country_name", True)
+            include_country_name = user_input.get("include_country_name", False)
 
             if not selected_holidays:
                 return self.async_show_form(
@@ -966,9 +1027,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     SelectOptionDict(value=holiday_name, label=label)
                 )
 
+            # Get all holiday names for default selection
+            all_holiday_names = [option["value"] for option in holiday_options]
+
             return vol.Schema(
                 {
-                    vol.Required("holidays"): SelectSelector(
+                    vol.Optional("holidays", default=all_holiday_names): SelectSelector(
                         SelectSelectorConfig(
                             options=holiday_options,
                             mode=SelectSelectorMode.LIST,
@@ -977,7 +1041,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                     vol.Optional("overwrite_existing", default=False): bool,
                     vol.Optional("skip_on_overlap", default=True): bool,
-                    vol.Optional("include_country_name", default=True): bool,
+                    vol.Optional("include_country_name", default=False): bool,
                 }
             )
 
@@ -996,7 +1060,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         selected_holidays: list[str],
         overwrite_existing: bool,
         skip_on_overlap: bool,
-        include_country_name: bool = True,
+        include_country_name: bool = False,
     ) -> FlowResult:
         """Import the selected holidays as schedules."""
         try:

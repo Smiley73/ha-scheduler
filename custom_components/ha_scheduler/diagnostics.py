@@ -112,16 +112,35 @@ def _build_schedule_info(
     elif schedule_data.get("schedule_type") == "week":
         start_day_of_week = schedule_data.get("start_day_of_week")
         end_day_of_week = schedule_data.get("end_day_of_week")
+        start_week_type = schedule_data.get("start_week_type", "partial")
+        end_week_type = schedule_data.get("end_week_type", "partial")
+
+        def _get_week_type_display(week_type: str) -> str:
+            return (
+                "First full week (entirely within month)"
+                if week_type == "full"
+                else "First week (may start in previous month)"
+            )
+
         schedule_info.update(
             {
                 "start_month": schedule_data.get("start_month"),
                 "start_week": schedule_data.get("start_week"),
+                "start_week_type": start_week_type,
+                "start_week_type_display": _get_week_type_display(start_week_type),
                 "start_day_of_week": start_day_of_week,
-                "start_day_name": _get_day_name(start_day_of_week),
+                "start_day_name": _get_day_name(start_day_of_week)
+                if start_day_of_week is not None
+                else "Whole week",
                 "end_month": schedule_data.get("end_month"),
                 "end_week": schedule_data.get("end_week"),
+                "end_week_type": end_week_type,
+                "end_week_type_display": _get_week_type_display(end_week_type),
                 "end_day_of_week": end_day_of_week,
-                "end_day_name": _get_day_name(end_day_of_week),
+                "end_day_name": _get_day_name(end_day_of_week)
+                if end_day_of_week is not None
+                else "Whole week",
+                "country_code": schedule_data.get("country_code"),
             }
         )
     elif schedule_data.get("schedule_type") == "nth-day":

@@ -154,10 +154,10 @@ async def test_options_flow_add_week_schedule(hass: HomeAssistant) -> None:
         {
             "name": "Week Schedule",
             "start_month": "3",
-            "start_week": "0",
+            "start_week": "0_partial",  # Updated to new format
             "start_day_of_week": "0",
             "end_month": "6",
-            "end_week": "4",
+            "end_week": "4",  # Last week doesn't need type suffix
             "end_day_of_week": "4",
             "configuration": "",
         },
@@ -332,9 +332,7 @@ async def test_form_duplicate_scheduler_name(hass: HomeAssistant) -> None:
     )
 
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {
-        "scheduler_name": "Name already exists. Please choose a different name."
-    }
+    assert result["errors"] == {"scheduler_name": "duplicate_scheduler_name"}
 
 
 async def test_form_duplicate_scheduler_name_case_insensitive(
@@ -356,9 +354,7 @@ async def test_form_duplicate_scheduler_name_case_insensitive(
     )
 
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {
-        "scheduler_name": "Name already exists. Please choose a different name."
-    }
+    assert result["errors"] == {"scheduler_name": "duplicate_scheduler_name"}
 
 
 async def test_add_schedule_duplicate_name(hass: HomeAssistant) -> None:
