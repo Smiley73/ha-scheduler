@@ -176,8 +176,10 @@ async def test_calendar_with_configuration(hass: HomeAssistant, freezer) -> None
         "default_key": "default_value"
     }
 
-    # Check that description field contains the formatted configuration
-    assert state.attributes.get("description") == "custom_key: custom_value"
+    # Check that configuration is available in attributes
+    assert state.attributes.get("configuration") == {"custom_key": "custom_value"}
+    assert state.attributes.get("name") == "Schedule with Config"
+    assert state.attributes.get("schedule_uid") == "test-schedule-1"
 
     # Get calendar entity
     calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
@@ -189,8 +191,8 @@ async def test_calendar_with_configuration(hass: HomeAssistant, freezer) -> None
     events = await calendar.async_get_events(hass, start, end)
 
     assert len(events) == 1
-    # Configuration should be in description as formatted string
-    assert events[0].description == "custom_key: custom_value"
+    # Description should be empty (configuration is now in attributes)
+    assert events[0].description == ""
 
 
 async def test_calendar_multiple_schedules(hass: HomeAssistant) -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -36,25 +35,6 @@ class SchedulerCalendar(CalendarEntity):
         self._attr_name = entry.title
         entry.async_on_unload(entry.add_update_listener(self._async_update_listener))
 
-    def _format_config_description(self, config: dict[str, Any]) -> str:
-        """Format configuration dictionary as a readable description."""
-        if not config:
-            return ""
-
-        # Format as key-value pairs on separate lines
-        lines = []
-        for key, value in config.items():
-            if isinstance(value, dict):
-                # For nested dictionaries, format as JSON
-                lines.append(f"{key}: {json.dumps(value, indent=2)}")
-            elif isinstance(value, list):
-                # For lists, format nicely
-                lines.append(f"{key}: {', '.join(str(v) for v in value)}")
-            else:
-                lines.append(f"{key}: {value}")
-
-        return "\n".join(lines)
-
     async def _async_update_listener(
         self, hass: HomeAssistant, entry: ConfigEntry
     ) -> None:
@@ -69,8 +49,31 @@ class SchedulerCalendar(CalendarEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
+        default_config = self._entry.options.get("configuration", {})
+
+        # Add current event configuration if available
+        current_event = self.event
+        if current_event:
+            # Extract configuration from the current event
+            schedules = self._get_schedules()
+
+            # Find the schedule that matches the current event
+            for schedule in schedules:
+                if current_event.summary == schedule["name"]:
+                    schedule_config = schedule.get("configuration", default_config)
+                    return {
+                        "configuration": schedule_config,
+                        "name": schedule["name"],
+                        "schedule_uid": schedule["uid"],
+                        "default_configuration": default_config,
+                    }
+
+        # No active event, return default configuration
         return {
-            "default_configuration": self._entry.options.get("configuration", {}),
+            "configuration": default_config,
+            "name": None,
+            "schedule_uid": None,
+            "default_configuration": default_config,
         }
 
     @property
@@ -78,13 +81,10 @@ class SchedulerCalendar(CalendarEntity):
         """Return the next upcoming event."""
         today = dt_util.now().date()
         schedules = self._get_schedules()
-        default_config = self._entry.options.get("configuration", {})
         current_year = today.year
 
         all_events = []
         for schedule in schedules:
-            schedule_config = schedule.get("configuration", default_config)
-
             # Check current year and previous year (for year-wrapping schedules)
             for year in [current_year - 1, current_year, current_year + 1]:
                 date_ranges = generate_schedule_dates(schedule, year)
@@ -99,9 +99,7 @@ class SchedulerCalendar(CalendarEntity):
                                     end=schedule_end + timedelta(days=1),
                                     summary=schedule["name"],
                                     uid=f"{schedule['uid']}_{year}",
-                                    description=self._format_config_description(
-                                        schedule_config
-                                    ),
+                                    description="",
                                 ),
                             )
                         )
@@ -118,7 +116,6 @@ class SchedulerCalendar(CalendarEntity):
         """Return calendar events within a datetime range."""
         events = []
         schedules = self._get_schedules()
-        default_config = self._entry.options.get("configuration", {})
 
         start_day = start_date.date()
         end_day = end_date.date()
@@ -127,8 +124,6 @@ class SchedulerCalendar(CalendarEntity):
         end_year = end_day.year
 
         for schedule in schedules:
-            schedule_config = schedule.get("configuration", default_config)
-
             # Include previous year to catch year-wrapping schedules
             for year in range(start_year - 1, end_year + 1):
                 date_ranges = generate_schedule_dates(schedule, year)
@@ -142,9 +137,7 @@ class SchedulerCalendar(CalendarEntity):
                                 end=schedule_end + timedelta(days=1),
                                 summary=schedule["name"],
                                 uid=f"{schedule['uid']}_{year}",
-                                description=self._format_config_description(
-                                    schedule_config
-                                ),
+                                description="",
                             )
                         )
 

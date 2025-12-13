@@ -332,12 +332,9 @@ async def test_calendar_configuration_inheritance(hass: HomeAssistant) -> None:
     # Should have both events
     assert len(events) == 2
 
-    # Verify configurations are correct
+    # Verify descriptions are empty (configuration is now in attributes)
     for event in events:
-        if event.summary == "Schedule With Config":
-            assert event.description == "schedule_setting: schedule_value"
-        elif event.summary == "Schedule Without Config":
-            assert event.description == "default_setting: default_value"
+        assert event.description == ""
 
 
 async def test_calendar_update_listener(hass: HomeAssistant) -> None:

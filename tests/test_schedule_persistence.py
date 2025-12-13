@@ -267,10 +267,21 @@ async def test_schedule_with_configuration_persists(hass: HomeAssistant) -> None
 
     assert len(events) == 1
     assert events[0].summary == "Configured Schedule"
-    # Configuration should be formatted as a string
-    assert isinstance(events[0].description, str)
-    assert "mode: vacation" in events[0].description
-    assert "temp: 72" in events[0].description
+    # Description should be empty (configuration is now in attributes)
+    assert events[0].description == ""
+
+    # Verify configuration is available in calendar entity attributes
+    # We need to check this during an active schedule period
+    import freezegun
+
+    with freezegun.freeze_time("2024-07-15"):  # Within the schedule period
+        # Force the calendar entity to update its state
+        await calendar.async_update_ha_state(force_refresh=True)
+        await hass.async_block_till_done()
+
+        state = hass.states.get("calendar.test_scheduler")
+        assert state.attributes.get("configuration") == {"mode": "vacation", "temp": 72}
+        assert state.attributes.get("name") == "Configured Schedule"
 
 
 async def test_overlap_detection_works_across_adds(hass: HomeAssistant) -> None:

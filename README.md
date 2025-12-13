@@ -148,7 +148,7 @@ The Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`
 **Calendar Features:**
 - Automatically updates when schedules are added, modified, or deleted
 - Shows the current active event (if any) in the calendar entity state
-- Each event includes the schedule name and optional configuration in the description
+- Configuration data available through dedicated entity attributes
 - Events span the full duration of each schedule period
 - Supports year-wrapping schedules (e.g., November to February)
 
@@ -157,6 +157,7 @@ The Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`
 - Use `calendar.get_events` service to query upcoming schedules
 - Access the current event via `calendar.<scheduler_name>.event`
 - If a schedule is active `calendar.<scheduler_name>` will have the state `on`
+- Access configuration via `state_attr('calendar.<scheduler_name>', 'configuration')`
 
 ## Advanced Configuration
 
@@ -189,30 +190,37 @@ brightness: 75
 
 ### Accessing Configuration in Automations
 
-The configuration is available in the `description` attribute on the calendar entity when a schedule is active. This makes it easy to access schedule-specific settings in your automations.
+The configuration is available through dedicated attributes on the calendar entity when a schedule is active. This provides clean, direct access to schedule-specific settings in your automations.
+
+**Available Calendar Attributes:**
+- `configuration`: Current active schedule's configuration (or default if none active)
+- `name`: Name of the currently active schedule
+- `schedule_uid`: Unique identifier of the active schedule
+- `default_configuration`: Default configuration from integration settings
 
 **Check if a schedule is currently active:**
 
 ```yaml
 condition: template
-value_template: "{{ state_attr('calendar.my_scheduler', 'message') != None }}"
+value_template: "{{ state_attr('calendar.my_scheduler', 'name') != None }}"
 ```
 
 **Access configuration directly from the calendar entity:**
 
-When a schedule is active, the `description` attribute contains the schedule's configuration dict (or the default configuration if the schedule doesn't have its own):
+When a schedule is active, the `configuration` attribute contains the schedule's configuration dict (or the default configuration if the schedule doesn't have its own):
 
 ```yaml
 variables:
   # Get configuration from the active schedule
-  config: "{{ state_attr('calendar.my_scheduler', 'description') | default({}) }}"
+  config: "{{ state_attr('calendar.my_scheduler', 'configuration') | default({}) }}"
   color: "{{ config.color | default('white') }}"
   brightness: "{{ config.brightness | default(50) }}"
+  schedule_name: "{{ state_attr('calendar.my_scheduler', 'name') }}"
 ```
 
 **Alternative: Use calendar.get_events service:**
 
-You can also get configuration via the calendar.get_events service:
+You can also get events via the calendar.get_events service (note: configuration is in entity attributes, not event descriptions):
 
 ```yaml
 - service: calendar.get_events
@@ -224,7 +232,8 @@ You can also get configuration via the calendar.get_events service:
   response_variable: schedule_events
 - variables:
     current_event: "{{ schedule_events['calendar.my_scheduler'].events[0] if schedule_events['calendar.my_scheduler'].events else none }}"
-    config: "{{ current_event.description if current_event else {} }}"
+    # Configuration comes from entity attributes, not event description
+    config: "{{ state_attr('calendar.my_scheduler', 'configuration') | default({}) }}"
 ```
 
 ### Example 1: Multiple Holiday Schedules with Configuration
@@ -263,7 +272,7 @@ triggers:
     offset: "-00:30:00"
   - platform: state
     entity_id: calendar.holiday_scheduler
-    attribute: message
+    attribute: name
 conditions:
   - condition: state
     entity_id: calendar.holiday_scheduler
@@ -275,7 +284,7 @@ conditions:
 actions:
   - variables:
       # Get configuration from the active schedule
-      config: "{{ state_attr('calendar.holiday_scheduler', 'description') | default({}) }}"
+      config: "{{ state_attr('calendar.holiday_scheduler', 'configuration') | default({}) }}"
       color: "{{ config.color | default('white') }}"
       brightness: "{{ config.brightness | default(50) }}"
       effect: "{{ config.effect | default('none') }}"
@@ -317,7 +326,7 @@ triggers:
     minutes: "/5"  # Every 5 minutes
   - platform: state
     entity_id: calendar.holiday_scheduler
-    attribute: message
+    attribute: name
 conditions:
   - condition: state
     entity_id: calendar.holiday_scheduler
@@ -328,7 +337,7 @@ conditions:
     before: sunrise
 actions:
   - variables:
-      config: "{{ state_attr('calendar.holiday_scheduler', 'description') | default({}) }}"
+      config: "{{ state_attr('calendar.holiday_scheduler', 'configuration') | default({}) }}"
       colors: "{{ config.colors | default(['white']) }}"
       interval: "{{ config.change_interval | default(300) }}"
       index: "{{ (now().timestamp() // interval) | int % (colors | length) }}"
@@ -376,7 +385,7 @@ description: "Adjust thermostat based on seasonal schedule"
 triggers:
   - platform: state
     entity_id: calendar.thermostat_scheduler
-    attribute: message
+    attribute: name
   - platform: homeassistant
     event: start
 conditions:
@@ -386,7 +395,7 @@ conditions:
       - "on"
 actions:
   - variables:
-      config: "{{ state_attr('calendar.thermostat_scheduler', 'description') | default({}) }}"
+      config: "{{ state_attr('calendar.thermostat_scheduler', 'configuration') | default({}) }}"
   - service: climate.set_temperature
     target:
       entity_id: climate.main_thermostat
@@ -407,11 +416,11 @@ alias: Schedule Change Notification
 triggers:
   - platform: state
     entity_id: calendar.my_scheduler
-    attribute: message
+    attribute: name
 actions:
   - variables:
-      schedule_name: "{{ state_attr('calendar.my_scheduler', 'message') }}"
-      config: "{{ state_attr('calendar.my_scheduler', 'description') | default({}) }}"
+      schedule_name: "{{ state_attr('calendar.my_scheduler', 'name') }}"
+      config: "{{ state_attr('calendar.my_scheduler', 'configuration') | default({}) }}"
   - service: notify.mobile_app
     data:
       title: "Schedule Changed"
