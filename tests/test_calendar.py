@@ -82,10 +82,10 @@ async def test_calendar_with_week_schedule(hass: HomeAssistant) -> None:
             "name": "Week Schedule",
             "schedule_type": "week",
             "start_month": 3,
-            "start_week": 0,  # First
+            "start_week": 1,  # Second week (has Monday)
             "start_day_of_week": 0,  # Monday
             "end_month": 3,
-            "end_week": 4,  # Last
+            "end_week": 4,  # Last week (has Friday)
             "end_day_of_week": 4,  # Friday
             "uid": "test-schedule-1",
         }
@@ -106,9 +106,9 @@ async def test_calendar_with_week_schedule(hass: HomeAssistant) -> None:
 
     assert len(events) == 1
     assert events[0].summary == "Week Schedule"
-    # First Monday of March 2024 is March 4
+    # Monday of second week of March 2024 is March 4
     assert events[0].start == date(2024, 3, 4)
-    # Last Friday of March 2024 is March 29, +1 day = March 30
+    # Friday of last week of March 2024 is March 29, +1 day = March 30
     assert events[0].end == date(2024, 3, 30)
 
 
