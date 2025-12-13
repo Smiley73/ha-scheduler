@@ -60,7 +60,14 @@ class SchedulerCalendar(CalendarEntity):
         # For multiple services, use service name
         service_name = service_data.get("name", entry.title)
 
-        self._attr_unique_id = f"{entry.entry_id}_{service_id}"
+        # Maintain backward compatibility for unique ID
+        # For the default service (migrated from v1), use just the entry_id
+        # For additional services, use the full format
+        if service_id == "default":
+            self._attr_unique_id = entry.entry_id
+        else:
+            self._attr_unique_id = f"{entry.entry_id}_{service_id}"
+
         self._attr_name = service_name
 
         # Set device info to group calendars under the scheduler service

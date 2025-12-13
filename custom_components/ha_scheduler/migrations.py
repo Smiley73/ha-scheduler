@@ -51,6 +51,7 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
     - Transform single scheduler with multiple schedules to service-based model
     - Each service gets its own calendar
     - Migrate existing schedules to the default service
+    - Preserve existing entity unique IDs to avoid duplicates
     """
     _LOGGER.info("Migrating scheduler from helper to service model")
 
@@ -67,6 +68,7 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
         new_options = {
             "services": {
                 # Create default service with existing schedules
+                # Note: The calendar entity will use entry.entry_id as unique_id for backward compatibility
                 "default": {
                     "name": entry.title,
                     "schedules": existing_schedules,
