@@ -281,9 +281,12 @@ Present menu with four options:
 ### Entity Naming and IDs
 - **Entity ID Format**: `calendar.{service_name}` (clean, no duplication)
 - **has_entity_name**: Set to `False` to avoid service name duplication in entity ID
-- **Unique ID**: `{entry_id}_{service_id}` for internal tracking
+- **Unique ID**: 
+  - For default service (migrated from v1): `{entry_id}` (maintains backward compatibility)
+  - For additional services: `{entry_id}_{service_id}` for internal tracking
 - **Display Name**: Uses the service name directly
 - **Critical Requirement**: Entity ID should only be the calendar name, not include service name twice
+- **Migration Compatibility**: Default service maintains original unique ID to prevent entity duplication during v1→v2 migration
 
 ### Entity ID Examples
 - ✅ **Correct**: `calendar.my_scheduler` (service name: "My Scheduler")
@@ -343,7 +346,8 @@ The integration automatically detects and migrates older config entries:
 ### Migration Requirements
 - **Seamless Upgrade**: Users should not notice any functional changes
 - **Data Integrity**: Zero data loss during migration
-- **Entity Continuity**: Calendar entity IDs must remain consistent
+- **Entity Continuity**: Calendar entity IDs must remain consistent (no duplicate entities created)
+- **Unique ID Preservation**: Default service maintains original unique ID format to prevent entity duplication
 - **Backward Compatibility**: Support for future migrations with versioned functions
 
 ### Migration Functions
@@ -371,15 +375,21 @@ The integration automatically detects and migrates older config entries:
     "data": {"scheduler_name": "Service Name"},
     "options": {
         "services": {
-            "default": {
+            "default": {  # Default service preserves original entity unique ID
                 "name": "Service Name",
-                "schedules": {"schedule_id": {...}},
-                "configuration": {...}
+                "schedules": {"schedule_id": {...}},  # All existing schedules preserved
+                "configuration": {...}  # Existing configuration preserved
             }
         }
     }
 }
 ```
+
+**Entity Unique ID Handling**:
+- **Before Migration**: Calendar entity unique ID = `{entry_id}`
+- **After Migration**: Default service calendar unique ID = `{entry_id}` (unchanged)
+- **Result**: No duplicate entities created, existing calendar entity continues to work
+- **Future Services**: Additional services use `{entry_id}_{service_id}` format
 
 ## Implementation Details
 
@@ -474,7 +484,13 @@ Implement diagnostics data collection:
    ```python
    # Entity ID should be: calendar.{service_name}
    # NOT: calendar.{service_name}_{service_name}
-   self._attr_unique_id = f"{entry.entry_id}_{service_id}"
+   
+   # Maintain backward compatibility for unique ID
+   if service_id == "default":
+       self._attr_unique_id = entry.entry_id  # Original format for migration compatibility
+   else:
+       self._attr_unique_id = f"{entry.entry_id}_{service_id}"  # New services
+   
    self._attr_name = service_name  # Direct service name, no prefix
    ```
 
@@ -634,6 +650,8 @@ Include `data_description` for configuration fields:
 - **Calendar entity ID validation**: Ensure clean entity IDs without duplication
 - **Service-based data structure**: All tests use proper service-based config entries
 - **Migration testing**: V1 to V2 migration preserves all data and entity IDs
+- **Entity ID continuity**: Verify no duplicate entities are created during migration
+- **Unique ID preservation**: Confirm default service maintains original unique ID format
 
 ### Diagnostics Test Scenarios
 - Empty schedules (no schedules configured)
