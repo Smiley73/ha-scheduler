@@ -33,84 +33,123 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    schedules = entry.options.get("schedules", {})
-    default_config = entry.options.get("configuration", {})
+    # Handle both new service-based structure and legacy structure
+    services = entry.options.get("services", {})
 
-    # Build schedule summary
-    schedule_summary = []
-    for schedule_id, schedule_data in schedules.items():
-        schedule_info = {
-            "id": schedule_id,
-            "name": schedule_data.get("name"),
-            "type": schedule_data.get("schedule_type"),
+    if not services:
+        # Legacy structure - create a default service
+        legacy_schedules = entry.options.get("schedules", {})
+        legacy_config = entry.options.get("configuration", {})
+        services = {
+            "default": {
+                "name": entry.title,
+                "schedules": legacy_schedules,
+                "configuration": legacy_config,
+            }
         }
 
-        # Add type-specific fields
-        if schedule_data.get("schedule_type") == "date":
-            schedule_info.update(
-                {
-                    "start_month": schedule_data.get("start_month"),
-                    "start_day": schedule_data.get("start_day"),
-                    "end_month": schedule_data.get("end_month"),
-                    "end_day": schedule_data.get("end_day"),
-                }
-            )
-        elif schedule_data.get("schedule_type") == "week":
-            start_day_of_week = schedule_data.get("start_day_of_week")
-            end_day_of_week = schedule_data.get("end_day_of_week")
-            schedule_info.update(
-                {
-                    "start_month": schedule_data.get("start_month"),
-                    "start_week": schedule_data.get("start_week"),
-                    "start_day_of_week": start_day_of_week,
-                    "start_day_name": _get_day_name(start_day_of_week),
-                    "end_month": schedule_data.get("end_month"),
-                    "end_week": schedule_data.get("end_week"),
-                    "end_day_of_week": end_day_of_week,
-                    "end_day_name": _get_day_name(end_day_of_week),
-                }
-            )
-        elif schedule_data.get("schedule_type") == "nth-day":
-            day_of_week = schedule_data.get("day_of_week")
-            schedule_info.update(
-                {
-                    "month": schedule_data.get("month"),
-                    "occurrence": schedule_data.get("occurrence"),
-                    "day_of_week": day_of_week,
-                    "day_name": _get_day_name(day_of_week),
-                    "start_offset": schedule_data.get("start_offset"),
-                    "end_offset": schedule_data.get("end_offset"),
-                }
-            )
+    # Collect diagnostics for all services
+    services_diagnostics = {}
+    total_schedules = 0
 
-        # Include configuration if present
-        if "configuration" in schedule_data:
-            schedule_info["has_configuration"] = True
-            schedule_info["configuration"] = schedule_data["configuration"]
-        else:
-            schedule_info["has_configuration"] = False
+    for service_id, service_data in services.items():
+        schedules = service_data.get("schedules", {})
+        service_config = service_data.get("configuration", {})
+        total_schedules += len(schedules)
 
-        # Add schedule dates and durations for next 3 years
-        schedule_info["future_dates"] = _calculate_future_dates(
-            schedule_data, schedules, schedule_id
-        )
+        # Build schedule summary for this service
+        schedule_summary = []
+        for schedule_id, schedule_data in schedules.items():
+            schedule_info = _build_schedule_info(schedule_data, schedule_id, schedules)
+            schedule_summary.append(schedule_info)
 
-        schedule_summary.append(schedule_info)
+        services_diagnostics[service_id] = {
+            "name": service_data.get("name", "Unknown"),
+            "schedules": {
+                "count": len(schedules),
+                "items": schedule_summary,
+            },
+            "default_configuration": {
+                "has_configuration": bool(service_config),
+                "configuration": service_config if service_config else None,
+            },
+        }
 
     return {
         "entry": {
             "title": entry.title,
             "entry_id": entry.entry_id,
+            "scheduler_name": entry.data.get("scheduler_name", entry.title),
         },
-        "schedules": {
-            "count": len(schedules),
-            "items": schedule_summary,
-        },
-        "default_configuration": {
-            "has_default": bool(default_config),
-            "configuration": default_config if default_config else None,
+        "services": services_diagnostics,
+        "summary": {
+            "total_services": len(services),
+            "total_schedules": total_schedules,
         },
     }
+
+
+def _build_schedule_info(
+    schedule_data: dict[str, Any], schedule_id: str, all_schedules: dict[str, Any]
+) -> dict[str, Any]:
+    """Build diagnostic information for a single schedule."""
+    schedule_info = {
+        "id": schedule_id,
+        "name": schedule_data.get("name"),
+        "type": schedule_data.get("schedule_type"),
+    }
+
+    # Add type-specific fields
+    if schedule_data.get("schedule_type") == "date":
+        schedule_info.update(
+            {
+                "start_month": schedule_data.get("start_month"),
+                "start_day": schedule_data.get("start_day"),
+                "end_month": schedule_data.get("end_month"),
+                "end_day": schedule_data.get("end_day"),
+            }
+        )
+    elif schedule_data.get("schedule_type") == "week":
+        start_day_of_week = schedule_data.get("start_day_of_week")
+        end_day_of_week = schedule_data.get("end_day_of_week")
+        schedule_info.update(
+            {
+                "start_month": schedule_data.get("start_month"),
+                "start_week": schedule_data.get("start_week"),
+                "start_day_of_week": start_day_of_week,
+                "start_day_name": _get_day_name(start_day_of_week),
+                "end_month": schedule_data.get("end_month"),
+                "end_week": schedule_data.get("end_week"),
+                "end_day_of_week": end_day_of_week,
+                "end_day_name": _get_day_name(end_day_of_week),
+            }
+        )
+    elif schedule_data.get("schedule_type") == "nth-day":
+        day_of_week = schedule_data.get("day_of_week")
+        schedule_info.update(
+            {
+                "month": schedule_data.get("month"),
+                "occurrence": schedule_data.get("occurrence"),
+                "day_of_week": day_of_week,
+                "day_name": _get_day_name(day_of_week),
+                "start_offset": schedule_data.get("start_offset"),
+                "end_offset": schedule_data.get("end_offset"),
+            }
+        )
+
+    # Include configuration if present
+    if "configuration" in schedule_data:
+        schedule_info["has_configuration"] = True
+        schedule_info["configuration"] = schedule_data["configuration"]
+    else:
+        schedule_info["has_configuration"] = False
+
+    # Add schedule dates and durations for next 3 years
+    schedule_info["future_dates"] = _calculate_future_dates(
+        schedule_data, all_schedules, schedule_id
+    )
+
+    return schedule_info
 
 
 def _calculate_future_dates(

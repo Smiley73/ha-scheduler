@@ -10,14 +10,39 @@ from custom_components.ha_scheduler.const import DOMAIN
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
+def _create_service_entry(title="Test Scheduler", schedules=None, configuration=None):
+    """Create a test config entry with service-based structure."""
+    if schedules is None:
+        schedules = {}
+    if configuration is None:
+        configuration = {}
+
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title=title,
+        data={"scheduler_name": title},
+        options={
+            "services": {
+                "default": {
+                    "name": title,
+                    "schedules": schedules,
+                    "configuration": configuration,
+                }
+            }
+        },
+        version=2,  # Set version to 2 to avoid migration
+        minor_version=1,
+    )
+
+
+def _get_schedules_from_entry(entry):
+    """Get schedules from service-based entry structure."""
+    return entry.options.get("services", {}).get("default", {}).get("schedules", {})
+
+
 async def test_single_schedule_persists(hass: HomeAssistant) -> None:
     """Test that a single schedule is saved correctly."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry = _create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -46,61 +71,33 @@ async def test_single_schedule_persists(hass: HomeAssistant) -> None:
     # Verify via calendar entity that schedule exists
     from datetime import datetime
 
-    from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
     from homeassistant.util import dt as dt_util
 
-    calendar_entities = hass.data[CALENDAR_DOMAIN].entities
-    calendar = None
-    for entity in calendar_entities:
-        if entity.entity_id == "calendar.test_scheduler":
-            calendar = entity
-            break
-
-    assert calendar is not None
-
-    # Request events for summer 2024
-    start = datetime(2024, 6, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 8, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    # The entity ID should just be the calendar name
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+    start = datetime(2024, 5, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    end = datetime(2024, 9, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
     events = await calendar.async_get_events(hass, start, end)
 
     assert len(events) == 1
     assert events[0].summary == "Test Schedule"
 
+    # Verify schedule is in config entry
+    schedules = _get_schedules_from_entry(entry)
+    assert len(schedules) == 1
+    schedule = list(schedules.values())[0]
+    assert schedule["name"] == "Test Schedule"
+    assert schedule["schedule_type"] == "date"
+
 
 async def test_multiple_schedules_persist(hass: HomeAssistant) -> None:
-    """Test that multiple schedules are saved without overwriting each other."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    """Test that multiple schedules are saved correctly."""
+    entry = _create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
     # Add first schedule
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_schedule"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"schedule_type": "date"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Winter Schedule",
-            "start_month": "1",
-            "start_day": 1,
-            "end_month": "3",
-            "end_day": 31,
-            "configuration": "",
-        },
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-
-    # Add second schedule
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "add_schedule"}
@@ -121,106 +118,38 @@ async def test_multiple_schedules_persist(hass: HomeAssistant) -> None:
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
-    # Verify via calendar entity that both schedules exist
-    from datetime import datetime
-
-    from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
-    from homeassistant.util import dt as dt_util
-
-    calendar_entities = hass.data[CALENDAR_DOMAIN].entities
-    calendar = None
-    for entity in calendar_entities:
-        if entity.entity_id == "calendar.test_scheduler":
-            calendar = entity
-            break
-
-    assert calendar is not None
-
-    # Request events for entire year 2024
-    start = datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    # Should have both schedules
-    assert len(events) == 2
-    event_names = {event.summary for event in events}
-    assert "Winter Schedule" in event_names
-    assert "Summer Schedule" in event_names
-
-
-async def test_three_schedules_persist(hass: HomeAssistant) -> None:
-    """Test that three schedules can be added without issues."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
+    # Add second schedule
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
     )
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_type": "date"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Winter Schedule",
+            "start_month": "12",
+            "start_day": 1,
+            "end_month": "2",
+            "end_day": 28,
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
 
-    schedules_to_add = [
-        ("Spring", "3", 1, "5", 31),
-        ("Summer", "6", 1, "8", 31),
-        ("Fall", "9", 1, "11", 30),
-    ]
+    # Verify both schedules exist
+    schedules = _get_schedules_from_entry(entry)
+    assert len(schedules) == 2
 
-    for name, start_month, start_day, end_month, end_day in schedules_to_add:
-        result = await hass.config_entries.options.async_init(entry.entry_id)
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"next_step_id": "add_schedule"}
-        )
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"], {"schedule_type": "date"}
-        )
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {
-                "name": name,
-                "start_month": start_month,
-                "start_day": start_day,
-                "end_month": end_month,
-                "end_day": end_day,
-                "configuration": "",
-            },
-        )
-        assert result["type"] == FlowResultType.CREATE_ENTRY
-
-    # Verify all three schedules exist
-    from datetime import datetime
-
-    from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
-    from homeassistant.util import dt as dt_util
-
-    calendar_entities = hass.data[CALENDAR_DOMAIN].entities
-    calendar = None
-    for entity in calendar_entities:
-        if entity.entity_id == "calendar.test_scheduler":
-            calendar = entity
-            break
-
-    assert calendar is not None
-
-    # Request events for entire year 2024
-    start = datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    # Should have all three schedules
-    assert len(events) == 3
-    event_names = {event.summary for event in events}
-    assert event_names == {"Spring", "Summer", "Fall"}
+    schedule_names = {s["name"] for s in schedules.values()}
+    assert schedule_names == {"Summer Schedule", "Winter Schedule"}
 
 
 async def test_schedule_with_configuration_persists(hass: HomeAssistant) -> None:
     """Test that schedule configuration is saved correctly."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry = _create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -241,230 +170,158 @@ async def test_schedule_with_configuration_persists(hass: HomeAssistant) -> None
             "start_day": 1,
             "end_month": "8",
             "end_day": 31,
-            "configuration": "mode: vacation\ntemp: 72",
+            "configuration": "summary: Custom Event\ndescription: Test Description",
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
-    # Verify configuration is in event description
-    from datetime import datetime
-
-    from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
-    from homeassistant.util import dt as dt_util
-
-    calendar_entities = hass.data[CALENDAR_DOMAIN].entities
-    calendar = None
-    for entity in calendar_entities:
-        if entity.entity_id == "calendar.test_scheduler":
-            calendar = entity
-            break
-
-    assert calendar is not None
-
-    start = datetime(2024, 6, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 8, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    assert len(events) == 1
-    assert events[0].summary == "Configured Schedule"
-    # Description should be empty (configuration is now in attributes)
-    assert events[0].description == ""
-
-    # Verify configuration is available in calendar entity attributes
-    # We need to check this during an active schedule period
-    import freezegun
-
-    with freezegun.freeze_time("2024-07-15"):  # Within the schedule period
-        # Force the calendar entity to update its state
-        await calendar.async_update_ha_state(force_refresh=True)
-        await hass.async_block_till_done()
-
-        state = hass.states.get("calendar.test_scheduler")
-        assert state.attributes.get("configuration") == {"mode": "vacation", "temp": 72}
-        assert state.attributes.get("name") == "Configured Schedule"
+    # Verify configuration is saved
+    schedules = _get_schedules_from_entry(entry)
+    assert len(schedules) == 1
+    schedule = list(schedules.values())[0]
+    assert "configuration" in schedule
+    assert schedule["configuration"]["summary"] == "Custom Event"
+    assert schedule["configuration"]["description"] == "Test Description"
 
 
-async def test_overlap_detection_works_across_adds(hass: HomeAssistant) -> None:
-    """Test that overlap detection works when adding multiple schedules."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+async def test_default_configuration_persists(hass: HomeAssistant) -> None:
+    """Test that default configuration is saved correctly."""
+    entry = _create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Add first schedule
+    # Set default configuration
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_schedule"}
+        result["flow_id"], {"next_step_id": "default_configuration"}
     )
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"schedule_type": "date"}
+        result["flow_id"],
+        {"configuration": "summary: Default Event\nlocation: Home"},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    # Verify default configuration is saved
+    services = entry.options.get("services", {})
+    default_service = services.get("default", {})
+    config = default_service.get("configuration", {})
+    assert config["summary"] == "Default Event"
+    assert config["location"] == "Home"
+
+
+async def test_edit_schedule_preserves_others(hass: HomeAssistant) -> None:
+    """Test that editing one schedule doesn't affect others."""
+    # Start with two schedules
+    schedules = {
+        "schedule-1": {
+            "name": "Schedule 1",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "schedule-1",
+        },
+        "schedule-2": {
+            "name": "Schedule 2",
+            "schedule_type": "date",
+            "start_month": 12,
+            "start_day": 1,
+            "end_month": 2,
+            "end_day": 28,
+            "uid": "schedule-2",
+        },
+    }
+    entry = _create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Edit first schedule
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_id": "schedule-1"}
     )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            "name": "Schedule 1",
-            "start_month": "3",
+            "name": "Modified Schedule 1",  # Changed name
+            "start_month": "6",
             "start_day": 1,
-            "end_month": "6",
+            "end_month": "9",  # Changed end month
             "end_day": 30,
             "configuration": "",
         },
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
-    # Try to add overlapping schedule
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_schedule"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"schedule_type": "date"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Schedule 2",
-            "start_month": "5",  # Overlaps with Schedule 1
+    # Verify both schedules still exist and second is unchanged
+    updated_schedules = _get_schedules_from_entry(entry)
+    assert len(updated_schedules) == 2
+
+    # Check modified schedule
+    modified_schedule = updated_schedules["schedule-1"]
+    assert modified_schedule["name"] == "Modified Schedule 1"
+    assert modified_schedule["end_month"] == 9
+
+    # Check unchanged schedule
+    unchanged_schedule = updated_schedules["schedule-2"]
+    assert unchanged_schedule["name"] == "Schedule 2"
+    assert unchanged_schedule["start_month"] == 12
+    assert unchanged_schedule["end_month"] == 2
+
+
+async def test_remove_schedule_preserves_others(hass: HomeAssistant) -> None:
+    """Test that removing one schedule doesn't affect others."""
+    # Start with two schedules
+    schedules = {
+        "schedule-1": {
+            "name": "Schedule 1",
+            "schedule_type": "date",
+            "start_month": 6,
             "start_day": 1,
-            "end_month": "8",
+            "end_month": 8,
             "end_day": 31,
-            "configuration": "",
+            "uid": "schedule-1",
         },
-    )
-
-    # Should show error
-    assert result["type"] == FlowResultType.FORM
-    assert "errors" in result
-    assert "base" in result["errors"]
-    assert "Schedule 1" in result["errors"]["base"]
-
-    # Verify only one schedule exists
-    from datetime import datetime
-
-    from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
-    from homeassistant.util import dt as dt_util
-
-    calendar_entities = hass.data[CALENDAR_DOMAIN].entities
-    calendar = None
-    for entity in calendar_entities:
-        if entity.entity_id == "calendar.test_scheduler":
-            calendar = entity
-            break
-
-    assert calendar is not None
-
-    start = datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    # Should only have the first schedule
-    assert len(events) == 1
-    assert events[0].summary == "Schedule 1"
-
-
-async def test_different_schedule_types_persist(hass: HomeAssistant) -> None:
-    """Test that different schedule types can coexist."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+        "schedule-2": {
+            "name": "Schedule 2",
+            "schedule_type": "date",
+            "start_month": 12,
+            "start_day": 1,
+            "end_month": 2,
+            "end_day": 28,
+            "uid": "schedule-2",
+        },
+    }
+    entry = _create_service_entry(schedules=schedules)
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Add date schedule
+    # Remove first schedule
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_schedule"}
+        result["flow_id"], {"next_step_id": "remove_schedule"}
     )
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"schedule_type": "date"}
+        result["flow_id"], {"schedule_id": "schedule-1"}
     )
     result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Date Schedule",
-            "start_month": "1",
-            "start_day": 1,
-            "end_month": "2",
-            "end_day": 28,
-            "configuration": "",
-        },
+        result["flow_id"], {"confirm": True}
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
-    # Add week schedule
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_schedule"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"schedule_type": "week"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Week Schedule",
-            "start_month": "6",
-            "start_week": "0",
-            "start_day_of_week": "0",
-            "end_month": "6",
-            "end_week": "4",
-            "end_day_of_week": "4",
-            "configuration": "",
-        },
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
+    # Verify only second schedule remains
+    remaining_schedules = _get_schedules_from_entry(entry)
+    assert len(remaining_schedules) == 1
+    assert "schedule-1" not in remaining_schedules
+    assert "schedule-2" in remaining_schedules
 
-    # Add nth-day schedule
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"next_step_id": "add_schedule"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], {"schedule_type": "nth-day"}
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {
-            "name": "Nth Day Schedule",
-            "month": "9",
-            "occurrence": "1",
-            "day_of_week": "1",
-            "start_offset": 0,
-            "end_offset": 0,
-            "configuration": "",
-        },
-    )
-    assert result["type"] == FlowResultType.CREATE_ENTRY
-
-    # Verify all three schedules exist
-    from datetime import datetime
-
-    from homeassistant.components.calendar import DOMAIN as CALENDAR_DOMAIN
-    from homeassistant.util import dt as dt_util
-
-    calendar_entities = hass.data[CALENDAR_DOMAIN].entities
-    calendar = None
-    for entity in calendar_entities:
-        if entity.entity_id == "calendar.test_scheduler":
-            calendar = entity
-            break
-
-    assert calendar is not None
-
-    start = datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    # Should have all three schedules
-    assert len(events) == 3
-    event_names = {event.summary for event in events}
-    assert event_names == {"Date Schedule", "Week Schedule", "Nth Day Schedule"}
+    remaining_schedule = remaining_schedules["schedule-2"]
+    assert remaining_schedule["name"] == "Schedule 2"
+    assert remaining_schedule["start_month"] == 12

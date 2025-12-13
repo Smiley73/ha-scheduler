@@ -1,27 +1,48 @@
 # Home Assistant Scheduler Integration - Specification
 
 **Domain**: `ha_scheduler`  
-**Version**: 0.2.0  
+**Version**: 0.4.0  
 **Quality Scale**: Gold  
+**Integration Type**: Service  
 **Status**: Implemented and functional
 
-**Objective**: Create a Home Assistant custom integration called "HA Scheduler" that allows users to create recurring annual calendar schedules with flexible date patterns and optional YAML configuration.
+**Objective**: Create a Home Assistant custom integration called "HA Scheduler" that provides a service-based scheduling system with recurring annual calendar schedules, flexible date patterns, and optional YAML configuration.
+
+## Key Requirements Summary
+
+### 🎯 **Critical Requirements**
+1. **Service-Based Architecture**: Transform from helper to service integration type
+2. **Clean Calendar Entity IDs**: Format `calendar.{service_name}` without duplication
+3. **Seamless Migration**: V1 to V2 upgrade with zero data loss and entity continuity
+4. **Consistent Terminology**: Use "Default Configuration" not "Service Configuration"
+5. **Single Calendar per Service**: Each service has exactly one calendar named after the service
+
+### 🔧 **Technical Requirements**
+- **Integration Type**: `service` (changed from `helper`)
+- **Entity Naming**: `_attr_has_entity_name = False` to prevent ID duplication
+- **Migration System**: Versioned functions supporting future upgrades
+- **Data Structure**: Service-based options with nested schedules and configuration
+- **Device Grouping**: All calendars grouped under scheduler service device
 
 ## Overview
 
-This integration provides a calendar-based scheduling system where:
-- Users can create multiple scheduler instances (each is a separate config entry)
-- Each scheduler has its own calendar entity
-- Schedules are all-day events that recur annually
+This integration provides a service-based calendar scheduling system where:
+- Users can create scheduler services (each is a separate config entry)
+- Each service contains one or more calendars (currently one calendar per service)
+- Each calendar can have multiple schedules that are all-day events recurring annually
 - Three scheduling patterns are supported: by date, by week of month, and by nth day of month
 - Each schedule can have optional YAML configuration attached
+- Migration system automatically upgrades from helper-based (v1) to service-based (v2) architecture
 
 ## Core Features
 
-### Multiple Schedulers
-- Users can add multiple independent schedulers
-- Each scheduler is a separate config entry with its own calendar entity
-- Schedulers can be named during setup (must be unique, case-insensitive)
+### Service-Based Architecture
+- Users can add multiple independent scheduler services
+- Each service is a separate config entry with its own calendar entity
+- Services can be named during setup (must be unique, case-insensitive)
+- Each service contains a single calendar with entity ID matching the service name
+- Calendar entity ID format: `calendar.{service_name}` (no service prefix duplication)
+- Future enhancement: Multiple calendars per service
 
 ### Schedule Types
 
@@ -78,11 +99,12 @@ Define a schedule centered on a specific weekday occurrence with offset days.
 ### Configuration System
 
 #### Default Configuration
-- Each scheduler can have a default YAML configuration
-- Accessed via "Default configuration" option in the options menu
-- Stored in `config_entry.options["configuration"]`
+- Each service can have a default YAML configuration
+- Accessed via "Default configuration" option in the options menu (not "Service configuration")
+- Stored in `config_entry.options["services"]["default"]["configuration"]`
 - Exposed as calendar entity attribute `default_configuration`
 - Used when a schedule doesn't have its own configuration
+- Terminology: Always use "Default Configuration" in UI, never "Service Configuration"
 
 #### Per-Schedule Configuration
 - Each schedule can have its own YAML configuration
@@ -103,9 +125,9 @@ Define a schedule centered on a specific weekday occurrence with offset days.
 
 ### Initial Setup (Config Flow)
 1. User initiates integration setup
-2. Prompt for scheduler name (default: "Scheduler")
-3. Validate name is unique across all schedulers (case-insensitive)
-4. Create config entry with empty schedules list
+2. Prompt for "Scheduler Name" (default: "Scheduler")
+3. Validate name is unique across all scheduler services (case-insensitive)
+4. Create config entry with service-based structure containing default service
 
 ### Options Flow - Main Menu
 Present menu with four options:
@@ -127,9 +149,9 @@ Present menu with four options:
    
 3. **On Submit**:
    - Generate unique UID using `str(uuid.uuid4())`
-   - Validate schedule name is unique within this scheduler (case-insensitive)
+   - Validate schedule name is unique within this service (case-insensitive)
    - Check for overlaps with existing schedules
-   - Add to `config_entry.options["schedules"]` list
+   - Add to `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all existing schedules
 
 ### Edit Schedule Flow
@@ -146,7 +168,7 @@ Present menu with four options:
 3. **On Submit**:
    - Allow keeping same name (exclude current schedule from uniqueness check)
    - Check for overlaps (exclude current schedule)
-   - Update schedule in `config_entry.options["schedules"]` list
+   - Update schedule in `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all other schedules
 
 ### Remove Schedule Flow
@@ -158,14 +180,14 @@ Present menu with four options:
    - Only proceed if checkbox is checked
    
 3. **On Confirm**:
-   - Remove schedule from `config_entry.options["schedules"]` list
+   - Remove schedule from `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all other schedules
 
 ### Default Configuration Flow
 1. Single-page form with YAML input (TemplateSelector)
 2. Pre-fill with current default configuration if exists
 3. Validate YAML syntax and structure
-4. Save to `config_entry.options["configuration"]`
+4. Save to `config_entry.options["services"]["default"]["configuration"]`
 
 ## Validation Rules
 
@@ -176,10 +198,10 @@ Present menu with four options:
 - For by_week and by_nth_day: End can be before start in same year
 
 ### Name Uniqueness
-- **Scheduler names**: Must be unique across all schedulers (case-insensitive)
+- **Service names**: Must be unique across all scheduler services (case-insensitive)
   - Error: "Name already exists. Please choose a different name."
   
-- **Schedule names**: Must be unique within each scheduler (case-insensitive)
+- **Schedule names**: Must be unique within each service (case-insensitive)
   - Error: "A schedule with this name already exists. Please choose a different name."
   - When editing: Allow keeping the same name (exclude current schedule from check)
 
@@ -201,40 +223,47 @@ Present menu with four options:
 ### Config Entry Structure
 ```python
 {
-    "data": {},  # Empty - all data in options
+    "data": {
+        "scheduler_name": "My Scheduler"  # Service name
+    },
     "options": {
-        "schedules": [
-            {
-                "uid": "uuid-string",
-                "name": "Schedule Name",
-                "schedule_type": "date",  # or "week", "nth-day"
-                
-                # For schedule_type="date":
-                "start_month": 3,      # 1-12
-                "start_day": 15,       # 1-31
-                "end_month": 6,        # 1-12
-                "end_day": 20,         # 1-31
-                
-                # For schedule_type="week":
-                "start_month": 3,           # 1-12
-                "start_week": 0,            # 0-4 (0=first, 4=last)
-                "start_day_of_week": 0,     # 0-6 (0=Monday)
-                "end_month": 6,             # 1-12
-                "end_week": 4,              # 0-4
-                "end_day_of_week": 4,       # 0-6
-                
-                # For schedule_type="nth-day":
-                "month": 3,            # 1-12
-                "occurrence": 1,       # 0-4 (0=first, 4=last)
-                "day_of_week": 1,      # 0-6 (0=Monday)
-                "start_offset": 2,     # days before (0-30)
-                "end_offset": 3,       # days after (0-30)
-                
-                # Optional for all types:
-                "configuration": {"key": "value"}  # dict or omitted
+        "services": {
+            "default": {  # Service ID (currently always "default")
+                "name": "My Scheduler",  # Service display name
+                "schedules": {
+                    "uuid-string": {
+                        "uid": "uuid-string",
+                        "name": "Schedule Name",
+                        "schedule_type": "date",  # or "week", "nth-day"
+                        
+                        # For schedule_type="date":
+                        "start_month": 3,      # 1-12
+                        "start_day": 15,       # 1-31
+                        "end_month": 6,        # 1-12
+                        "end_day": 20,         # 1-31
+                        
+                        # For schedule_type="week":
+                        "start_month": 3,           # 1-12
+                        "start_week": 0,            # 0-4 (0=first, 4=last)
+                        "start_day_of_week": 0,     # 0-6 (0=Monday)
+                        "end_month": 6,             # 1-12
+                        "end_week": 4,              # 0-4
+                        "end_day_of_week": 4,       # 0-6
+                        
+                        # For schedule_type="nth-day":
+                        "month": 3,            # 1-12
+                        "occurrence": 1,       # 0-4 (0=first, 4=last)
+                        "day_of_week": 1,      # 0-6 (0=Monday)
+                        "start_offset": 2,     # days before (0-30)
+                        "end_offset": 3,       # days after (0-30)
+                        
+                        # Optional for all types:
+                        "configuration": {"key": "value"}  # dict or omitted
+                    }
+                },
+                "configuration": {"default": "config"}  # dict or omitted
             }
-        ],
-        "configuration": {"default": "config"}  # dict or omitted
+        }
     }
 }
 ```
@@ -248,6 +277,19 @@ Present menu with four options:
 - Months: 1-12 (1=January, 12=December)
 
 ## Calendar Entity Implementation
+
+### Entity Naming and IDs
+- **Entity ID Format**: `calendar.{service_name}` (clean, no duplication)
+- **has_entity_name**: Set to `False` to avoid service name duplication in entity ID
+- **Unique ID**: `{entry_id}_{service_id}` for internal tracking
+- **Display Name**: Uses the service name directly
+- **Critical Requirement**: Entity ID should only be the calendar name, not include service name twice
+
+### Entity ID Examples
+- ✅ **Correct**: `calendar.my_scheduler` (service name: "My Scheduler")
+- ❌ **Incorrect**: `calendar.my_scheduler_my_scheduler` (duplicated name)
+- ✅ **Correct**: `calendar.home_schedule` (service name: "Home Schedule")
+- ❌ **Incorrect**: `calendar.home_schedule_home_schedule` (duplicated name)
 
 ### Event Generation
 - Generate events for requested date range
@@ -264,26 +306,94 @@ Present menu with four options:
 - **uid**: `{schedule_uid}_{year}`
 
 ### Entity Attributes
-- `default_configuration`: The scheduler's default YAML configuration dict
-- `description`: When a schedule is active, contains the configuration dict for that schedule
+- `default_configuration`: The service's default YAML configuration dict
+- `configuration`: When a schedule is active, contains the configuration dict for that schedule
+- `name`: Current active schedule name (or None if no active schedule)
+- `schedule_uid`: Current active schedule UID (or None if no active schedule)
+
+### Device Integration
+- All calendars are grouped under a device representing the scheduler service
+- Device info includes service name, manufacturer, and model information
+- Enables better organization in Home Assistant UI
 
 ### Update Handling
 - Listen for config entry options changes
 - Regenerate events when schedules are added/edited/removed
 - Update calendar entity state
+- Support for service-based data structure
+
+## Migration System
+
+### Version Management
+- **Current Version**: 2 (service-based architecture)
+- **Previous Version**: 1 (helper-based architecture)
+- **Config Flow Version**: 2.1
+- **Manifest Version**: 0.4.0
+
+### Migration Process
+The integration automatically detects and migrates older config entries:
+
+1. **Detection**: Check `entry.version < CURRENT_VERSION` in `async_setup_entry`
+2. **Migration**: Call `async_migrate_entry(hass, entry)` 
+3. **Transformation**: Convert helper structure to service structure
+4. **Preservation**: All existing schedules and configurations are preserved
+5. **Calendar Continuity**: Calendar entity IDs remain the same after migration
+6. **Update**: Config entry version is updated to current version
+
+### Migration Requirements
+- **Seamless Upgrade**: Users should not notice any functional changes
+- **Data Integrity**: Zero data loss during migration
+- **Entity Continuity**: Calendar entity IDs must remain consistent
+- **Backward Compatibility**: Support for future migrations with versioned functions
+
+### Migration Functions
+
+**`migrations.py`** contains versioned migration functions:
+- `async_migrate_v1_to_v2()` - Helper to service transformation
+- Future migrations follow pattern `async_migrate_vX_to_vY()`
+
+### V1 to V2 Migration Details
+
+**Before (Helper Model)**:
+```python
+{
+    "data": {},
+    "options": {
+        "schedules": {"schedule_id": {...}},
+        "configuration": {...}
+    }
+}
+```
+
+**After (Service Model)**:
+```python
+{
+    "data": {"scheduler_name": "Service Name"},
+    "options": {
+        "services": {
+            "default": {
+                "name": "Service Name",
+                "schedules": {"schedule_id": {...}},
+                "configuration": {...}
+            }
+        }
+    }
+}
+```
 
 ## Implementation Details
 
 ### File Structure
 ```
 custom_components/ha_scheduler/
-├── __init__.py                 # Setup/unload entry points
-├── manifest.json              # Integration metadata
+├── __init__.py                 # Setup/unload entry points with migration support
+├── manifest.json              # Integration metadata (service type)
 ├── const.py                   # Constants (DOMAIN, month/day/occurrence names)
-├── config_flow.py             # Config and options flows
-├── calendar.py                # Calendar entity implementation
+├── config_flow.py             # Config and options flows (service-based)
+├── calendar.py                # Calendar entity implementation (service-aware)
 ├── schedule_generator.py      # Date calculation logic
-├── diagnostics.py             # Diagnostics data collection
+├── diagnostics.py             # Diagnostics data collection (service-based)
+├── migrations.py              # Migration system (v1 to v2)
 ├── strings.json              # UI text and translations
 ├── quality_scale.yaml         # Home Assistant quality scale compliance
 └── translations/
@@ -316,30 +426,76 @@ Implement diagnostics data collection:
 {
     "entry": {
         "title": "Scheduler Name",
-        "entry_id": "config_entry_id"
+        "entry_id": "config_entry_id",
+        "scheduler_name": "Service Name"
     },
-    "schedules": {
-        "count": 2,
-        "items": [
-            {
-                "id": "schedule_uid",
-                "name": "Schedule Name",
-                "type": "date",  # or "week", "nth-day"
-                # Type-specific fields
-                "start_month": 6,
-                "start_day": 1,
-                # ...
+    "services": {
+        "default": {
+            "name": "Service Name",
+            "schedules": {
+                "count": 2,
+                "items": [
+                    {
+                        "id": "schedule_uid",
+                        "name": "Schedule Name",
+                        "type": "date",  # or "week", "nth-day"
+                        # Type-specific fields
+                        "start_month": 6,
+                        "start_day": 1,
+                        # ...
+                        "has_configuration": True,
+                        "configuration": {"key": "value"}  # if present
+                    }
+                ]
+            },
+            "default_configuration": {
                 "has_configuration": True,
-                "configuration": {"key": "value"}  # if present
+                "configuration": {"default": "config"}  # if present
             }
-        ]
+        }
     },
-    "default_configuration": {
-        "has_default": True,
-        "configuration": {"default": "config"}  # if present
+    "summary": {
+        "total_services": 1,
+        "total_schedules": 2
     }
 }
 ```
+
+### calendar.py
+
+**Calendar Entity Requirements**:
+1. **Entity Naming**: 
+   ```python
+   class SchedulerCalendar(CalendarEntity):
+       _attr_has_entity_name = False  # Critical: Prevents name duplication
+   ```
+
+2. **Entity ID Generation**:
+   ```python
+   # Entity ID should be: calendar.{service_name}
+   # NOT: calendar.{service_name}_{service_name}
+   self._attr_unique_id = f"{entry.entry_id}_{service_id}"
+   self._attr_name = service_name  # Direct service name, no prefix
+   ```
+
+3. **Service-Based Data Access**:
+   ```python
+   def _get_schedules(self) -> list[dict[str, Any]]:
+       services = self._entry.options.get("services", {})
+       service_data = services.get(self._service_id, {})
+       schedules_dict = service_data.get("schedules", {})
+       return list(schedules_dict.values())
+   ```
+
+4. **Device Integration**:
+   ```python
+   self._attr_device_info = {
+       "identifiers": {("ha_scheduler", entry.entry_id)},
+       "name": entry.title,
+       "manufacturer": "HA Scheduler",
+       "model": "Scheduler Service",
+   }
+   ```
 
 ### schedule_generator.py
 Implement functions:
@@ -381,7 +537,8 @@ Implement functions:
 1. **Always use fresh options data**:
    ```python
    entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-   schedules = entry.options.get("schedules", [])
+   services = entry.options.get("services", {})
+   schedules = services.get("default", {}).get("schedules", {})
    ```
 
 2. **Never store options in instance variables across steps** - always fetch fresh
@@ -390,7 +547,13 @@ Implement functions:
    ```python
    new_schedules = dict(schedules)  # Copy existing
    new_schedules[schedule_id] = updated_schedule
-   updated_options = {**entry.options, "schedules": new_schedules}
+   # Update service structure
+   new_services = dict(services)
+   new_services["default"] = {
+       **new_services.get("default", {}),
+       "schedules": new_schedules
+   }
+   updated_options = {**entry.options, "services": new_services}
    ```
 
 4. **Configuration field in edit flow**:
@@ -448,10 +611,11 @@ Include `data_description` for configuration fields:
 ### Test Coverage Areas
 1. **Config flow tests**: All flow paths (add, edit, remove, default config)
 2. **Schedule generator tests**: All schedule types, edge cases, overlap detection
-3. **Calendar tests**: Event generation, year wrapping, configuration handling
+3. **Calendar tests**: Event generation, year wrapping, configuration handling, entity ID validation
 4. **Integration tests**: Full setup/unload cycle
 5. **Persistence tests**: Verify schedules are properly saved and loaded
-6. **Diagnostics tests**: All schedule types, configuration handling, data structure
+6. **Diagnostics tests**: All schedule types, configuration handling, service-based data structure
+7. **Migration tests**: V1 to V2 migration, data preservation, entity continuity
 
 ### Critical Test Scenarios
 - Adding multiple schedules without overwriting existing ones
@@ -461,12 +625,15 @@ Include `data_description` for configuration fields:
 - Overlap detection across multiple years
 - Configuration inheritance (schedule-specific vs default)
 - Invalid input validation (dates, YAML, overlaps)
-- Name uniqueness validation (schedulers and schedules, case-insensitive)
+- Name uniqueness validation (services and schedules, case-insensitive)
 - Editing schedules can keep same name
 - Configuration dict to YAML string conversion when editing
 - Configuration field displays existing YAML using `default` parameter
 - Removing configuration by emptying the field
 - Configuration field helper text is displayed in UI
+- **Calendar entity ID validation**: Ensure clean entity IDs without duplication
+- **Service-based data structure**: All tests use proper service-based config entries
+- **Migration testing**: V1 to V2 migration preserves all data and entity IDs
 
 ### Diagnostics Test Scenarios
 - Empty schedules (no schedules configured)
@@ -486,10 +653,11 @@ Include `data_description` for configuration fields:
 - Follow Home Assistant best practices (see AGENTS.md)
 - Use proper type hints (Python 3.13+)
 - Pass ruff linting and formatting
-- Integration type: `helper`
+- Integration type: `service`
 - Quality scale: Gold
 - All-day events only (no time components)
 - Proper error handling with translated messages
+- Migration system for backward compatibility
 
 ### Code Quality
 - Use constants from const.py for month/day/occurrence names
@@ -508,16 +676,21 @@ Include `data_description` for configuration fields:
 ## Success Criteria
 
 The integration is complete when:
-1. Users can create multiple schedulers with unique names
-2. Each scheduler can have multiple schedules of all three types
+1. Users can create multiple scheduler services with unique names
+2. Each service can have multiple schedules of all three types
 3. Schedules can be added, edited, and removed without data loss
-4. Configuration system works (default and per-schedule)
-5. Calendar entity displays correct events for all schedule types
-6. Year-wrapping schedules work correctly
-7. Overlap detection prevents conflicting schedules
-8. All validation rules are enforced with clear error messages
-9. Configuration YAML is properly displayed when editing schedules
-10. Diagnostics feature provides comprehensive troubleshooting data
-11. All tests pass with >95% coverage (including diagnostics tests)
-12. Code passes linting and formatting checks
-13. Integration loads and unloads cleanly in Home Assistant
+4. Configuration system works (default and per-schedule) with "Default Configuration" terminology
+5. Calendar entities display correct events for all schedule types
+6. **Calendar entity IDs are clean**: `calendar.{service_name}` format without duplication
+7. Year-wrapping schedules work correctly
+8. Overlap detection prevents conflicting schedules
+9. All validation rules are enforced with clear error messages
+10. Configuration YAML is properly displayed when editing schedules
+11. Diagnostics feature provides comprehensive service-based troubleshooting data
+12. Migration system seamlessly upgrades v1 to v2 without data loss or entity ID changes
+13. All tests pass with >95% coverage (including migration, diagnostics, and entity ID tests)
+14. Code passes linting and formatting checks
+15. Integration loads and unloads cleanly in Home Assistant
+16. Service-based architecture supports future enhancements
+17. **UI Consistency**: All user-facing text uses "Default Configuration" not "Service Configuration"
+18. **Entity Continuity**: Calendar entity IDs remain consistent before and after migration

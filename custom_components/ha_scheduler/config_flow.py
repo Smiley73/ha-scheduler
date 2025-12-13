@@ -73,7 +73,7 @@ def _validate_yaml_config(yaml_str: str) -> dict | None:
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Scheduler."""
 
-    VERSION = 1
+    VERSION = 2
     MINOR_VERSION = 1
 
     async def async_step_user(
@@ -83,24 +83,34 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            name = user_input.get("name", "Scheduler").strip()
+            name = user_input.get("scheduler_name", "Scheduler").strip()
 
             # Check for duplicate scheduler names
             existing_entries = self._async_current_entries()
             if any(entry.title.lower() == name.lower() for entry in existing_entries):
-                errors["name"] = "Name already exists. Please choose a different name."
+                errors["scheduler_name"] = (
+                    "Name already exists. Please choose a different name."
+                )
             else:
                 return self.async_create_entry(
                     title=name,
-                    data={},
-                    options={"schedules": {}},
+                    data={"scheduler_name": name},
+                    options={
+                        "services": {
+                            "default": {
+                                "name": name,
+                                "schedules": {},
+                                "configuration": {},
+                            }
+                        }
+                    },
                 )
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Optional("name", default="Scheduler"): str,
+                    vol.Optional("scheduler_name", default="Scheduler"): str,
                 }
             ),
             errors=errors,
@@ -122,6 +132,49 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self._schedule_id: str | None = None
         self._schedule_data: dict[str, Any] = {}
+        self._service_id: str = "default"  # Default service for now
+
+    def _get_service_schedules(self) -> dict[str, Any]:
+        """Get schedules for the current service."""
+        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+        if not entry:
+            return {}
+
+        # Handle both new service-based structure and legacy structure
+        services = entry.options.get("services", {})
+        if services:
+            return services.get(self._service_id, {}).get("schedules", {})
+        else:
+            # Legacy structure
+            return entry.options.get("schedules", {})
+
+    def _update_service_schedules(self, schedules: dict[str, Any]) -> dict[str, Any]:
+        """Update schedules for the current service and return updated options."""
+        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+
+        # Handle both new service-based structure and legacy structure
+        services = entry.options.get("services", {})
+        if services:
+            # New service-based structure
+            new_services = dict(services)
+
+            # Ensure service exists
+            if self._service_id not in new_services:
+                new_services[self._service_id] = {
+                    "name": entry.title,
+                    "schedules": {},
+                    "configuration": {},
+                }
+
+            new_services[self._service_id] = {
+                **new_services[self._service_id],
+                "schedules": schedules,
+            }
+
+            return {**entry.options, "services": new_services}
+        else:
+            # Legacy structure - update directly
+            return {**entry.options, "schedules": schedules}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -201,13 +254,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     config_dict = _validate_yaml_config(config_yaml)
                     if config_dict:
                         data["configuration"] = config_dict
-                # If configuration is empty, explicitly don't include the key in data
 
-                # Check for overlaps and name conflicts - get fresh options from config entries
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Get current schedules
+                schedules = self._get_service_schedules()
 
                 # Check for duplicate schedule names
                 schedule_name = data["name"].strip().lower()
@@ -241,12 +290,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     # Save schedule
                     new_schedules = dict(schedules)
                     new_schedules[self._schedule_id] = data
-
-                    # Get fresh entry again before update to ensure we have latest options
-                    entry = self.hass.config_entries.async_get_entry(
-                        self.config_entry.entry_id
-                    )
-                    updated_options = {**entry.options, "schedules": new_schedules}
+                    updated_options = self._update_service_schedules(new_schedules)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -335,11 +379,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get fresh options from config entries
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Get current schedules
+                schedules = self._get_service_schedules()
 
                 # Check for duplicate schedule names
                 schedule_name = data["name"].strip().lower()
@@ -372,12 +413,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if not errors:
                     new_schedules = dict(schedules)
                     new_schedules[self._schedule_id] = data
-
-                    # Get fresh entry again before update
-                    entry = self.hass.config_entries.async_get_entry(
-                        self.config_entry.entry_id
-                    )
-                    updated_options = {**entry.options, "schedules": new_schedules}
+                    updated_options = self._update_service_schedules(new_schedules)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -481,11 +517,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get fresh options from config entries
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Get current schedules
+                schedules = self._get_service_schedules()
 
                 # Check for duplicate schedule names
                 schedule_name = data["name"].strip().lower()
@@ -518,12 +551,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if not errors:
                     new_schedules = dict(schedules)
                     new_schedules[self._schedule_id] = data
-
-                    # Get fresh entry again before update
-                    entry = self.hass.config_entries.async_get_entry(
-                        self.config_entry.entry_id
-                    )
-                    updated_options = {**entry.options, "schedules": new_schedules}
+                    updated_options = self._update_service_schedules(new_schedules)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -592,8 +620,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Select a schedule to edit."""
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        schedules = entry.options.get("schedules", {}) if entry else {}
+        schedules = self._get_service_schedules()
 
         if not schedules:
             return self.async_abort(reason="no_schedules")
@@ -643,23 +670,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Remove a schedule."""
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        schedules = entry.options.get("schedules", {}) if entry else {}
+        schedules = self._get_service_schedules()
 
         if not schedules:
             return self.async_abort(reason="no_schedules")
 
         if self._schedule_id and user_input is not None:
             if user_input.get("confirm"):
-                # Get fresh entry before update
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
-                schedules = entry.options.get("schedules", {}) if entry else {}
+                # Remove schedule
                 new_schedules = dict(schedules)
                 new_schedules.pop(self._schedule_id, None)
-
-                updated_options = {**entry.options, "schedules": new_schedules}
+                updated_options = self._update_service_schedules(new_schedules)
 
                 return self.async_create_entry(title="", data=updated_options)
 
@@ -722,7 +743,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 entry = self.hass.config_entries.async_get_entry(
                     self.config_entry.entry_id
                 )
-                updated_options = {**entry.options, "configuration": config_dict or {}}
+                services = entry.options.get("services", {})
+                new_services = dict(services)
+
+                # Ensure service exists
+                if self._service_id not in new_services:
+                    new_services[self._service_id] = {
+                        "name": entry.title,
+                        "schedules": {},
+                        "configuration": {},
+                    }
+
+                new_services[self._service_id] = {
+                    **new_services[self._service_id],
+                    "configuration": config_dict or {},
+                }
+
+                updated_options = {**entry.options, "services": new_services}
 
                 return self.async_create_entry(title="", data=updated_options)
 
@@ -733,7 +770,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
 
-        current_config = self.config_entry.options.get("configuration", {})
+        # Get current service configuration
+        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+        services = entry.options.get("services", {}) if entry else {}
+        current_config = services.get(self._service_id, {}).get("configuration", {})
         config_str = yaml.dump(current_config) if current_config else ""
 
         return self.async_show_form(

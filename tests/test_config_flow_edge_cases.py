@@ -28,7 +28,7 @@ async def test_config_flow_duplicate_name(hass: HomeAssistant) -> None:
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {"name": "Test Scheduler"},  # Same name as existing entry
+        {"scheduler_name": "Test Scheduler"},  # Same name as existing entry
     )
 
     # Should show form (Home Assistant allows duplicate titles but may show form for additional config)

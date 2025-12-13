@@ -4,10 +4,10 @@
   "codeowners": ["@Smiley73"],
   "config_flow": true,
   "documentation": "https://github.com/Smiley73/ha-scheduler",
-  "integration_type": "helper",
+  "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
   "quality_scale": "gold",
   "requirements": [],
-  "version": "0.3.1"
+  "version": "0.4.0"
 }

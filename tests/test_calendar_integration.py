@@ -20,6 +20,8 @@ async def test_calendar_updates_when_schedule_added(hass: HomeAssistant) -> None
         title="Test Scheduler",
         data={},
         options={"schedules": {}},
+        version=2,  # Set to current version to avoid migration
+        minor_version=1,
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
@@ -47,19 +49,25 @@ async def test_calendar_updates_when_schedule_added(hass: HomeAssistant) -> None
     events = await calendar.async_get_events(hass, start, end)
     assert len(events) == 0
 
-    # Now add a schedule via options update
+    # Now add a schedule via options update using the new service structure
     hass.config_entries.async_update_entry(
         entry,
         options={
-            "schedules": {
-                "test-schedule-1": {
-                    "name": "Summer Schedule",
-                    "schedule_type": "date",
-                    "start_month": 6,
-                    "start_day": 1,
-                    "end_month": 6,
-                    "end_day": 30,
-                    "uid": "test-schedule-1",
+            "services": {
+                "default": {
+                    "name": "Test Scheduler",
+                    "schedules": {
+                        "test-schedule-1": {
+                            "name": "Summer Schedule",
+                            "schedule_type": "date",
+                            "start_month": 6,
+                            "start_day": 1,
+                            "end_month": 6,
+                            "end_day": 30,
+                            "uid": "test-schedule-1",
+                        }
+                    },
+                    "configuration": {},
                 }
             }
         },
@@ -84,18 +92,26 @@ async def test_calendar_shows_current_event(hass: HomeAssistant) -> None:
         title="Test Scheduler",
         data={},
         options={
-            "schedules": {
-                "test-schedule-1": {
-                    "name": "Current Schedule",
-                    "schedule_type": "date",
-                    "start_month": today.month,
-                    "start_day": 1,
-                    "end_month": today.month,
-                    "end_day": 28,  # Safe for all months
-                    "uid": "test-schedule-1",
+            "services": {
+                "default": {
+                    "name": "Test Scheduler",
+                    "schedules": {
+                        "test-schedule-1": {
+                            "name": "Current Schedule",
+                            "schedule_type": "date",
+                            "start_month": today.month,
+                            "start_day": 1,
+                            "end_month": today.month,
+                            "end_day": 28,  # Safe for all months
+                            "uid": "test-schedule-1",
+                        }
+                    },
+                    "configuration": {},
                 }
             }
         },
+        version=2,  # Set to current version to avoid migration
+        minor_version=1,
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)

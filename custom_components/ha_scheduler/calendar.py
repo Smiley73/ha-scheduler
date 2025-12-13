@@ -20,7 +20,27 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Scheduler calendar from a config entry."""
-    async_add_entities([SchedulerCalendar(entry)], True)
+    # Handle both new service-based structure and legacy structure
+    services = entry.options.get("services", {})
+    calendars = []
+
+    if services:
+        # New service-based structure
+        for service_id, service_data in services.items():
+            calendars.append(SchedulerCalendar(entry, service_id, service_data))
+    else:
+        # Legacy structure - create a default service
+        legacy_schedules = entry.options.get("schedules", {})
+        legacy_config = entry.options.get("configuration", {})
+
+        default_service_data = {
+            "name": entry.title,
+            "schedules": legacy_schedules,
+            "configuration": legacy_config,
+        }
+        calendars.append(SchedulerCalendar(entry, "default", default_service_data))
+
+    async_add_entities(calendars, True)
 
 
 class SchedulerCalendar(CalendarEntity):
@@ -28,11 +48,29 @@ class SchedulerCalendar(CalendarEntity):
 
     _attr_has_entity_name = False
 
-    def __init__(self, entry: ConfigEntry) -> None:
+    def __init__(
+        self, entry: ConfigEntry, service_id: str, service_data: dict[str, Any]
+    ) -> None:
         """Initialize the calendar."""
         self._entry = entry
-        self._attr_unique_id = entry.entry_id
-        self._attr_name = entry.title
+        self._service_id = service_id
+        self._service_data = service_data
+
+        # For single service (default), use the entry title as calendar name
+        # For multiple services, use service name
+        service_name = service_data.get("name", entry.title)
+
+        self._attr_unique_id = f"{entry.entry_id}_{service_id}"
+        self._attr_name = service_name
+
+        # Set device info to group calendars under the scheduler service
+        self._attr_device_info = {
+            "identifiers": {("ha_scheduler", entry.entry_id)},
+            "name": entry.title,
+            "manufacturer": "HA Scheduler",
+            "model": "Scheduler Service",
+        }
+
         entry.async_on_unload(entry.add_update_listener(self._async_update_listener))
 
     async def _async_update_listener(
@@ -42,14 +80,18 @@ class SchedulerCalendar(CalendarEntity):
         self.async_write_ha_state()
 
     def _get_schedules(self) -> list[dict[str, Any]]:
-        """Get schedules from config entry options."""
-        schedules_dict = self._entry.options.get("schedules", {})
+        """Get schedules from config entry options for this service."""
+        services = self._entry.options.get("services", {})
+        service_data = services.get(self._service_id, {})
+        schedules_dict = service_data.get("schedules", {})
         return list(schedules_dict.values())
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
-        default_config = self._entry.options.get("configuration", {})
+        services = self._entry.options.get("services", {})
+        service_data = services.get(self._service_id, {})
+        default_config = service_data.get("configuration", {})
 
         # Add current event configuration if available
         current_event = self.event

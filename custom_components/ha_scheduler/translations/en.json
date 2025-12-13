@@ -2,10 +2,10 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Scheduler",
-        "description": "Create a scheduler calendar entity",
+        "title": "Set up Scheduler Service",
+        "description": "Create a scheduler service with calendar",
         "data": {
-          "name": "Name"
+          "scheduler_name": "Scheduler Name"
         }
       }
     },
@@ -33,7 +33,7 @@
       },
       "configure_date": {
         "title": "Configure date schedule",
-        "description": "Create a schedule based on specific dates (e.g., March 15 to June 20)",
+        "description": "Create a schedule based on specific dates (e.g., March 15 to June 20)\n\nNote: To clear the configuration field, enter a single space character.",
         "data": {
           "name": "Schedule name",
           "start_month": "Start month",
@@ -41,11 +41,14 @@
           "end_month": "End month",
           "end_day": "End day",
           "configuration": "Configuration (YAML)"
+        },
+        "data_description": {
+          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
         }
       },
       "configure_week": {
         "title": "Configure week schedule",
-        "description": "Create a schedule based on week of month (e.g., First Monday of March to Last Friday of June)",
+        "description": "Create a schedule based on week of month (e.g., First Monday of March to Last Friday of June)\n\nNote: To clear the configuration field, enter a single space character.",
         "data": {
           "name": "Schedule name",
           "start_month": "Start month",
@@ -55,11 +58,14 @@
           "end_week": "End week",
           "end_day_of_week": "End day of week",
           "configuration": "Configuration (YAML)"
+        },
+        "data_description": {
+          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
         }
       },
       "configure_nth_day": {
         "title": "Configure nth day schedule",
-        "description": "Create a schedule based on nth occurrence of a weekday (e.g., Second Tuesday of March, 2 days before to 3 days after)",
+        "description": "Create a schedule based on nth occurrence of a weekday (e.g., Second Tuesday of March, 2 days before to 3 days after)\n\nNote: To clear the configuration field, enter a single space character.",
         "data": {
           "name": "Schedule name",
           "month": "Month",
@@ -68,6 +74,9 @@
           "start_offset": "Days before",
           "end_offset": "Days after",
           "configuration": "Configuration (YAML)"
+        },
+        "data_description": {
+          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
         }
       },
       "edit_schedule": {
@@ -87,7 +96,7 @@
       },
       "default_configuration": {
         "title": "Default configuration",
-        "description": "Set the default YAML configuration for all schedules. This will be used when a schedule doesn't have its own configuration.",
+        "description": "Set the default YAML configuration for this service. This will be used when a schedule doesn't have its own configuration.",
         "data": {
           "configuration": "Default configuration (YAML)"
         }
@@ -95,7 +104,11 @@
     },
     "error": {
       "unknown": "Unexpected error occurred",
-      "no_schedules": "No schedules configured"
+      "no_schedules": "No schedules configured",
+      "invalid_yaml": "Invalid YAML configuration",
+      "duplicate_name": "A schedule with this name already exists. Please choose a different name.",
+      "duplicate_scheduler_name": "Name already exists. Please choose a different name.",
+      "schedule_overlap": "This schedule overlaps with another schedule"
     },
     "abort": {
       "no_schedules": "No schedules to edit or remove",

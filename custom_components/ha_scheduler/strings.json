@@ -2,10 +2,10 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up Scheduler",
-        "description": "Create a scheduler calendar entity",
+        "title": "Set up Scheduler Service",
+        "description": "Create a scheduler service with calendar",
         "data": {
-          "name": "Name"
+          "scheduler_name": "Scheduler Name"
         }
       }
     },
@@ -96,7 +96,7 @@
       },
       "default_configuration": {
         "title": "Default configuration",
-        "description": "Set the default YAML configuration for all schedules. This will be used when a schedule doesn't have its own configuration.",
+        "description": "Set the default YAML configuration for this service. This will be used when a schedule doesn't have its own configuration.",
         "data": {
           "configuration": "Default configuration (YAML)"
         }
@@ -104,7 +104,11 @@
     },
     "error": {
       "unknown": "Unexpected error occurred",
-      "no_schedules": "No schedules configured"
+      "no_schedules": "No schedules configured",
+      "invalid_yaml": "Invalid YAML configuration",
+      "duplicate_name": "A schedule with this name already exists. Please choose a different name.",
+      "duplicate_scheduler_name": "Name already exists. Please choose a different name.",
+      "schedule_overlap": "This schedule overlaps with another schedule"
     },
     "abort": {
       "no_schedules": "No schedules to edit or remove",

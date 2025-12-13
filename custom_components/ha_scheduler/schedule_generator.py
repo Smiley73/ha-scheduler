@@ -36,6 +36,11 @@ def _generate_by_date(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
     Handles year wrapping (e.g., Dec 15 to Jan 15).
     """
+    # Check for required fields
+    required_fields = ["start_month", "start_day", "end_month", "end_day"]
+    if not all(field in schedule for field in required_fields):
+        return []
+
     start_month = schedule["start_month"]
     start_day = schedule["start_day"]
     end_month = schedule["end_month"]
@@ -73,6 +78,18 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
     Handles year wrapping only when end_month < start_month
     (e.g., last Monday of December to first Friday of January).
     """
+    # Check for required fields
+    required_fields = [
+        "start_month",
+        "start_week",
+        "start_day_of_week",
+        "end_month",
+        "end_week",
+        "end_day_of_week",
+    ]
+    if not all(field in schedule for field in required_fields):
+        return []
+
     start_month = schedule["start_month"]
     start_week = schedule["start_week"]
     start_day_of_week = schedule["start_day_of_week"]
@@ -113,6 +130,11 @@ def _generate_by_nth_day(
     - March 12, 2024
     - March 11, 2025
     """
+    # Check for required fields
+    required_fields = ["month", "occurrence", "day_of_week"]
+    if not all(field in schedule for field in required_fields):
+        return []
+
     month = schedule["month"]
     occurrence = schedule["occurrence"]
     day_of_week = schedule["day_of_week"]

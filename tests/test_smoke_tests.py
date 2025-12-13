@@ -124,7 +124,7 @@ async def test_diagnostics_accessible(hass: HomeAssistant) -> None:
 
     assert isinstance(diagnostics, dict)
     assert "entry" in diagnostics
-    assert "schedules" in diagnostics
+    assert "services" in diagnostics
 
 
 async def test_calendar_with_schedules(hass: HomeAssistant) -> None:
@@ -171,7 +171,13 @@ async def test_calendar_with_schedules(hass: HomeAssistant) -> None:
 
     from custom_components.ha_scheduler.calendar import SchedulerCalendar
 
-    calendar_entity = SchedulerCalendar(entry)
+    # Create calendar with proper service data structure
+    service_data = {
+        "name": entry.title,
+        "schedules": entry.options.get("schedules", {}),
+        "configuration": entry.options.get("configuration", {}),
+    }
+    calendar_entity = SchedulerCalendar(entry, "default", service_data)
     events = await calendar_entity.async_get_events(
         hass, datetime(2024, 1, 1), datetime(2024, 12, 31)
     )
