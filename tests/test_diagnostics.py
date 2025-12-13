@@ -526,3 +526,216 @@ async def test_diagnostics_day_names_invalid_values(hass: HomeAssistant) -> None
     schedule = diagnostics["schedules"]["items"][0]
     assert schedule["day_of_week"] == 7
     assert schedule["day_name"] is None
+
+
+async def test_diagnostics_overlap_detection_no_conflicts(hass: HomeAssistant) -> None:
+    """Test that diagnostics correctly identifies no conflicts between schedules."""
+    schedule_data = {
+        "schedule-1": {
+            "name": "Summer Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "schedule-1",
+        },
+        "schedule-2": {
+            "name": "Winter Schedule",
+            "schedule_type": "date",
+            "start_month": 12,
+            "start_day": 1,
+            "end_month": 2,
+            "end_day": 28,
+            "uid": "schedule-2",
+        },
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Scheduler",
+        data={},
+        options={"schedules": schedule_data},
+    )
+    entry.add_to_hass(hass)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    # Check both schedules for no conflicts
+    for schedule in diagnostics["schedules"]["items"]:
+        future_dates = schedule["future_dates"]
+        for year_data in future_dates["years"].values():
+            if "error" not in year_data:
+                assert "overlaps" in year_data
+                overlaps = year_data["overlaps"]
+                assert overlaps["status"] == "no_conflicts"
+                assert overlaps["conflict_count"] == 0
+                assert overlaps["conflicting_schedules"] == []
+
+
+async def test_diagnostics_overlap_detection_with_conflicts(
+    hass: HomeAssistant,
+) -> None:
+    """Test that diagnostics correctly identifies conflicts between schedules."""
+    schedule_data = {
+        "schedule-1": {
+            "name": "Summer Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "schedule-1",
+        },
+        "schedule-2": {
+            "name": "Overlapping Summer",
+            "schedule_type": "date",
+            "start_month": 7,
+            "start_day": 15,
+            "end_month": 9,
+            "end_day": 15,
+            "uid": "schedule-2",
+        },
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Scheduler",
+        data={},
+        options={"schedules": schedule_data},
+    )
+    entry.add_to_hass(hass)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    # Check first schedule for conflicts with second
+    schedule_1 = next(
+        s for s in diagnostics["schedules"]["items"] if s["name"] == "Summer Schedule"
+    )
+    future_dates = schedule_1["future_dates"]
+
+    for year_data in future_dates["years"].values():
+        if "error" not in year_data:
+            assert "overlaps" in year_data
+            overlaps = year_data["overlaps"]
+            assert overlaps["status"] == "conflicts_found"
+            assert overlaps["conflict_count"] == 1
+            assert len(overlaps["conflicting_schedules"]) == 1
+
+            conflict = overlaps["conflicting_schedules"][0]
+            assert conflict["name"] == "Overlapping Summer"
+            assert conflict["id"] == "schedule-2"
+            assert "overlap_start" in conflict
+            assert "overlap_end" in conflict
+
+
+async def test_diagnostics_overlap_detection_multiple_conflicts(
+    hass: HomeAssistant,
+) -> None:
+    """Test that diagnostics correctly identifies multiple conflicts."""
+    schedule_data = {
+        "schedule-main": {
+            "name": "Main Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "schedule-main",
+        },
+        "schedule-overlap1": {
+            "name": "Overlap 1",
+            "schedule_type": "date",
+            "start_month": 5,
+            "start_day": 15,
+            "end_month": 6,
+            "end_day": 15,
+            "uid": "schedule-overlap1",
+        },
+        "schedule-overlap2": {
+            "name": "Overlap 2",
+            "schedule_type": "date",
+            "start_month": 8,
+            "start_day": 15,
+            "end_month": 9,
+            "end_day": 15,
+            "uid": "schedule-overlap2",
+        },
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Scheduler",
+        data={},
+        options={"schedules": schedule_data},
+    )
+    entry.add_to_hass(hass)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    # Check main schedule for conflicts with both others
+    main_schedule = next(
+        s for s in diagnostics["schedules"]["items"] if s["name"] == "Main Schedule"
+    )
+    future_dates = main_schedule["future_dates"]
+
+    for year_data in future_dates["years"].values():
+        if "error" not in year_data:
+            assert "overlaps" in year_data
+            overlaps = year_data["overlaps"]
+            assert overlaps["status"] == "conflicts_found"
+            assert overlaps["conflict_count"] == 2
+            assert len(overlaps["conflicting_schedules"]) == 2
+
+            conflict_names = {c["name"] for c in overlaps["conflicting_schedules"]}
+            assert conflict_names == {"Overlap 1", "Overlap 2"}
+
+
+async def test_diagnostics_overlap_detection_nth_day_schedules(
+    hass: HomeAssistant,
+) -> None:
+    """Test overlap detection with nth-day schedules that vary by year."""
+    schedule_data = {
+        "thanksgiving": {
+            "name": "Thanksgiving",
+            "schedule_type": "nth-day",
+            "month": 11,
+            "occurrence": 3,  # Fourth Thursday
+            "day_of_week": 3,  # Thursday
+            "start_offset": 0,
+            "end_offset": 3,  # 4-day weekend
+            "uid": "thanksgiving",
+        },
+        "black-friday": {
+            "name": "Black Friday Sale",
+            "schedule_type": "nth-day",
+            "month": 11,
+            "occurrence": 3,  # Fourth Thursday
+            "day_of_week": 3,  # Thursday
+            "start_offset": 1,  # Start Friday
+            "end_offset": 1,  # End Friday
+            "uid": "black-friday",
+        },
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Scheduler",
+        data={},
+        options={"schedules": schedule_data},
+    )
+    entry.add_to_hass(hass)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    # Check Thanksgiving schedule for conflicts with Black Friday
+    thanksgiving = next(
+        s for s in diagnostics["schedules"]["items"] if s["name"] == "Thanksgiving"
+    )
+    future_dates = thanksgiving["future_dates"]
+
+    for year_data in future_dates["years"].values():
+        if "error" not in year_data:
+            assert "overlaps" in year_data
+            overlaps = year_data["overlaps"]
+            assert overlaps["status"] == "conflicts_found"
+            assert overlaps["conflict_count"] == 1
+
+            conflict = overlaps["conflicting_schedules"][0]
+            assert conflict["name"] == "Black Friday Sale"
