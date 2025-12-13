@@ -738,23 +738,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if not schedules:
             return self.async_abort(reason="no_schedules")
 
-        if self._schedule_id and user_input is not None:
-            if user_input.get("confirm"):
-                # Remove schedule
-                new_schedules = dict(schedules)
-                new_schedules.pop(self._schedule_id, None)
-                updated_options = self._update_service_schedules(new_schedules)
-
-                return self.async_create_entry(title="", data=updated_options)
-
-            return self.async_abort(reason="not_confirmed")
-
         if user_input is not None:
             self._schedule_id = user_input["schedule_id"]
             schedule = schedules[self._schedule_id]
 
             return self.async_show_form(
-                step_id="remove_schedule",
+                step_id="remove_schedule_confirm",
                 data_schema=vol.Schema(
                     {
                         vol.Required("confirm", default=False): bool,
@@ -785,6 +774,26 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 }
             ),
         )
+
+    async def async_step_remove_schedule_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Confirm schedule removal."""
+        schedules = self._get_service_schedules()
+
+        if user_input is not None:
+            if user_input.get("confirm"):
+                # Remove schedule
+                new_schedules = dict(schedules)
+                new_schedules.pop(self._schedule_id, None)
+                updated_options = self._update_service_schedules(new_schedules)
+
+                return self.async_create_entry(title="", data=updated_options)
+
+            return self.async_abort(reason="not_confirmed")
+
+        # This should not happen as we redirect here from remove_schedule
+        return self.async_abort(reason="unknown")
 
     async def async_step_default_configuration(
         self, user_input: dict[str, Any] | None = None
