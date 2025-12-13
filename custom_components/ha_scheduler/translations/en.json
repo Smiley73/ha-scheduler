@@ -21,6 +21,7 @@
           "add_schedule": "Add schedule",
           "edit_schedule": "Edit schedule",
           "remove_schedule": "Remove schedule",
+          "import_holidays": "Import holidays",
           "default_configuration": "Default configuration"
         }
       },
@@ -100,6 +101,33 @@
         "data": {
           "configuration": "Default configuration (YAML)"
         }
+      },
+      "import_holidays": {
+        "title": "Import holidays",
+        "description": "Select a country to import holidays from.",
+        "data": {
+          "country": "Country"
+        }
+      },
+      "import_holidays_categories": {
+        "title": "Select holiday categories",
+        "description": "Choose which types of holidays to include from {country}.",
+        "data": {
+          "categories": "Holiday categories"
+        }
+      },
+      "import_holidays_select": {
+        "title": "Select holidays to import",
+        "description": "Choose specific holidays to import as schedules. Each holiday shows its detected pattern type.",
+        "data": {
+          "holidays": "Holidays to import",
+          "overwrite_existing": "Overwrite existing schedules with same name",
+          "skip_on_overlap": "Skip holidays that overlap with existing schedules"
+        },
+        "data_description": {
+          "overwrite_existing": "If enabled, existing schedules with the same name will be replaced.",
+          "skip_on_overlap": "If enabled, holidays that would overlap with existing schedules will be skipped."
+        }
       }
     },
     "error": {
@@ -108,11 +136,15 @@
       "invalid_yaml": "Invalid YAML configuration",
       "duplicate_name": "A schedule with this name already exists. Please choose a different name.",
       "duplicate_scheduler_name": "Name already exists. Please choose a different name.",
-      "schedule_overlap": "This schedule overlaps with another schedule"
+      "schedule_overlap": "This schedule overlaps with another schedule",
+      "no_countries_available": "No countries available for holiday import",
+      "import_error": "Failed to load holiday data"
     },
     "abort": {
       "no_schedules": "No schedules to edit or remove",
-      "not_confirmed": "Removal not confirmed"
+      "not_confirmed": "Removal not confirmed",
+      "no_countries_available": "No countries available for holiday import",
+      "import_error": "Failed to load holiday data"
     }
   },
   "selector": {

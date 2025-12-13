@@ -133,6 +133,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self._schedule_id: str | None = None
         self._schedule_data: dict[str, Any] = {}
         self._service_id: str = "default"  # Default service for now
+        self._holiday_data: dict[str, Any] = {}
 
     def _get_service_schedules(self) -> dict[str, Any]:
         """Get schedules for the current service."""
@@ -186,6 +187,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "add_schedule",
                 "edit_schedule",
                 "remove_schedule",
+                "import_holidays",
                 "default_configuration",
             ],
         )
@@ -787,3 +789,333 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             errors=errors,
         )
+
+    async def async_step_import_holidays(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Import holidays - step 1: select country."""
+        if user_input is not None:
+            self._holiday_data = {"country": user_input["country"]}
+            return await self.async_step_import_holidays_categories()
+
+        try:
+            from .holiday_importer import get_supported_countries
+
+            countries = await get_supported_countries()
+
+            if not countries:
+                return self.async_abort(reason="no_countries_available")
+
+            country_options = [
+                SelectOptionDict(value=code, label=name)
+                for code, name in sorted(countries.items(), key=lambda x: x[1])
+            ]
+
+            return self.async_show_form(
+                step_id="import_holidays",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required("country"): SelectSelector(
+                            SelectSelectorConfig(
+                                options=country_options,
+                                mode=SelectSelectorMode.DROPDOWN,
+                            )
+                        ),
+                    }
+                ),
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to load countries: %s", e)
+            return self.async_abort(reason="import_error")
+
+    async def async_step_import_holidays_categories(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Import holidays - step 2: select categories."""
+        if user_input is not None:
+            self._holiday_data["categories"] = user_input.get("categories", ["public"])
+            return await self.async_step_import_holidays_select()
+
+        try:
+            from .holiday_importer import get_available_categories
+
+            country = self._holiday_data.get("country")
+            if not country:
+                return self.async_abort(reason="import_error")
+            categories = await get_available_categories(country)
+
+            if not categories:
+                # Skip to next step with default
+                self._holiday_data["categories"] = ["public"]
+                return await self.async_step_import_holidays_select()
+
+            category_options = [
+                SelectOptionDict(value=code, label=name)
+                for code, name in categories.items()
+            ]
+
+            return self.async_show_form(
+                step_id="import_holidays_categories",
+                data_schema=vol.Schema(
+                    {
+                        vol.Optional("categories", default=["public"]): SelectSelector(
+                            SelectSelectorConfig(
+                                options=category_options,
+                                mode=SelectSelectorMode.LIST,
+                                multiple=True,
+                            )
+                        ),
+                    }
+                ),
+                description_placeholders={"country": self._holiday_data["country"]},
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to load categories: %s", e)
+            return self.async_abort(reason="import_error")
+
+    async def async_step_import_holidays_select(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Import holidays - step 3: select specific holidays."""
+        if user_input is not None:
+            selected_holidays = user_input.get("holidays", [])
+            overwrite_existing = user_input.get("overwrite_existing", False)
+            skip_on_overlap = user_input.get("skip_on_overlap", True)
+
+            if not selected_holidays:
+                return self.async_show_form(
+                    step_id="import_holidays_select",
+                    data_schema=await self._get_holiday_selection_schema(),
+                    errors={"holidays": "Please select at least one holiday to import"},
+                )
+
+            return await self._import_selected_holidays(
+                selected_holidays, overwrite_existing, skip_on_overlap
+            )
+
+        return self.async_show_form(
+            step_id="import_holidays_select",
+            data_schema=await self._get_holiday_selection_schema(),
+        )
+
+    async def _get_holiday_selection_schema(self) -> vol.Schema:
+        """Get the schema for holiday selection."""
+        try:
+            from .holiday_importer import get_holidays_for_country
+
+            # Ensure _holiday_data is initialized
+            if not hasattr(self, "_holiday_data") or not self._holiday_data:
+                return vol.Schema(
+                    {
+                        vol.Optional("holidays", default=[]): SelectSelector(
+                            SelectSelectorConfig(options=[], multiple=True)
+                        ),
+                    }
+                )
+
+            country = self._holiday_data.get("country")
+            categories = self._holiday_data.get("categories", ["public"])
+
+            if not country:
+                return vol.Schema(
+                    {
+                        vol.Optional("holidays", default=[]): SelectSelector(
+                            SelectSelectorConfig(options=[], multiple=True)
+                        ),
+                    }
+                )
+
+            holidays_data = await get_holidays_for_country(country, categories)
+
+            _LOGGER.debug(
+                "Got %d holidays for country %s, categories %s",
+                len(holidays_data) if holidays_data else 0,
+                country,
+                categories,
+            )
+
+            if not holidays_data:
+                return vol.Schema(
+                    {
+                        vol.Optional("holidays", default=[]): SelectSelector(
+                            SelectSelectorConfig(options=[], multiple=True)
+                        ),
+                    }
+                )
+
+            # Create options with pattern descriptions
+            holiday_options = []
+            for holiday_name, holiday_info in sorted(holidays_data.items()):
+                if holiday_info is None:
+                    _LOGGER.warning("Holiday info is None for %s", holiday_name)
+                    continue
+
+                pattern = holiday_info.get("pattern")
+                if pattern is None:
+                    _LOGGER.warning("Pattern is None for %s", holiday_name)
+                    description = "No pattern available"
+                else:
+                    description = pattern.get("description", "Unknown pattern")
+
+                label = f"{holiday_name} ({description})"
+                holiday_options.append(
+                    SelectOptionDict(value=holiday_name, label=label)
+                )
+
+            return vol.Schema(
+                {
+                    vol.Required("holidays"): SelectSelector(
+                        SelectSelectorConfig(
+                            options=holiday_options,
+                            mode=SelectSelectorMode.LIST,
+                            multiple=True,
+                        )
+                    ),
+                    vol.Optional("overwrite_existing", default=False): bool,
+                    vol.Optional("skip_on_overlap", default=True): bool,
+                }
+            )
+
+        except Exception as e:
+            _LOGGER.error("Failed to get holidays: %s", e)
+            return vol.Schema(
+                {
+                    vol.Optional("holidays", default=[]): SelectSelector(
+                        SelectSelectorConfig(options=[], multiple=True)
+                    ),
+                }
+            )
+
+    async def _import_selected_holidays(
+        self,
+        selected_holidays: list[str],
+        overwrite_existing: bool,
+        skip_on_overlap: bool,
+    ) -> FlowResult:
+        """Import the selected holidays as schedules."""
+        try:
+            from .holiday_importer import get_holidays_for_country
+            from .schedule_generator import check_overlap
+
+            country = self._holiday_data.get("country")
+            categories = self._holiday_data.get("categories", ["public"])
+
+            if not country:
+                return self.async_show_form(
+                    step_id="import_holidays_select",
+                    data_schema=await self._get_holiday_selection_schema(),
+                    errors={"base": "Country not selected"},
+                )
+
+            all_holidays = await get_holidays_for_country(country, categories)
+
+            # Get current schedules
+            schedules = self._get_service_schedules()
+            new_schedules = dict(schedules)
+
+            imported_count = 0
+            skipped_count = 0
+            overwritten_count = 0
+            errors = []
+
+            for holiday_name in selected_holidays:
+                if holiday_name not in all_holidays:
+                    errors.append(f"Holiday '{holiday_name}' not found")
+                    continue
+
+                holiday_info = all_holidays[holiday_name]
+                pattern = holiday_info.get("pattern")
+
+                if not pattern:
+                    errors.append(f"Could not determine pattern for '{holiday_name}'")
+                    continue
+
+                # Create schedule from pattern
+                schedule_name = f"{holiday_name} ({country})"
+                schedule = {
+                    "uid": str(uuid.uuid4()),
+                    "name": schedule_name,
+                    **{k: v for k, v in pattern.items() if k != "description"},
+                }
+
+                # Check for existing schedule with same name
+                existing_schedule_id = None
+                for sid, existing_schedule in schedules.items():
+                    if existing_schedule["name"].lower() == schedule_name.lower():
+                        existing_schedule_id = sid
+                        break
+
+                if existing_schedule_id:
+                    if overwrite_existing:
+                        # Overwrite existing schedule
+                        schedule["uid"] = existing_schedule_id
+                        new_schedules[existing_schedule_id] = schedule
+                        overwritten_count += 1
+                        continue
+                    else:
+                        # Skip existing
+                        skipped_count += 1
+                        errors.append(
+                            f"Schedule '{schedule_name}' already exists (skipped)"
+                        )
+                        continue
+
+                # Check for overlaps with other schedules
+                existing_schedules_list = [
+                    s for sid, s in new_schedules.items() if sid != schedule["uid"]
+                ]
+                has_overlap, conflicting_name = check_overlap(
+                    schedule, existing_schedules_list
+                )
+
+                if has_overlap:
+                    if skip_on_overlap:
+                        skipped_count += 1
+                        errors.append(
+                            f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
+                        )
+                        continue
+                    else:
+                        # Import anyway despite overlap
+                        pass
+
+                # Add the schedule
+                new_schedules[schedule["uid"]] = schedule
+                imported_count += 1
+
+            # Update schedules if any were imported or overwritten
+            if imported_count > 0 or overwritten_count > 0:
+                updated_options = self._update_service_schedules(new_schedules)
+
+                # Create success message
+                messages = []
+                if imported_count > 0:
+                    messages.append(f"Imported {imported_count} holiday(s)")
+                if overwritten_count > 0:
+                    messages.append(
+                        f"Overwritten {overwritten_count} existing schedule(s)"
+                    )
+                if skipped_count > 0:
+                    messages.append(f"Skipped {skipped_count} holiday(s)")
+
+                success_message = ", ".join(messages)
+
+                return self.async_create_entry(
+                    title="", data=updated_options, description=success_message
+                )
+            else:
+                # Nothing was imported
+                error_message = "No holidays were imported. " + "; ".join(errors[:3])
+                return self.async_show_form(
+                    step_id="import_holidays_select",
+                    data_schema=await self._get_holiday_selection_schema(),
+                    errors={"base": error_message},
+                )
+
+        except Exception as e:
+            _LOGGER.exception("Failed to import holidays")
+            return self.async_show_form(
+                step_id="import_holidays_select",
+                data_schema=await self._get_holiday_selection_schema(),
+                errors={"base": f"Import failed: {str(e)}"},
+            )
