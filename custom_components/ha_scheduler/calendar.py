@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -34,6 +35,25 @@ class SchedulerCalendar(CalendarEntity):
         self._attr_unique_id = entry.entry_id
         self._attr_name = entry.title
         entry.async_on_unload(entry.add_update_listener(self._async_update_listener))
+
+    def _format_config_description(self, config: dict[str, Any]) -> str:
+        """Format configuration dictionary as a readable description."""
+        if not config:
+            return ""
+
+        # Format as key-value pairs on separate lines
+        lines = []
+        for key, value in config.items():
+            if isinstance(value, dict):
+                # For nested dictionaries, format as JSON
+                lines.append(f"{key}: {json.dumps(value, indent=2)}")
+            elif isinstance(value, list):
+                # For lists, format nicely
+                lines.append(f"{key}: {', '.join(str(v) for v in value)}")
+            else:
+                lines.append(f"{key}: {value}")
+
+        return "\n".join(lines)
 
     async def _async_update_listener(
         self, hass: HomeAssistant, entry: ConfigEntry
@@ -79,7 +99,9 @@ class SchedulerCalendar(CalendarEntity):
                                     end=schedule_end + timedelta(days=1),
                                     summary=schedule["name"],
                                     uid=f"{schedule['uid']}_{year}",
-                                    description=schedule_config,
+                                    description=self._format_config_description(
+                                        schedule_config
+                                    ),
                                 ),
                             )
                         )
@@ -120,7 +142,9 @@ class SchedulerCalendar(CalendarEntity):
                                 end=schedule_end + timedelta(days=1),
                                 summary=schedule["name"],
                                 uid=f"{schedule['uid']}_{year}",
-                                description=schedule_config,
+                                description=self._format_config_description(
+                                    schedule_config
+                                ),
                             )
                         )
 

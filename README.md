@@ -6,6 +6,18 @@
 
 A custom Home Assistant integration to support seasonal schedules, like holiday lighting.
 
+## Table of Contents
+
+- [⚠️ Breaking Change in v0.3.0](#️-breaking-change-in-v030)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Features](#features)
+- [Schedule Types](#schedule-types)
+- [Advanced Configuration](#advanced-configuration)
+- [Diagnostics](#diagnostics)
+- [Support](#support)
+- [License](#license)
+
 ## ⚠️ Breaking Change in v0.3.0
 
 **Important:** Version 0.3.0 introduces a breaking change. The Home Assistant domain has been renamed from `scheduler` to `ha_scheduler`. This change was necessary to avoid conflicts with other integrations.
@@ -418,6 +430,122 @@ mode: restart
 3. **Test your YAML**: Invalid YAML in the configuration field will prevent the schedule from saving
 4. **Access nested values**: Use dot notation or bracket notation: `config.settings.brightness` or `config['settings']['brightness']`
 5. **Default configuration**: Set common values in the default configuration, override per schedule as needed
+
+## Diagnostics
+
+The Scheduler integration provides comprehensive diagnostic information to help troubleshoot issues and understand your schedule configuration. The diagnostics include detailed information about each schedule, future date calculations, overlap detection, and more.
+
+### How to Generate Diagnostics
+
+1. **Via Home Assistant UI:**
+   - Go to Settings → Devices & Services
+   - Find your Scheduler integration
+   - Click on the integration name
+   - Click the three dots menu (⋮) in the top right
+   - Select "Download diagnostics"
+   - Save the JSON file to your computer
+
+2. **Via Developer Tools:**
+   - Go to Developer Tools → Services
+   - Select service: `system_log.write`
+   - In the service data, use:
+     ```yaml
+     message: "Scheduler diagnostics requested"
+     level: info
+     ```
+   - Then access diagnostics through the integration page as described above
+
+### What Diagnostics Provide
+
+The diagnostic output includes comprehensive information for troubleshooting and analysis:
+
+#### Schedule Information
+- **Basic Details**: Schedule ID, name, type, and configuration parameters
+- **Day Names**: Human-readable day names alongside numeric values (e.g., "Monday" for day 0)
+- **Configuration Status**: Whether each schedule has custom configuration or uses defaults
+
+#### Future Date Calculations (Next 3 Years)
+For each schedule, diagnostics calculate and display:
+- **Start and End Dates**: Exact dates when each schedule will be active
+- **Duration**: Number of days each schedule spans
+- **Year-by-Year Breakdown**: Separate calculations for each of the next 3 years
+- **Error Handling**: Clear error messages if date calculation fails for any year
+
+#### Overlap Detection
+Advanced conflict analysis for each year:
+- **Conflict Status**: 
+  - `"no_conflicts"`: No overlapping schedules found
+  - `"conflicts_found"`: One or more overlapping schedules detected
+  - `"no_dates"`: Schedule has no valid dates for the year
+  - `"error"`: Error occurred during overlap detection
+
+- **Detailed Conflict Information** (when conflicts exist):
+  - Names and IDs of conflicting schedules
+  - Exact start and end dates of conflicting schedules
+  - Precise overlap periods (when conflicts actually occur)
+  - Conflict count for schedules with multiple overlaps
+
+#### Configuration Analysis
+- **Default Configuration**: Shows if default configuration is set and its contents
+- **Schedule-Specific Configuration**: Individual configuration for each schedule
+- **Configuration Inheritance**: How schedules inherit from default configuration
+
+### Example Diagnostic Output
+
+```json
+{
+  "schedules": {
+    "count": 2,
+    "items": [
+      {
+        "id": "christmas-lights",
+        "name": "Christmas Lights",
+        "type": "date",
+        "start_month": 11,
+        "start_day": 25,
+        "end_month": 1,
+        "end_day": 6,
+        "has_configuration": true,
+        "future_dates": {
+          "years": {
+            "2025": {
+              "start_date": "2025-11-25",
+              "end_date": "2026-01-06",
+              "duration_days": 43,
+              "overlaps": {
+                "status": "no_conflicts",
+                "conflicting_schedules": [],
+                "conflict_count": 0
+              }
+            }
+          },
+          "warnings": []
+        }
+      }
+    ]
+  }
+}
+```
+
+### Using Diagnostics for Troubleshooting
+
+**Common Issues Diagnostics Help Identify:**
+
+1. **Schedule Overlaps**: Quickly identify which schedules conflict and during which periods
+2. **Invalid Dates**: See which schedules fail to generate valid dates and why
+3. **Configuration Problems**: Verify that schedule configurations are properly set
+4. **Year Boundary Issues**: Check how schedules behave across year transitions
+5. **Nth-Day Variations**: Understand how nth-day schedules (like Thanksgiving) shift across years
+
+**When to Use Diagnostics:**
+- Schedules not activating as expected
+- Suspected overlapping schedules causing conflicts
+- Verifying future schedule dates before important events
+- Debugging configuration inheritance issues
+- Preparing for year transitions (December to January schedules)
+
+**Sharing Diagnostics:**
+When reporting issues, include the diagnostic output (with sensitive information removed) to help maintainers understand your configuration and identify problems quickly.
 
 ## Support
 
