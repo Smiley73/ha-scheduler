@@ -117,6 +117,13 @@ The integration includes a comprehensive holiday import feature that automatical
 
 **Supported Countries**: 499+ countries including US, Canada, UK, Germany, France, Australia, New Zealand, and many more.
 
+**Dynamic Country Discovery**: Countries are discovered dynamically from the holidays library using `holidays.list_supported_countries()`, ensuring the latest coverage without hardcoded lists.
+
+**Intelligent Country Naming**: 
+- Uses Babel's territory data to get proper country names (e.g., "United States" instead of "US")
+- Falls back to holidays library country names when Babel unavailable
+- Graceful degradation to formatted country codes as last resort
+
 **Holiday Categories**: Varies by country but typically includes:
 - **Public**: National/federal holidays
 - **Bank**: Banking holidays  
@@ -125,7 +132,7 @@ The integration includes a comprehensive holiday import feature that automatical
 - **Optional**: Optional or regional holidays
 
 #### Pattern Analysis
-The system automatically analyzes holidays across multiple years to determine the optimal schedule type:
+The system automatically analyzes holidays across multiple years (2023-2025) to determine the optimal schedule type:
 
 **Fixed Date Holidays** (e.g., Independence Day, Christmas):
 - Same date every year (July 4th, December 25th)
@@ -136,17 +143,55 @@ The system automatically analyzes holidays across multiple years to determine th
 - Date varies based on weekday occurrence in month
 - Creates "Nth-Day" type schedules  
 - Pattern description: "Third Monday of January", "Fourth Thursday of November"
+- **Occurrence Calculation**: Uses `calculate_occurrence()` to determine if holiday is 1st, 2nd, 3rd, 4th, or last occurrence of weekday
 
 **Multi-Day Week Holidays** (e.g., Spring Break, Holiday Weeks):
 - Holidays spanning multiple consecutive days in the same week or across weeks
 - Creates "Week" type schedules with appropriate week types
 - Uses "partial" week type (default) for first weeks to match typical holiday patterns
 - Pattern description: "First week of March (Monday to Friday)", "First Monday to Second Friday of March"
+- **Advanced Week Pattern Detection**:
+  1. Groups dates by year for consistency analysis
+  2. Checks for consecutive days within same month (1-6 day spans)
+  3. Validates pattern consistency across multiple years
+  4. Calculates start/end week occurrences using `calculate_occurrence()`
+  5. Determines appropriate week types (partial/full) based on holiday characteristics
 
 **Single Occurrence Holidays**:
 - Holidays with only one date in dataset
 - Creates "Date" type schedule using available date
 - Pattern description: "Single occurrence: March 15"
+
+#### Advanced Pattern Analysis Algorithms
+
+**`analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None`**
+- Main pattern analysis function that processes holiday dates across multiple years
+- **Fixed Date Detection**: Checks if all dates have same month/day across years
+- **Variable Date Analysis**: For non-fixed dates, analyzes weekday patterns and occurrences
+- **Week Pattern Fallback**: Calls `_analyze_week_pattern()` for complex multi-day holidays
+- **Graceful Fallbacks**: Creates date-based schedule for unrecognizable patterns
+
+**`_analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None`**
+- Specialized function for detecting week-based holiday patterns
+- **Year Grouping**: Groups dates by year for cross-year consistency analysis
+- **Consecutive Day Detection**: Identifies holidays spanning 2-6 consecutive days
+- **Same Month Validation**: Ensures all dates in pattern are within same month
+- **Cross-Year Consistency**: Validates pattern holds across multiple years
+- **Week Type Assignment**: Defaults to "partial" type for holiday compatibility
+- **Pattern Description Generation**: Creates human-readable pattern descriptions
+
+**`calculate_occurrence(target_date: date) -> int | None`**
+- Calculates which occurrence of weekday in month (0-4, where 4=last)
+- **First Occurrence Calculation**: Finds first occurrence of target weekday in month
+- **Occurrence Counting**: Counts weeks from first occurrence to target date
+- **Last Occurrence Detection**: Checks if next occurrence would be in following month
+- **Robust Error Handling**: Returns None for invalid dates or calculation errors
+
+**`format_date_localized(date_obj: date, locale_code: str | None = None) -> str`**
+- Formats dates using Babel's locale-aware formatting when available
+- **Babel Integration**: Uses `babel.dates.format_date()` for proper localization
+- **Fallback Formatting**: Uses Python's `strftime()` when Babel unavailable
+- **Locale Handling**: Supports custom locale codes or defaults to English
 
 #### Conflict Resolution
 - **Name Conflicts**: Option to overwrite existing schedules with same name
@@ -156,10 +201,31 @@ The system automatically analyzes holidays across multiple years to determine th
 
 #### Implementation Details
 - Uses `holidays` Python library (version 0.34+) for comprehensive holiday data
-- Async operations using `run_in_executor` to prevent blocking event loop
-- Graceful fallback when holidays library unavailable
-- Comprehensive error handling and logging
-- Pattern analysis across multiple years for accuracy
+- **Async Processing**: All holiday data operations use `run_in_executor` to prevent blocking event loop
+- **Lazy Imports**: Babel and holidays libraries imported inside functions to avoid blocking I/O during module import
+- **Graceful Fallback**: Complete feature gracefully disabled when holidays library unavailable
+- **Comprehensive Error Handling**: Individual holiday processing errors don't stop entire import
+- **Multi-Year Analysis**: Pattern analysis across 3 years (2023-2025) for accuracy
+- **Category Support**: Dynamic category discovery per country with fallback to "public" holidays
+- **Localization Support**: Babel integration for proper country names and date formatting
+
+#### Async Operation Patterns
+All holiday import functions follow async patterns:
+
+**`get_supported_countries() -> dict[str, str]`**
+- Async wrapper around `_get_supported_countries_sync()`
+- Uses `loop.run_in_executor(None, _get_supported_countries_sync)`
+- Returns sorted dict of country_code: country_name pairs
+
+**`get_available_categories(country_code: str) -> dict[str, str]`**
+- Async wrapper around `_get_available_categories_sync(country_code)`
+- Tests category support by attempting to create holidays with each category
+- Returns dict of category_code: category_name pairs
+
+**`get_holidays_for_country(country_code: str, categories: list[str]) -> dict[str, dict[str, Any]]`**
+- Async wrapper around `_get_holidays_for_country_sync(country_code, categories)`
+- Processes holidays across multiple years and categories
+- Returns comprehensive holiday data with analyzed patterns
 
 ### Configuration System
 
@@ -210,9 +276,9 @@ Present menu with five options:
    - Schedule name (text input, required)
    - All schedule-specific parameters (dates/weeks/occurrences)
    - **Week Type Integration**: For week schedules, week selectors show:
-     - "First" (partial week, may start in previous month)
-     - "First full" (full week entirely within month)
-     - "Second", "Third", "Fourth", "Last" (always full weeks)
+     - "First" (partial week, may start in previous month) - stored as "0_partial"
+     - "First full" (full week entirely within month) - stored as "0_full"
+     - "Second", "Third", "Fourth", "Last" (always full weeks) - stored as "1", "2", "3", "4"
    - **Optional Day Fields**: Day of week fields can be left as "Whole week" for entire week scheduling
    - Configuration (YAML, optional, TemplateSelector)
    - Validate all inputs on this page
@@ -469,6 +535,31 @@ The integration automatically detects and migrates older config entries:
 - `async_migrate_v1_to_v2()` - Helper to service transformation
 - Future migrations follow pattern `async_migrate_vX_to_vY()`
 
+#### Migration System Architecture
+
+**Version Detection and Routing**:
+```python
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entry to current version."""
+    if entry.version == 1:
+        return await async_migrate_v1_to_v2(hass, entry)
+    # Future migrations would be added here
+    return True
+```
+
+**Atomic Migration Process**:
+1. **Backup Original Data**: Preserve original structure before transformation
+2. **Transform Data Structure**: Convert helper model to service model
+3. **Validate Migration**: Ensure all data preserved and structure correct
+4. **Update Version**: Set entry.version to current version
+5. **Entity Continuity**: Maintain original unique IDs to prevent duplicate entities
+
+**Migration Safety Features**:
+- **Non-destructive**: Original data preserved during transformation
+- **Rollback Capability**: Migration failures don't corrupt existing data
+- **Validation Checks**: Verify data integrity after migration
+- **Logging**: Comprehensive logging for troubleshooting migration issues
+
 ### V1 to V2 Migration Details
 
 **Before (Helper Model)**:
@@ -560,7 +651,7 @@ OCCURRENCE_NAMES = ["first", "second", "third", "fourth", "last"]  # 5 items
 ```
 
 ### diagnostics.py
-Implement diagnostics data collection:
+Implement comprehensive diagnostics data collection:
 
 **`async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]`**
 - Collect diagnostic information for troubleshooting
@@ -569,6 +660,31 @@ Implement diagnostics data collection:
 - Include schedule-specific fields based on type (date, week, nth-day)
 - Include configuration data (both schedule-specific and default)
 - Never expose sensitive data (no passwords, tokens, or coordinates)
+
+#### Diagnostic Data Collection Strategy
+
+**Service-Based Structure Analysis**:
+- Iterates through all services in config entry options
+- Collects schedule counts and detailed schedule information per service
+- Includes service-level configuration data when present
+- Provides summary statistics (total services, total schedules)
+
+**Schedule Type-Specific Data**:
+- **Date Schedules**: Includes start_month, start_day, end_month, end_day
+- **Week Schedules**: Includes start_month, start_week, start_week_type, start_day_of_week, end_month, end_week, end_week_type, end_day_of_week, country_code
+- **Nth-Day Schedules**: Includes month, occurrence, day_of_week, start_offset, end_offset
+
+**Configuration Data Handling**:
+- Includes boolean flags for configuration presence (has_configuration)
+- Includes actual configuration content for troubleshooting
+- Separates schedule-specific vs default configuration
+- Maintains data structure integrity (preserves dict/list types)
+
+**Privacy and Security**:
+- No sensitive data exposure (API keys, passwords, personal info)
+- Schedule names and service names included for context
+- Configuration content included but should not contain sensitive data
+- Entry IDs included for correlation but are not sensitive
 
 **Diagnostic Data Structure**:
 ```python
@@ -672,21 +788,83 @@ Implement functions:
 - Support country-specific week start conventions
 - Find nth occurrence of weekday in month
 - Only wrap to next year if end_month < start_month
+- **Effective Week Type Logic**: When start and end are in same month, use `start_week_type` for consistency
+- **Four Calculation Modes**:
+  1. **Whole week to whole week**: Both day fields empty - uses `_get_week_start` and `_get_week_end`
+  2. **Specific day to whole week end**: Only start day specified - uses `_get_weekday_in_week` for start
+  3. **Whole week start to specific day**: Only end day specified - uses `_get_week_end` for end
+  4. **Specific day to specific day**: Both days specified - uses `_get_weekday_in_week` for both
 
 **`_get_week_start(year: int, month: int, occurrence: int, first_weekday: int, week_type: str) -> date`**
 - Find the start of the nth week in a month
 - Support "partial" (may start in previous month) and "full" (entirely within month) types
 - Handle country-specific first weekday (0=Monday, 6=Sunday)
+- **Partial Week Adjustment**: For partial first weeks that would start in previous month, returns first day of target month instead
+- **Subsequent Week Alignment**: For partial type with adjusted first week, subsequent weeks (occurrence > 0) realign to proper calendar week boundaries
+- **Calendar Week Calculation**: Uses `(first_day.weekday() - first_weekday) % 7` to find calendar week boundaries
+- **Last Week Handling**: For occurrence 4 (last), works backwards from last day of month to find week start
 
 **`_get_week_end(year: int, month: int, occurrence: int, first_weekday: int, week_type: str) -> date`**
 - Find the end of the nth week in a month
 - Support week type for proper week boundary calculation
 - Handle month boundaries correctly
+- **Partial Week End Calculation**: For adjusted partial first weeks, finds actual calendar week end or month end (whichever is earlier)
+- **Calendar Week Boundaries**: Calculates theoretical 7-day week span from calendar week start
+- **Month Boundary Respect**: Never extends beyond month boundary except for last week (occurrence 4)
+
+**`_get_weekday_in_week(year: int, month: int, week_occurrence: int, day_of_week: int, first_weekday: int, week_type: str) -> date`**
+- Get specific weekday within a specific week of a month
+- Uses `_get_week_start` and `_get_week_end` to define week boundaries
+- Iterates through week days to find matching weekday
+- Returns None if requested weekday doesn't exist in the specified week
+- **Week Type Inheritance**: Uses same week_type parameter as the week boundary functions
 
 **`get_country_first_weekday(country_code: str | None) -> int`**
 - Determine first weekday for a country (0=Monday, 6=Sunday)
 - Support 50+ countries with Sunday-first vs Monday-first conventions
 - Default to Monday-first (0) for unknown countries
+- **Babel Integration**: Uses Babel library's locale data for comprehensive country coverage
+- **Fallback System**: Static mapping for countries not well-covered by Babel (JP, KR, MX, IL, SA, etc.)
+- **Graceful Degradation**: Falls back to Monday-first if Babel unavailable or locale unknown
+
+### Advanced Week Calculation Algorithms
+
+#### Partial Week Type Algorithm
+The "partial" week type implements sophisticated logic to handle first weeks that may start in the previous month:
+
+**First Week Adjustment**:
+1. Calculate theoretical calendar week start: `first_day - timedelta(days=(first_day.weekday() - first_weekday) % 7)`
+2. If calendar week start is in previous month, adjust to first day of target month
+3. This creates a "partial" week that starts mid-calendar-week
+
+**Subsequent Week Realignment**:
+For occurrence > 0 with adjusted partial first week:
+1. Calculate `days_to_next_week_start = (first_weekday - first_day.weekday()) % 7`
+2. If first day is already the week start day, add 7 days to go to next week
+3. Find `next_calendar_week_start = first_day + timedelta(days=days_to_next_week_start)`
+4. Calculate target week: `next_calendar_week_start + timedelta(weeks=occurrence - 1)`
+
+This ensures subsequent weeks follow proper calendar boundaries even when first week was adjusted.
+
+#### Full Week Type Algorithm
+The "full" week type ensures the first week is entirely within the target month:
+
+**First Week Selection**:
+1. Calculate theoretical calendar week start
+2. If calendar week start is in previous month, skip to next calendar week
+3. This guarantees the entire first week falls within the target month
+
+**Consistent Week Progression**:
+All subsequent weeks are calculated from the first full week start, maintaining 7-day intervals.
+
+#### Effective Week Type Logic
+When start and end weeks are in the same month, the system uses `start_week_type` for both boundaries to ensure consistency. This prevents mismatched week type interpretations within the same month context.
+
+#### Country-Specific Week Start Handling
+The system automatically detects and handles different week start conventions:
+- **Monday-first countries** (most of Europe, Asia): `first_weekday = 0`
+- **Sunday-first countries** (US, Canada, Japan, etc.): `first_weekday = 6`
+- **Automatic detection** via Babel locale data or fallback mapping
 
 **`_generate_by_nth_day(schedule: dict, year: int) -> list[tuple[date, date]]`**
 - Handle nth-day schedules
@@ -746,16 +924,41 @@ Implement functions:
    vol.Optional("configuration", default=config_value): TemplateSelector()
    ```
 
-6. **Configuration parsing**:
+6. **Configuration parsing and validation**:
    ```python
    config_yaml = user_input.get("configuration") or ""
    config_yaml = config_yaml.strip() if isinstance(config_yaml, str) else ""
    if config_yaml:
-       config_dict = yaml.safe_load(config_yaml)
-       if isinstance(config_dict, dict):
-           data["configuration"] = config_dict
+       try:
+           config_dict = yaml.safe_load(config_yaml)
+           # Validate it's a structure (dict/list), not a simple value
+           if isinstance(config_dict, (dict, list)):
+               data["configuration"] = config_dict
+           else:
+               errors["configuration"] = "Configuration must be a YAML structure (dict or list), not a simple value"
+       except yaml.YAMLError as e:
+           errors["configuration"] = f"Invalid YAML: {e}"
    # If empty, don't include "configuration" key in data dict
    ```
+
+#### Configuration Field Requirements and Validation
+
+**YAML Structure Validation**:
+- Must be valid YAML syntax using `yaml.safe_load()`
+- Must parse to a dict or list structure, not simple string/number values
+- Empty or whitespace-only input removes the configuration (valid operation)
+- Descriptive error messages for syntax errors and structure validation
+
+**Field Display Logic**:
+- Edit forms use `default` parameter (not `suggested_value`) to show existing YAML
+- Configuration dict converted to YAML string using `yaml.dump(default_flow_style=False, sort_keys=False)`
+- Helper text included: "To clear the configuration field, enter a single space character"
+
+**Data Storage Patterns**:
+- Configuration stored as dict in schedule data structure
+- Exposed in CalendarEvent.description as dict (not string)
+- Default configuration stored in service-level options
+- Schedule-specific configuration overrides default when present
 
 ### strings.json
 
