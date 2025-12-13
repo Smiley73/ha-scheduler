@@ -267,10 +267,10 @@ async def test_schedule_with_configuration_persists(hass: HomeAssistant) -> None
 
     assert len(events) == 1
     assert events[0].summary == "Configured Schedule"
-    # Configuration should be a dict
-    assert isinstance(events[0].description, dict)
-    assert events[0].description.get("mode") == "vacation"
-    assert events[0].description.get("temp") == 72
+    # Configuration should be formatted as a string
+    assert isinstance(events[0].description, str)
+    assert "mode: vacation" in events[0].description
+    assert "temp: 72" in events[0].description
 
 
 async def test_overlap_detection_works_across_adds(hass: HomeAssistant) -> None:
