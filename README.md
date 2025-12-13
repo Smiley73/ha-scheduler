@@ -1,6 +1,6 @@
 # Scheduler for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
 [![GitHub Release](https://img.shields.io/github/release/Smiley73/ha-scheduler.svg)](https://github.com/Smiley73/ha-scheduler/releases)
 [![License](https://img.shields.io/github/license/Smiley73/ha-scheduler.svg)](LICENSE)
 
@@ -96,7 +96,7 @@ The Scheduler integration includes a powerful holiday import feature that allows
    - **Holidays to import**: Select from the list with automatically detected pattern descriptions
    - **Overwrite existing**: Replace schedules with the same name
    - **Skip on overlap**: Skip holidays that would conflict with existing schedules
-   - **Include country name**: Add country code to schedule names (e.g., "Independence Day (US)" vs "Independence Day")
+   - **Include country name**: Add country code to schedule names (e.g., "Independence Day (USA)" vs "Independence Day")
 
 #### Smart Pattern Detection
 
@@ -183,26 +183,6 @@ The import feature includes comprehensive conflict detection:
    - Canada Day → `Fixed date: July 01`
    - Thanksgiving → `Second Monday of October`
    - Victoria Day → `Third Monday of May`
-
-#### Benefits
-
-- **Time Saving**: No need to manually calculate holiday dates or research patterns
-- **Accuracy**: Automatically handles complex date calculations including leap years and varying weekdays
-- **Flexibility**: Choose exactly which holidays you want from any supported country
-- **Future-Proof**: Schedules automatically adjust for future years using detected patterns
-- **Integration**: Works seamlessly with existing schedule management and calendar features
-- **Global Coverage**: Support for holidays from countries worldwide
-- **Category Filtering**: Import only the types of holidays relevant to your needs
-
-#### Requirements
-
-The holiday import feature requires the Python `holidays` library. If not installed, the feature will be disabled with a warning message. Install it using:
-
-```bash
-pip install holidays
-```
-
-The library is automatically included in most Home Assistant installations, but may need to be added in some custom setups.
 
 ## Features
 
