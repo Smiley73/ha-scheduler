@@ -96,6 +96,51 @@ Define a schedule centered on a specific weekday occurrence with offset days.
 
 **Example**: Second Tuesday of March, 2 days before to 3 days after
 
+### Holiday Import System
+
+#### Smart Holiday Detection
+The integration includes a comprehensive holiday import feature that automatically creates schedules for holidays from any supported country.
+
+**Supported Countries**: 499+ countries including US, Canada, UK, Germany, France, Australia, New Zealand, and many more.
+
+**Holiday Categories**: Varies by country but typically includes:
+- **Public**: National/federal holidays
+- **Bank**: Banking holidays  
+- **School**: School holidays and breaks
+- **Observance**: Cultural and religious observances
+- **Optional**: Optional or regional holidays
+
+#### Pattern Analysis
+The system automatically analyzes holidays across multiple years to determine the optimal schedule type:
+
+**Fixed Date Holidays** (e.g., Independence Day, Christmas):
+- Same date every year (July 4th, December 25th)
+- Creates "Date" type schedules
+- Pattern description: "Fixed date: July 04"
+
+**Variable Date Holidays** (e.g., Martin Luther King Jr. Day, Thanksgiving):
+- Date varies based on weekday occurrence in month
+- Creates "Nth-Day" type schedules  
+- Pattern description: "Third Monday of January", "Fourth Thursday of November"
+
+**Single Occurrence Holidays**:
+- Holidays with only one date in dataset
+- Creates "Date" type schedule using available date
+- Pattern description: "Single occurrence: March 15"
+
+#### Conflict Resolution
+- **Name Conflicts**: Option to overwrite existing schedules with same name
+- **Date Overlaps**: Option to skip holidays that would overlap with existing schedules
+- **Country Name Flag**: Option to include/exclude country code in schedule names
+- **Detailed Feedback**: Shows exactly what was imported, skipped, or overwritten
+
+#### Implementation Details
+- Uses `holidays` Python library (version 0.34+) for comprehensive holiday data
+- Async operations using `run_in_executor` to prevent blocking event loop
+- Graceful fallback when holidays library unavailable
+- Comprehensive error handling and logging
+- Pattern analysis across multiple years for accuracy
+
 ### Configuration System
 
 #### Default Configuration
@@ -130,10 +175,11 @@ Define a schedule centered on a specific weekday occurrence with offset days.
 4. Create config entry with service-based structure containing default service
 
 ### Options Flow - Main Menu
-Present menu with four options:
+Present menu with five options:
 - Add schedule
 - Edit schedule
 - Remove schedule
+- Import holidays
 - Default configuration
 
 ### Add Schedule Flow
@@ -183,6 +229,34 @@ Present menu with four options:
    - Remove schedule from `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all other schedules
 
+### Import Holidays Flow
+1. **Step 1**: Select country from 499+ available options
+   - Dynamic dropdown populated from holidays library
+   - Countries sorted alphabetically by name
+   - Includes major countries like US, CA, GB, DE, FR, AU, NZ, etc.
+
+2. **Step 2**: Select holiday categories (optional)
+   - Multiple selection from available categories for the chosen country
+   - Common categories: Public, Bank, School, Observance, Optional
+   - Categories vary by country and are dynamically determined
+   - Default to "Public" if no categories available
+
+3. **Step 3**: Select specific holidays and import options
+   - Multiple selection from available holidays with pattern descriptions
+   - Each holiday shows detected pattern (e.g., "Fixed date: July 04" or "Third Monday of January")
+   - Import options:
+     - **Overwrite existing**: Replace schedules with same name (default: false)
+     - **Skip on overlap**: Skip holidays that would overlap with existing schedules (default: true)
+     - **Include country name**: Add country code to schedule names (default: true)
+   - Validation: At least one holiday must be selected
+
+4. **On Import**:
+   - Create schedules using smart pattern detection
+   - Handle name conflicts based on overwrite setting
+   - Handle date overlaps based on skip setting
+   - Generate schedule names: "{Holiday Name} ({Country})" or "{Holiday Name}" based on flag
+   - Show import results: imported count, skipped count, overwritten count, errors
+
 ### Default Configuration Flow
 1. Single-page form with YAML input (TemplateSelector)
 2. Pre-fill with current default configuration if exists
@@ -217,6 +291,15 @@ Present menu with four options:
 - Must parse to a dict or list (not a simple string/number)
 - Empty string or whitespace-only is valid (removes configuration)
 - Error messages should be descriptive (e.g., "Invalid YAML: {error}")
+
+### Holiday Import Validation
+- **Country Selection**: Must select a valid country from supported list
+- **Holiday Selection**: At least one holiday must be selected for import
+- **Name Conflicts**: Handled based on "overwrite existing" flag setting
+- **Date Overlaps**: Handled based on "skip on overlap" flag setting
+- **Pattern Analysis**: Holidays with insufficient data get fallback patterns
+- **Error Handling**: Graceful handling when holidays library unavailable
+- **Async Operations**: All holiday data fetching uses `run_in_executor` for non-blocking operations
 
 ## Data Storage
 
@@ -397,11 +480,12 @@ The integration automatically detects and migrates older config entries:
 ```
 custom_components/ha_scheduler/
 ├── __init__.py                 # Setup/unload entry points with migration support
-├── manifest.json              # Integration metadata (service type)
+├── manifest.json              # Integration metadata (service type, holidays dependency)
 ├── const.py                   # Constants (DOMAIN, month/day/occurrence names)
-├── config_flow.py             # Config and options flows (service-based)
+├── config_flow.py             # Config and options flows (service-based, holiday import)
 ├── calendar.py                # Calendar entity implementation (service-aware)
 ├── schedule_generator.py      # Date calculation logic
+├── holiday_importer.py        # Holiday import functionality (async)
 ├── diagnostics.py             # Diagnostics data collection (service-based)
 ├── migrations.py              # Migration system (v1 to v2)
 ├── strings.json              # UI text and translations
@@ -409,6 +493,31 @@ custom_components/ha_scheduler/
 └── translations/
     └── en.json               # English translations
 ```
+
+### manifest.json
+Integration metadata and dependencies:
+```json
+{
+  "domain": "ha_scheduler",
+  "name": "HA Scheduler",
+  "codeowners": ["@Smiley73"],
+  "config_flow": true,
+  "documentation": "https://github.com/Smiley73/ha-scheduler",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
+  "quality_scale": "gold",
+  "requirements": ["holidays>=0.34"],
+  "version": "0.4.0"
+}
+```
+
+**Key Requirements**:
+- **Integration Type**: `service` (not helper)
+- **Quality Scale**: `gold` level compliance
+- **Dependencies**: `holidays>=0.34` for holiday import functionality
+- **Config Flow**: UI-based configuration required
+- **Version**: 0.4.0 includes holiday import feature
 
 ### const.py
 Define constants:
@@ -625,13 +734,14 @@ Include `data_description` for configuration fields:
 ## Testing Requirements
 
 ### Test Coverage Areas
-1. **Config flow tests**: All flow paths (add, edit, remove, default config)
+1. **Config flow tests**: All flow paths (add, edit, remove, import holidays, default config)
 2. **Schedule generator tests**: All schedule types, edge cases, overlap detection
 3. **Calendar tests**: Event generation, year wrapping, configuration handling, entity ID validation
 4. **Integration tests**: Full setup/unload cycle
 5. **Persistence tests**: Verify schedules are properly saved and loaded
 6. **Diagnostics tests**: All schedule types, configuration handling, service-based data structure
 7. **Migration tests**: V1 to V2 migration, data preservation, entity continuity
+8. **Holiday import tests**: Country discovery, category detection, pattern analysis, conflict resolution
 
 ### Critical Test Scenarios
 - Adding multiple schedules without overwriting existing ones
@@ -652,6 +762,18 @@ Include `data_description` for configuration fields:
 - **Migration testing**: V1 to V2 migration preserves all data and entity IDs
 - **Entity ID continuity**: Verify no duplicate entities are created during migration
 - **Unique ID preservation**: Confirm default service maintains original unique ID format
+
+### Holiday Import Test Scenarios
+- **Country Discovery**: Dynamic loading of 499+ countries from holidays library
+- **Category Detection**: Dynamic category discovery per country (public, bank, school, etc.)
+- **Pattern Analysis**: Fixed date vs variable date detection across multiple years
+- **Conflict Resolution**: Name conflicts with overwrite/skip options
+- **Date Overlap Handling**: Skip overlapping holidays based on flag setting
+- **Country Name Flag**: Include/exclude country code in schedule names
+- **Error Handling**: Graceful fallback when holidays library unavailable
+- **Async Operations**: Non-blocking holiday data processing
+- **Import Results**: Accurate reporting of imported/skipped/overwritten counts
+- **Pattern Fallbacks**: Single-date holidays get appropriate fallback patterns
 
 ### Diagnostics Test Scenarios
 - Empty schedules (no schedules configured)
@@ -676,14 +798,16 @@ Include `data_description` for configuration fields:
 - All-day events only (no time components)
 - Proper error handling with translated messages
 - Migration system for backward compatibility
+- External dependencies: `holidays>=0.34` for holiday import functionality
 
 ### Code Quality
 - Use constants from const.py for month/day/occurrence names
 - Proper async/await patterns
-- No blocking operations in event loop
-- Clean separation of concerns (config flow, calendar, date generation)
-- Comprehensive error handling
+- No blocking operations in event loop (use `run_in_executor` for holiday data processing)
+- Clean separation of concerns (config flow, calendar, date generation, holiday import)
+- Comprehensive error handling with graceful fallbacks
 - Descriptive variable and function names
+- Async-first design for all I/O operations
 
 ### Documentation
 - Docstrings for all public functions
@@ -710,5 +834,7 @@ The integration is complete when:
 14. Code passes linting and formatting checks
 15. Integration loads and unloads cleanly in Home Assistant
 16. Service-based architecture supports future enhancements
-17. **UI Consistency**: All user-facing text uses "Default Configuration" not "Service Configuration"
-18. **Entity Continuity**: Calendar entity IDs remain consistent before and after migration
+17. **Holiday Import**: Users can import holidays from 499+ countries with smart pattern detection
+18. **Holiday Import Options**: Include country name flag, conflict resolution, and category selection work correctly
+19. **UI Consistency**: All user-facing text uses "Default Configuration" not "Service Configuration"
+20. **Entity Continuity**: Calendar entity IDs remain consistent before and after migration

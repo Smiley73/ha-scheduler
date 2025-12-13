@@ -881,6 +881,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             selected_holidays = user_input.get("holidays", [])
             overwrite_existing = user_input.get("overwrite_existing", False)
             skip_on_overlap = user_input.get("skip_on_overlap", True)
+            include_country_name = user_input.get("include_country_name", True)
 
             if not selected_holidays:
                 return self.async_show_form(
@@ -890,7 +891,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
 
             return await self._import_selected_holidays(
-                selected_holidays, overwrite_existing, skip_on_overlap
+                selected_holidays,
+                overwrite_existing,
+                skip_on_overlap,
+                include_country_name,
             )
 
         return self.async_show_form(
@@ -973,6 +977,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     ),
                     vol.Optional("overwrite_existing", default=False): bool,
                     vol.Optional("skip_on_overlap", default=True): bool,
+                    vol.Optional("include_country_name", default=True): bool,
                 }
             )
 
@@ -991,6 +996,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         selected_holidays: list[str],
         overwrite_existing: bool,
         skip_on_overlap: bool,
+        include_country_name: bool = True,
     ) -> FlowResult:
         """Import the selected holidays as schedules."""
         try:
@@ -1031,7 +1037,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     continue
 
                 # Create schedule from pattern
-                schedule_name = f"{holiday_name} ({country})"
+                if include_country_name:
+                    schedule_name = f"{holiday_name} ({country})"
+                else:
+                    schedule_name = holiday_name
                 schedule = {
                     "uid": str(uuid.uuid4()),
                     "name": schedule_name,

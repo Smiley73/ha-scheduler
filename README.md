@@ -74,9 +74,88 @@ We apologize for the inconvenience, but this change ensures better compatibility
 From the Configure menu, you can:
 - **Add Schedule**: Create a new schedule with optional configuration
 - **Remove Schedule**: Delete an existing schedule
+- **Import Holidays**: Import holidays from any supported country as schedules
 - **Edit Default Configuration**: Set default configuration that applies to all schedules
 
 The integration automatically prevents overlapping schedules to avoid conflicts.
+
+### Holiday Import Feature
+
+The Scheduler integration includes a powerful holiday import feature that allows you to automatically create schedules for holidays from any supported country.
+
+#### How to Import Holidays
+
+1. Go to Settings → Devices & Services
+2. Find your Scheduler integration and click "Configure"
+3. Select "Import Holidays"
+4. **Step 1**: Choose a country from 499+ available options (e.g., US, CA, GB, DE, FR, AU, etc.)
+5. **Step 2**: Select holiday categories (Public, Bank, School, Observance, etc.)
+6. **Step 3**: Choose specific holidays and configure import options:
+   - **Holidays to import**: Select from the list with pattern descriptions
+   - **Overwrite existing**: Replace schedules with the same name
+   - **Skip on overlap**: Skip holidays that would conflict with existing schedules
+   - **Include country name**: Add country code to schedule names (e.g., "Independence Day (US)" vs "Independence Day")
+
+#### Smart Pattern Detection
+
+The holiday import feature automatically analyzes each holiday to determine the best schedule type:
+
+- **Fixed Date Holidays** (e.g., Independence Day - July 4th)
+  - Creates "Date" type schedules with the same date every year
+  - Pattern: `Fixed date: July 04`
+
+- **Variable Date Holidays** (e.g., Martin Luther King Jr. Day - 3rd Monday in January)
+  - Creates "Nth-Day" type schedules that adjust each year
+  - Pattern: `Third Monday of January`
+
+- **Complex Holidays** (e.g., Thanksgiving - 4th Thursday in November)
+  - Automatically calculates the correct occurrence and weekday
+  - Pattern: `Fourth Thursday of November`
+
+#### Supported Countries and Categories
+
+- **Countries**: 499+ countries supported including US, Canada, UK, Germany, France, Australia, New Zealand, and many more
+- **Categories**: Varies by country but typically includes:
+  - **Public**: National/federal holidays
+  - **Bank**: Banking holidays
+  - **School**: School holidays and breaks
+  - **Observance**: Cultural and religious observances
+  - **Optional**: Optional or regional holidays
+
+#### Conflict Management
+
+The import feature includes robust conflict detection:
+
+- **Name Conflicts**: Option to overwrite existing schedules with the same name
+- **Date Overlaps**: Option to skip holidays that would overlap with existing schedules
+- **Clear Feedback**: Shows exactly what was imported, skipped, or overwritten
+
+#### Examples
+
+**Import US Federal Holidays:**
+1. Select "United States" → "Public" → Choose holidays like:
+   - Independence Day (Fixed date: July 04)
+   - Thanksgiving (Fourth Thursday of November)
+   - Martin Luther King Jr. Day (Third Monday of January)
+
+**Import UK Bank Holidays:**
+1. Select "United Kingdom" → "Bank" → Choose holidays like:
+   - Christmas Day (Fixed date: December 25)
+   - Easter Monday (Variable date pattern)
+   - Spring Bank Holiday (Last Monday of May)
+
+**Import German Holidays:**
+1. Select "Germany" → "Public" → Choose holidays like:
+   - German Unity Day (Fixed date: October 03)
+   - Easter Monday (Variable date pattern)
+
+#### Benefits
+
+- **Time Saving**: No need to manually calculate holiday dates or patterns
+- **Accuracy**: Automatically handles complex date calculations (leap years, varying weekdays)
+- **Flexibility**: Choose exactly which holidays you want from any country
+- **Future-Proof**: Schedules automatically adjust for future years
+- **Integration**: Works seamlessly with existing schedule management and calendar features
 
 ## Features
 

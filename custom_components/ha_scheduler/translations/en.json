@@ -122,11 +122,13 @@
         "data": {
           "holidays": "Holidays to import",
           "overwrite_existing": "Overwrite existing schedules with same name",
-          "skip_on_overlap": "Skip holidays that overlap with existing schedules"
+          "skip_on_overlap": "Skip holidays that overlap with existing schedules",
+          "include_country_name": "Include country name in schedule names"
         },
         "data_description": {
           "overwrite_existing": "If enabled, existing schedules with the same name will be replaced.",
-          "skip_on_overlap": "If enabled, holidays that would overlap with existing schedules will be skipped."
+          "skip_on_overlap": "If enabled, holidays that would overlap with existing schedules will be skipped.",
+          "include_country_name": "If enabled, the country code will be added to schedule names (e.g., 'Independence Day (US)'). If disabled, only the holiday name will be used (e.g., 'Independence Day')."
         }
       }
     },
