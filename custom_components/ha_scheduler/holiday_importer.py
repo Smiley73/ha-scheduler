@@ -7,7 +7,86 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+# Babel imports moved inside functions to avoid blocking I/O during module import
+
 _LOGGER = logging.getLogger(__name__)
+
+
+def format_date_localized(date_obj: date, locale_code: str | None = None) -> str:
+    """Format a date using locale-aware formatting.
+
+    Args:
+        date_obj: Date to format
+        locale_code: Optional locale code (e.g., 'en_US'). Defaults to 'en'.
+
+    Returns:
+        Formatted date string like "January 1" or "December 25"
+    """
+    try:
+        # Lazy import to avoid blocking I/O during module import
+        from babel import Locale
+        from babel.dates import format_date
+
+        # Use provided locale or default to English
+        locale = Locale.parse(locale_code or "en")
+        # Format as "Month Day" (e.g., "January 1", "December 25")
+        return format_date(date_obj, format="MMMM d", locale=locale)
+    except ImportError as e:
+        _LOGGER.debug("Babel not available for date formatting: %s", e)
+        # Fallback to Python's strftime
+        return date_obj.strftime("%B %d")
+    except Exception as e:  # Catch UnknownLocaleError, ValueError, etc.
+        _LOGGER.debug("Could not format date with locale %s: %s", locale_code, e)
+        # Fallback to Python's strftime
+        return date_obj.strftime("%B %d")
+
+
+def get_localized_country_name(
+    country_code: str, fallback_name: str | None = None
+) -> str:
+    """Get localized country name using Babel.
+
+    Args:
+        country_code: ISO 3166-1 alpha-2 country code
+        fallback_name: Fallback name if Babel lookup fails
+
+    Returns:
+        Localized country name or fallback
+    """
+    try:
+        # Lazy import to avoid blocking I/O during module import
+        from babel import Locale
+
+        # Create a locale for the country to get its display name
+        locale = Locale.parse(f"en_{country_code.upper()}")
+
+        # Get the territory display name in English
+        # This provides proper country names like "United States" instead of "US"
+        territory_name = locale.get_territory_name()
+        if territory_name and territory_name != country_code.upper():
+            return territory_name
+
+    except ImportError as e:
+        _LOGGER.debug("Babel not available for country names: %s", e)
+        return fallback_name or country_code.replace("_", " ").title()
+    except Exception as e:  # Catch UnknownLocaleError, ValueError, AttributeError, etc.
+        _LOGGER.debug(
+            "Could not get localized name for country %s: %s", country_code, e
+        )
+
+    # Try using Babel's territory data from English locale
+    try:
+        from babel import Locale
+
+        en_locale = Locale("en")
+        if country_code.upper() in en_locale.territories:
+            return en_locale.territories[country_code.upper()]
+    except Exception:  # Any error including ImportError
+        pass
+
+    # Fallback to provided name or formatted country code
+    return fallback_name or country_code.replace("_", " ").title()
+
 
 try:
     import holidays
@@ -30,25 +109,22 @@ def _get_supported_countries_sync() -> dict[str, str]:
         # holidays library provides country codes and names
         for country_code in holidays.list_supported_countries():
             try:
-                # Get the country name - some countries may have display names
+                # Get the country name from holidays library first
                 country_obj = holidays.country_holidays(country_code, years=2024)
-                country_name = getattr(country_obj, "country", country_code)
+                holidays_name = getattr(country_obj, "country", None)
 
-                # If no proper name, try to get it from the class
-                if country_name == country_code:
+                # If holidays library doesn't have a proper name, try the class
+                if not holidays_name or holidays_name == country_code:
                     try:
                         country_class = holidays.registry.EntityLoader.get(country_code)
                         if hasattr(country_class, "country"):
-                            country_name = country_class.country
-                        else:
-                            # Fallback to a readable format
-                            country_name = country_code.replace("_", " ").title()
-                    except (AttributeError, KeyError, ImportError) as e:
-                        _LOGGER.debug(
-                            "Could not get country name for %s: %s", country_code, e
-                        )
-                        country_name = country_code.replace("_", " ").title()
+                            holidays_name = country_class.country
+                    except (AttributeError, KeyError, ImportError):
+                        pass
 
+                # Use Babel to get the proper localized country name
+                # This provides better names than the holidays library fallbacks
+                country_name = get_localized_country_name(country_code, holidays_name)
                 country_dict[country_code] = country_name
 
             except Exception as e:
@@ -232,7 +308,7 @@ def _get_holidays_for_country_sync(
                         "start_day": first_date.day,
                         "end_month": first_date.month,
                         "end_day": first_date.day,
-                        "description": f"Single occurrence: {first_date.strftime('%B %d')}",
+                        "description": f"Single occurrence: {format_date_localized(first_date)}",
                     }
 
             holiday_data["pattern"] = pattern
@@ -268,7 +344,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             "start_day": date_obj.day,
             "end_month": date_obj.month,
             "end_day": date_obj.day,
-            "description": f"Fixed date: {date_obj.strftime('%B %d')}",
+            "description": f"Fixed date: {format_date_localized(date_obj)}",
         }
 
     # Sort dates to analyze pattern
@@ -283,7 +359,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             "start_day": dates[0].day,
             "end_month": dates[0].month,
             "end_day": dates[0].day,
-            "description": f"Fixed date: {dates[0].strftime('%B %d')}",
+            "description": f"Fixed date: {format_date_localized(dates[0])}",
         }
     else:
         # Variable date - try to determine pattern
@@ -355,7 +431,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             "start_day": first_date.day,
             "end_month": first_date.month,
             "end_day": first_date.day,
-            "description": f"Variable date (using {first_date.year} date: {first_date.strftime('%B %d')})",
+            "description": f"Variable date (using {first_date.year} date: {format_date_localized(first_date)})",
         }
 
 

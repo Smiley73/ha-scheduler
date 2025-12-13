@@ -3,109 +3,43 @@
 from __future__ import annotations
 
 import calendar
+import logging
 from datetime import date, timedelta
 from typing import Any
 
-# Country-specific first weekday mapping (ISO 3166-1 alpha-2 codes)
+# Babel imports moved inside functions to avoid blocking I/O during module import
+
+_LOGGER = logging.getLogger(__name__)
+
+# Fallback mapping for countries where Babel doesn't have locale data
+# or where the locale data differs from common practice
 # 0 = Monday, 6 = Sunday
-COUNTRY_FIRST_WEEKDAY = {
-    # Sunday-first countries
-    "US": 6,
-    "CA": 6,
-    "MX": 6,
-    "BR": 6,
-    "JP": 6,
-    "KR": 6,
-    "IL": 6,
-    "SA": 6,
-    "AE": 6,
-    "EG": 6,
-    "JO": 6,
-    "LB": 6,
-    "SY": 6,
-    "IQ": 6,
-    "KW": 6,
-    "QA": 6,
-    "BH": 6,
-    "OM": 6,
-    "YE": 6,
-    "AF": 6,
-    "PK": 6,
-    "BD": 6,
-    "NP": 6,
-    "LK": 6,
-    "MV": 6,
-    "MM": 6,
-    "TH": 6,
-    "LA": 6,
-    "KH": 6,
-    "VN": 6,
-    "PH": 6,
-    "ID": 6,
-    "MY": 6,
-    "BN": 6,
-    "SG": 6,
-    "TW": 6,
-    "HK": 6,
-    "MO": 6,
-    "MN": 6,
-    "KP": 6,
-    "ET": 6,
-    "ER": 6,
-    "DJ": 6,
-    "SO": 6,
-    "KE": 6,
-    "UG": 6,
-    "TZ": 6,
-    "RW": 6,
-    "BI": 6,
-    "MW": 6,
-    "ZM": 6,
-    "ZW": 6,
-    "BW": 6,
-    "NA": 6,
-    "ZA": 6,
-    "SZ": 6,
-    "LS": 6,
-    "MZ": 6,
-    "MG": 6,
-    "MU": 6,
-    "SC": 6,
-    "KM": 6,
-    "YT": 6,
-    "RE": 6,
-    "MR": 6,
-    "ML": 6,
-    "BF": 6,
-    "NE": 6,
-    "TD": 6,
-    "CF": 6,
-    "CM": 6,
-    "GQ": 6,
-    "GA": 6,
-    "CG": 6,
-    "CD": 6,
-    "AO": 6,
-    "ST": 6,
-    "GH": 6,
-    "TG": 6,
-    "BJ": 6,
-    "NG": 6,
-    "CI": 6,
-    "LR": 6,
-    "SL": 6,
-    "GN": 6,
-    "GW": 6,
-    "SN": 6,
-    "GM": 6,
-    "CV": 6,
-    # Monday-first countries (most of the world) - default to 0
-    # Europe, most of Asia, Africa, Oceania, South America (except Brazil)
+COUNTRY_FIRST_WEEKDAY_FALLBACK = {
+    # Countries that commonly use Sunday as first day but may not be in Babel
+    "JP": 6,  # Japan - commonly uses Sunday in business/calendar contexts
+    "KR": 6,  # South Korea
+    "MX": 6,  # Mexico
+    "IL": 6,  # Israel
+    "SA": 6,  # Saudi Arabia
+    "AE": 6,  # UAE
+    "EG": 6,  # Egypt
+    "PH": 6,  # Philippines
+    "TW": 6,  # Taiwan
+    "HK": 6,  # Hong Kong
+    "SG": 6,  # Singapore
+    "TH": 6,  # Thailand
+    "MY": 6,  # Malaysia
+    "ID": 6,  # Indonesia
+    "VN": 6,  # Vietnam
+    # Add more as needed for countries not well-covered by Babel
 }
 
 
 def get_country_first_weekday(country_code: str | None = None) -> int:
     """Get the first weekday for a country (0=Monday, 6=Sunday).
+
+    Uses Babel's locale data to determine the first day of the week for different countries.
+    This provides more comprehensive and up-to-date locale information than a static mapping.
 
     Args:
         country_code: ISO 3166-1 alpha-2 country code (e.g., 'US', 'GB')
@@ -116,7 +50,55 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
     if not country_code:
         return 0  # Default to Monday
 
-    return COUNTRY_FIRST_WEEKDAY.get(country_code.upper(), 0)
+    country_upper = country_code.upper()
+
+    try:
+        # Lazy import to avoid blocking I/O during module import
+        from babel import Locale
+
+        # Try to create a locale from the country code
+        # We use English as the language since we only care about the territory
+        locale_str = f"en_{country_upper}"
+        locale = Locale.parse(locale_str)
+
+        # Get the first day of the week
+        # Babel uses 0=Monday, 6=Sunday which matches our expected format
+        first_day = locale.first_week_day
+        return first_day
+
+    except ImportError as e:
+        _LOGGER.debug("Babel not available for weekday detection: %s", e)
+
+        # Check our fallback mapping for countries not well-covered by Babel
+        if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
+            _LOGGER.debug("Using fallback weekday data for country %s", country_code)
+            return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
+
+        return 0  # Default to Monday if Babel is not available
+
+    except Exception as e:  # Catch UnknownLocaleError, ValueError, etc.
+        # Try alternative locale formats for countries that might not have en_XX
+        try:
+            from babel import Locale
+
+            # Some countries might have their own primary language locale
+            locale = Locale.parse(country_code.lower())
+            first_day = locale.first_week_day
+            return first_day
+        except Exception:  # Any error in fallback attempt
+            pass
+
+        # Check our fallback mapping for countries not well-covered by Babel
+        if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
+            _LOGGER.debug("Using fallback weekday data for country %s", country_code)
+            return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
+
+        _LOGGER.debug(
+            "Could not determine first weekday for country %s: %s. Using Monday as default.",
+            country_code,
+            e,
+        )
+        return 0  # Default to Monday if locale is unknown
 
 
 def generate_schedule_dates(

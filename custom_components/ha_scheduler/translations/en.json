@@ -49,23 +49,19 @@
       },
       "configure_week": {
         "title": "Configure week schedule",
-        "description": "Create a schedule based on week of month (e.g., First Monday of March to Last Friday of June, or First week of March to Last week of June for whole weeks)\n\nNote: For the first week, you can choose 'First' (may start in previous month) or 'First full' (entirely within month). Leave day of week fields as 'Whole week' to schedule entire weeks. To clear the configuration field, enter a single space character.",
+        "description": "Create a schedule based on week of month (e.g., First Monday of March to Last Friday of June)\n\nNote: To clear the configuration field, enter a single space character.",
         "data": {
           "name": "Schedule name",
           "start_month": "Start month",
           "start_week": "Start week",
-          "start_day_of_week": "Start day of week (optional)",
+          "start_day_of_week": "Start day of week",
           "end_month": "End month",
           "end_week": "End week",
-          "end_day_of_week": "End day of week (optional)",
+          "end_day_of_week": "End day of week",
           "configuration": "Configuration (YAML)"
         },
         "data_description": {
-          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space.",
-          "start_week": "Choose 'First' (may start in previous month) or 'First full' (entirely within month) for the first week",
-          "end_week": "Choose 'First' (may start in previous month) or 'First full' (entirely within month) for the first week",
-          "start_day_of_week": "Leave as 'Whole week' to start from the beginning of the week based on your country's standard",
-          "end_day_of_week": "Leave as 'Whole week' to end at the end of the week based on your country's standard"
+          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
         }
       },
       "configure_nth_day": {

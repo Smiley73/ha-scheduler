@@ -96,7 +96,7 @@ class TestHolidayImportDefaults:
                     "start_day": 4,
                     "end_month": 7,
                     "end_day": 4,
-                    "description": "Fixed date: July 04",
+                    "description": "Fixed date: July 4",
                 },
             },
             "Labor Day": {
@@ -183,7 +183,7 @@ class TestHolidayImportDefaults:
                     "start_day": 4,
                     "end_month": 7,
                     "end_day": 4,
-                    "description": "Fixed date: July 04",
+                    "description": "Fixed date: July 4",
                 },
             },
         }
@@ -261,7 +261,7 @@ class TestHolidayImportOptions:
                     "start_day": 4,
                     "end_month": 7,
                     "end_day": 4,
-                    "description": "Fixed date: July 04",
+                    "description": "Fixed date: July 4",
                 },
             },
         }
@@ -584,7 +584,7 @@ class TestHolidayImportOptions:
                     "start_day": 4,
                     "end_month": 7,
                     "end_day": 4,
-                    "description": "Fixed date: July 04",
+                    "description": "Fixed date: July 4",
                 },
             },
             "Bank Holiday": {
@@ -672,7 +672,7 @@ class TestHolidayPatternAnalysis:
         assert pattern["start_day"] == 4
         assert pattern["end_month"] == 7
         assert pattern["end_day"] == 4
-        assert "Fixed date: July 04" in pattern["description"]
+        assert "Fixed date: July 4" in pattern["description"]
 
     def test_analyze_nth_day_pattern(self):
         """Test analyzing nth-day holidays (e.g., Memorial Day, Labor Day)."""
