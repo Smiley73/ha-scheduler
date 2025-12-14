@@ -152,6 +152,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def _update_service_schedules(self, schedules: dict[str, Any]) -> dict[str, Any]:
         """Update schedules for the current service and return updated options."""
         entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
+        if not entry:
+            return {}
 
         # Handle both new service-based structure and legacy structure
         services = entry.options.get("services", {})
@@ -815,6 +817,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 entry = self.hass.config_entries.async_get_entry(
                     self.config_entry.entry_id
                 )
+                if not entry:
+                    errors["base"] = "Entry not found"
+                    return self.async_show_form(
+                        step_id="default_configuration",
+                        data_schema=vol.Schema(
+                            {
+                                vol.Optional(
+                                    "configuration", default=""
+                                ): TemplateSelector(),
+                            }
+                        ),
+                        errors=errors,
+                    )
+
                 services = entry.options.get("services", {})
                 new_services = dict(services)
 
