@@ -38,7 +38,7 @@ repos:
       # Run pytest on all tests
       - id: pytest-check
         name: pytest-check
-        entry: pytest tests/ -q
+        entry: bash -c 'source venv/bin/activate && python -m pytest tests/ -q'
         language: system
         pass_filenames: false
         always_run: true
