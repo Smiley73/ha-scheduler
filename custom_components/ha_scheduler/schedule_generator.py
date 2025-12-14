@@ -76,7 +76,11 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
 
         return 0  # Default to Monday if Babel is not available
 
-    except Exception as e:  # Catch UnknownLocaleError, ValueError, etc.
+    except Exception as e:
+        # Catch Babel's UnknownLocaleError (direct Exception subclass), ValueError,
+        # AttributeError, TypeError, and any other locale-related errors
+        # Note: We use broad Exception here because babel.core.UnknownLocaleError
+        # is a direct subclass of Exception and we can't import it conditionally
         # Try alternative locale formats for countries that might not have en_XX
         try:
             from babel import Locale
@@ -85,7 +89,8 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
             locale = Locale.parse(country_code.lower())
             first_day = locale.first_week_day
             return first_day
-        except Exception:  # Any error in fallback attempt
+        except Exception:
+            # Any locale-related error in fallback - use mapping or default
             pass
 
         # Check our fallback mapping for countries not well-covered by Babel
