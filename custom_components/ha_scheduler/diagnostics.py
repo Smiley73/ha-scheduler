@@ -189,7 +189,7 @@ def _calculate_future_dates(
         Dictionary with yearly data, overlap information, and any computation warnings.
     """
     current_year = date.today().year
-    future_data = {"years": {}, "warnings": []}
+    future_data: dict[str, Any] = {"years": {}, "warnings": []}
 
     for year in range(current_year, current_year + 3):
         year_key = str(year)
@@ -197,10 +197,10 @@ def _calculate_future_dates(
             date_ranges = generate_schedule_dates(schedule_data, year)
 
             if not date_ranges:
-                future_data["warnings"].append(
-                    f"No valid dates generated for year {year}"
-                )
-                future_data["years"][year_key] = {
+                warnings_list: list[str] = future_data["warnings"]
+                warnings_list.append(f"No valid dates generated for year {year}")
+                years_dict: dict[str, Any] = future_data["years"]
+                years_dict[year_key] = {
                     "error": "No valid dates generated",
                     "start_date": None,
                     "end_date": None,
@@ -221,7 +221,8 @@ def _calculate_future_dates(
                 schedule_data, all_schedules, current_schedule_id, year
             )
 
-            future_data["years"][year_key] = {
+            years_dict_main: dict[str, Any] = future_data["years"]
+            years_dict_main[year_key] = {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
                 "duration_days": duration,
@@ -232,10 +233,12 @@ def _calculate_future_dates(
             _LOGGER.warning(
                 "Failed to calculate schedule dates for year %s: %s", year, str(e)
             )
-            future_data["warnings"].append(
+            warnings_list_err: list[str] = future_data["warnings"]
+            warnings_list_err.append(
                 f"Failed to compute dates for year {year}: {str(e)}"
             )
-            future_data["years"][year_key] = {
+            years_dict_err: dict[str, Any] = future_data["years"]
+            years_dict_err[year_key] = {
                 "error": str(e),
                 "start_date": None,
                 "end_date": None,
