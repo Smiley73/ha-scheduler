@@ -1,1 +1,3 @@
 homeassistant>=2025.12.0
+holidays>=0.34
+babel>=2.0.0
