@@ -1,9 +1,9 @@
 # Home Assistant Scheduler Integration - Specification
 
-**Domain**: `ha_scheduler`  
-**Version**: 0.4.0  
-**Quality Scale**: Gold  
-**Integration Type**: Service  
+**Domain**: `ha_scheduler`
+**Version**: 0.4.1
+**Quality Scale**: Gold
+**Integration Type**: Service
 **Status**: Implemented and functional
 
 **Objective**: Create a Home Assistant custom integration called "HA Scheduler" that provides a service-based scheduling system with recurring annual calendar schedules, flexible date patterns, and optional YAML configuration.
@@ -510,7 +510,7 @@ Present menu with five options:
 - **Current Version**: 2 (service-based architecture)
 - **Previous Version**: 1 (helper-based architecture)
 - **Config Flow Version**: 2.1
-- **Manifest Version**: 0.4.0
+- **Manifest Version**: 0.4.1
 
 ### Migration Process
 The integration automatically detects and migrates older config entries:
@@ -628,17 +628,17 @@ Integration metadata and dependencies:
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
   "quality_scale": "gold",
-  "requirements": ["holidays>=0.34"],
-  "version": "0.4.0"
+  "requirements": ["holidays>=0.34", "babel>=2.0.0"],
+  "version": "0.4.1"
 }
 ```
 
 **Key Requirements**:
 - **Integration Type**: `service` (not helper)
 - **Quality Scale**: `gold` level compliance
-- **Dependencies**: `holidays>=0.34` for holiday import functionality
+- **Dependencies**: `holidays>=0.34` for holiday import functionality, `babel>=2.0.0` for localization
 - **Config Flow**: UI-based configuration required
-- **Version**: 0.4.0 includes holiday import feature
+- **Version**: 0.4.1 includes holiday import feature with improved code quality
 
 ### const.py
 Define constants:
