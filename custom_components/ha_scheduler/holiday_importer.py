@@ -116,10 +116,13 @@ def _get_supported_countries_sync() -> dict[str, str]:
                 # If holidays library doesn't have a proper name, try the class
                 if not holidays_name or holidays_name == country_code:
                     try:
-                        country_class = holidays.registry.EntityLoader.get(country_code)
-                        if hasattr(country_class, "country"):
-                            holidays_name = country_class.country
-                    except (AttributeError, KeyError, ImportError):
+                        # Access the entity loader and get the country class
+                        entity_loader = getattr(holidays.registry, "EntityLoader", None)
+                        if entity_loader and hasattr(entity_loader, "get"):
+                            country_class = entity_loader.get(country_code)
+                            if hasattr(country_class, "country"):
+                                holidays_name = country_class.country
+                    except (AttributeError, KeyError, ImportError, TypeError):
                         pass
 
                 # Use Babel to get the proper localized country name
@@ -219,7 +222,7 @@ async def get_available_categories(country_code: str) -> dict[str, str]:
 
 
 def _get_holidays_for_country_sync(
-    country_code: str, categories: list[str] = None
+    country_code: str, categories: list[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Get all holidays for a country with their patterns (sync version)."""
     if not HOLIDAYS_AVAILABLE:
@@ -229,7 +232,7 @@ def _get_holidays_for_country_sync(
         if categories is None:
             categories = list(_get_available_categories_sync(country_code).keys())
 
-        all_holidays = {}
+        all_holidays: dict[str, dict[str, Any]] = {}
 
         # Get holidays for multiple years to analyze patterns
         years = [2023, 2024, 2025]
@@ -321,7 +324,7 @@ def _get_holidays_for_country_sync(
 
 
 async def get_holidays_for_country(
-    country_code: str, categories: list[str] = None
+    country_code: str, categories: list[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Get all holidays for a country with their patterns."""
     loop = asyncio.get_event_loop()
@@ -441,7 +444,7 @@ def _analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None:
         return None
 
     # Group dates by year to analyze patterns
-    dates_by_year = {}
+    dates_by_year: dict[int, list[date]] = {}
     for d in dates:
         if d.year not in dates_by_year:
             dates_by_year[d.year] = []
