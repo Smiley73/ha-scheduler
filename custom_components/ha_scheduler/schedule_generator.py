@@ -292,11 +292,16 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
         # Both days specified - use weekday-in-week for precise control
         else:
+            # At this point, both day_of_week values are guaranteed to be not None
+            # Type assertion to help mypy understand this
+            assert start_day_of_week is not None
+            assert end_day_of_week is not None
+
             start_date = _get_weekday_in_week(
                 year,
                 start_month,
                 start_week,
-                start_day_of_week,
+                int(start_day_of_week),
                 first_weekday,
                 start_week_type,
             )
@@ -310,7 +315,7 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
                     year + 1,
                     end_month,
                     end_week,
-                    end_day_of_week,
+                    int(end_day_of_week),
                     first_weekday,
                     end_week_type,
                 )
@@ -324,7 +329,7 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
                     year,
                     end_month,
                     end_week,
-                    end_day_of_week,
+                    int(end_day_of_week),
                     first_weekday,
                     effective_end_week_type,
                 )
