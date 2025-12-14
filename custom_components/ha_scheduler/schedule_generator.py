@@ -166,6 +166,149 @@ def _generate_by_date(schedule: dict[str, Any], year: int) -> list[tuple[date, d
         return []
 
 
+def _calculate_end_year(end_month: int, start_month: int, year: int) -> int:
+    """Calculate the year for the end date based on month wrapping."""
+    return year + 1 if end_month < start_month else year
+
+
+def _get_effective_week_type(
+    start_month: int, end_month: int, start_week_type: str, end_week_type: str
+) -> str:
+    """Determine effective week type for end week."""
+    return start_week_type if start_month == end_month else end_week_type
+
+
+def _generate_whole_week_range(
+    year: int,
+    start_month: int,
+    start_week: int,
+    end_month: int,
+    end_week: int,
+    first_weekday: int,
+    start_week_type: str,
+    end_week_type: str,
+) -> list[tuple[date, date]]:
+    """Generate date range for a whole week schedule (no specific days)."""
+    week_start_date = _get_week_start(
+        year, start_month, start_week, first_weekday, start_week_type
+    )
+    if not week_start_date:
+        return []
+
+    effective_end_week_type = _get_effective_week_type(
+        start_month, end_month, start_week_type, end_week_type
+    )
+    end_year = _calculate_end_year(end_month, start_month, year)
+
+    week_end_date = _get_week_end(
+        end_year, end_month, end_week, first_weekday, effective_end_week_type
+    )
+    if not week_end_date:
+        return []
+
+    return [(week_start_date, week_end_date)]
+
+
+def _generate_start_day_to_end_week(
+    year: int,
+    start_month: int,
+    start_week: int,
+    start_day_of_week: int,
+    end_month: int,
+    end_week: int,
+    first_weekday: int,
+    start_week_type: str,
+    end_week_type: str,
+) -> list[tuple[date, date]]:
+    """Generate date range from a specific start day to end of week."""
+    start_date = _get_weekday_in_week(
+        year, start_month, start_week, start_day_of_week, first_weekday, start_week_type
+    )
+    if not start_date:
+        return []
+
+    end_year = _calculate_end_year(end_month, start_month, year)
+    week_end_date = _get_week_end(
+        end_year, end_month, end_week, first_weekday, end_week_type
+    )
+    if not week_end_date:
+        return []
+
+    return [(start_date, week_end_date)]
+
+
+def _generate_week_start_to_end_day(
+    year: int,
+    start_month: int,
+    start_week: int,
+    end_month: int,
+    end_week: int,
+    end_day_of_week: int,
+    first_weekday: int,
+    start_week_type: str,
+    end_week_type: str,
+) -> list[tuple[date, date]]:
+    """Generate date range from start of week to a specific end day."""
+    week_start_date = _get_week_start(
+        year, start_month, start_week, first_weekday, start_week_type
+    )
+    if not week_start_date:
+        return []
+
+    end_year = _calculate_end_year(end_month, start_month, year)
+    end_date = _get_weekday_in_week(
+        end_year, end_month, end_week, end_day_of_week, first_weekday, end_week_type
+    )
+    if not end_date:
+        return []
+
+    return [(week_start_date, end_date)]
+
+
+def _generate_specific_day_range(
+    year: int,
+    start_month: int,
+    start_week: int,
+    start_day_of_week: int,
+    end_month: int,
+    end_week: int,
+    end_day_of_week: int,
+    first_weekday: int,
+    start_week_type: str,
+    end_week_type: str,
+) -> list[tuple[date, date]]:
+    """Generate date range between two specific days of weeks."""
+    # At this point, both day_of_week values are guaranteed to be not None
+    start_date = _get_weekday_in_week(
+        year,
+        start_month,
+        start_week,
+        int(start_day_of_week),
+        first_weekday,
+        start_week_type,
+    )
+    if not start_date:
+        return []
+
+    end_year = _calculate_end_year(end_month, start_month, year)
+    effective_end_week_type = _get_effective_week_type(
+        start_month, end_month, start_week_type, end_week_type
+    )
+
+    end_date = _get_weekday_in_week(
+        end_year,
+        end_month,
+        end_week,
+        int(end_day_of_week),
+        first_weekday,
+        effective_end_week_type,
+    )
+    if not end_date:
+        return []
+
+    return [(start_date, end_date)]
+
+
 def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, date]]:
     """Generate dates for 'by_week' schedule type.
 
@@ -195,149 +338,61 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
     end_week_type = schedule.get("end_week_type", "partial")
 
     try:
-        # If no specific days are specified, use the whole week
+        # Dispatch to appropriate helper based on which day_of_week fields are specified
         if start_day_of_week is None and end_day_of_week is None:
-            # Get the start of the specified week
-            week_start_date = _get_week_start(
-                year, start_month, start_week, first_weekday, start_week_type
+            # Whole week schedule
+            return _generate_whole_week_range(
+                year,
+                start_month,
+                start_week,
+                end_month,
+                end_week,
+                first_weekday,
+                start_week_type,
+                end_week_type,
             )
-            if not week_start_date:
-                return []
-
-            # Get the end of the specified week
-            # If same month, use the same week type context as start for consistency
-            # If different month, use the end_week_type for that month
-            effective_end_week_type = (
-                start_week_type if start_month == end_month else end_week_type
-            )
-            if end_month < start_month:
-                # End is in next year
-                week_end_date = _get_week_end(
-                    year + 1,
-                    end_month,
-                    end_week,
-                    first_weekday,
-                    effective_end_week_type,
-                )
-            else:
-                # Same year
-                week_end_date = _get_week_end(
-                    year, end_month, end_week, first_weekday, effective_end_week_type
-                )
-
-            if not week_end_date:
-                return []
-
-            return [(week_start_date, week_end_date)]
-
-        # If only start day is specified, use start day to end of week
         elif start_day_of_week is not None and end_day_of_week is None:
-            # Get the specific day within the specified week
-            start_date = _get_weekday_in_week(
+            # Start day to end of week
+            return _generate_start_day_to_end_week(
                 year,
                 start_month,
                 start_week,
                 start_day_of_week,
+                end_month,
+                end_week,
                 first_weekday,
                 start_week_type,
+                end_week_type,
             )
-            if not start_date:
-                return []
-
-            if end_month < start_month:
-                week_end_date = _get_week_end(
-                    year + 1, end_month, end_week, first_weekday, end_week_type
-                )
-            else:
-                week_end_date = _get_week_end(
-                    year, end_month, end_week, first_weekday, end_week_type
-                )
-
-            if not week_end_date:
-                return []
-
-            return [(start_date, week_end_date)]
-
-        # If only end day is specified, use start of week to end day
         elif start_day_of_week is None and end_day_of_week is not None:
-            week_start_date = _get_week_start(
-                year, start_month, start_week, first_weekday, start_week_type
-            )
-            if not week_start_date:
-                return []
-
-            if end_month < start_month:
-                end_date = _get_weekday_in_week(
-                    year + 1,
-                    end_month,
-                    end_week,
-                    end_day_of_week,
-                    first_weekday,
-                    end_week_type,
-                )
-            else:
-                end_date = _get_weekday_in_week(
-                    year,
-                    end_month,
-                    end_week,
-                    end_day_of_week,
-                    first_weekday,
-                    end_week_type,
-                )
-
-            if not end_date:
-                return []
-
-            return [(week_start_date, end_date)]
-
-        # Both days specified - use weekday-in-week for precise control
-        else:
-            # At this point, both day_of_week values are guaranteed to be not None
-            # Type assertion to help mypy understand this
-            assert start_day_of_week is not None
-            assert end_day_of_week is not None
-
-            start_date = _get_weekday_in_week(
+            # Start of week to end day
+            return _generate_week_start_to_end_day(
                 year,
                 start_month,
                 start_week,
-                int(start_day_of_week),
+                end_month,
+                end_week,
+                end_day_of_week,
                 first_weekday,
                 start_week_type,
+                end_week_type,
             )
-            if not start_date:
-                return []
-
-            # Only wrap to next year if end month is explicitly before start month
-            if end_month < start_month:
-                # End is in next year (e.g., December to January)
-                end_date = _get_weekday_in_week(
-                    year + 1,
-                    end_month,
-                    end_week,
-                    int(end_day_of_week),
-                    first_weekday,
-                    end_week_type,
-                )
-            else:
-                # Same year - end month is same or after start month
-                # Use same week type context if same month
-                effective_end_week_type = (
-                    start_week_type if start_month == end_month else end_week_type
-                )
-                end_date = _get_weekday_in_week(
-                    year,
-                    end_month,
-                    end_week,
-                    int(end_day_of_week),
-                    first_weekday,
-                    effective_end_week_type,
-                )
-
-            if not end_date:
-                return []
-
-            return [(start_date, end_date)]
+        else:
+            # Both days specified
+            assert start_day_of_week is not None
+            assert end_day_of_week is not None
+            return _generate_specific_day_range(
+                year,
+                start_month,
+                start_week,
+                start_day_of_week,
+                end_month,
+                end_week,
+                end_day_of_week,
+                first_weekday,
+                start_week_type,
+                end_week_type,
+            )
 
     except (ValueError, KeyError):
         return []
