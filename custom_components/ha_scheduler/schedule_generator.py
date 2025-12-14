@@ -35,6 +35,32 @@ COUNTRY_FIRST_WEEKDAY_FALLBACK = {
 }
 
 
+def _get_fallback_weekday(
+    country_code: str, country_upper: str, error: Exception | None = None
+) -> int:
+    """Get weekday from fallback mapping or return default.
+
+    Args:
+        country_code: Original country code for logging
+        country_upper: Uppercase country code for lookup
+        error: Optional error that triggered the fallback
+
+    Returns:
+        First weekday from mapping or 0 (Monday) as default
+    """
+    if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
+        _LOGGER.debug("Using fallback weekday data for country %s", country_code)
+        return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
+
+    if error:
+        _LOGGER.debug(
+            "Could not determine first weekday for country %s: %s. Using Monday as default.",
+            country_code,
+            error,
+        )
+    return 0  # Default to Monday
+
+
 def get_country_first_weekday(country_code: str | None = None) -> int:
     """Get the first weekday for a country (0=Monday, 6=Sunday).
 
@@ -68,13 +94,7 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
 
     except ImportError as e:
         _LOGGER.debug("Babel not available for weekday detection: %s", e)
-
-        # Check our fallback mapping for countries not well-covered by Babel
-        if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
-            _LOGGER.debug("Using fallback weekday data for country %s", country_code)
-            return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
-
-        return 0  # Default to Monday if Babel is not available
+        return _get_fallback_weekday(country_code, country_upper)
 
     except Exception as e:
         # Catch Babel's UnknownLocaleError (direct Exception subclass), ValueError,
@@ -93,17 +113,7 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
             # Any locale-related error in fallback - use mapping or default
             pass
 
-        # Check our fallback mapping for countries not well-covered by Babel
-        if country_upper in COUNTRY_FIRST_WEEKDAY_FALLBACK:
-            _LOGGER.debug("Using fallback weekday data for country %s", country_code)
-            return COUNTRY_FIRST_WEEKDAY_FALLBACK[country_upper]
-
-        _LOGGER.debug(
-            "Could not determine first weekday for country %s: %s. Using Monday as default.",
-            country_code,
-            e,
-        )
-        return 0  # Default to Monday if locale is unknown
+        return _get_fallback_weekday(country_code, country_upper, e)
 
 
 def generate_schedule_dates(
