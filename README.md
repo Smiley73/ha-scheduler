@@ -8,7 +8,6 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 
 ## Table of Contents
 
-- [⚠️ Breaking Change in v0.3.0](#️-breaking-change-in-v030)
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Holiday Import Feature](#holiday-import-feature)
@@ -20,18 +19,7 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 - [Support](#support)
 - [License](#license)
 
-## ⚠️ Breaking Change in v0.3.0
-
-**Important:** Version 0.3.0 introduces a breaking change. The Home Assistant domain has been renamed from `scheduler` to `ha_scheduler`. This change was necessary to avoid conflicts with other integrations.
-
-**Migration Required:**
-1. **Remove the old integration** from Settings → Devices & Services before updating
-2. **Reinstall** the integration after updating to v0.3.0
-3. **Recreate all schedules** - your previous schedules will not be migrated automatically
-
-We apologize for the inconvenience, but this change ensures better compatibility and follows Home Assistant naming conventions.
-
-> **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev), an AI-powered IDE designed for developers. Kiro combines intelligent code generation with deep integration understanding to accelerate development while maintaining code quality.
+> **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev) and [Claude Code](https://claude.ai).
 
 ## Installation
 
@@ -55,21 +43,18 @@ We apologize for the inconvenience, but this change ensures better compatibility
 ### Initial Setup
 
 1. Go to Settings -> Devices & Services
-2. Click the "Helpers" tab
-3. Click "+ Create Helper" and select "Scheduler"
+2. Click "+ Add Integration"
+3. Search for "HA Scheduler" and select it
 4. Provide a name for the scheduler and click "Submit" to create it
 
 ### Adding Schedules
 
 1. Go to Settings -> Devices & Services
-2. Click the "Helpers" tab
-3. Find the "Scheduler" helper and open it by clicking on it
-4. Click the "Settings" icon (gear symbol in the upper right corner)
-5. Select "Scheduler Options"
-6. Select "Add Schedule"
-7. Enter a name and choose a schedule type (Date, Week, or Nth-Day)
-8. Configure the schedule parameters based on the type selected
-9. (Optional) Add YAML configuration for custom attributes
+2. Find the "HA Scheduler" integration and click "Configure"
+3. Select "Add Schedule"
+4. Enter a name and choose a schedule type (Date, Week, or Nth-Day)
+5. Configure the schedule parameters based on the type selected
+6. (Optional) Add YAML configuration for custom attributes
 
 ### Managing Schedules
 
@@ -83,12 +68,12 @@ The integration automatically prevents overlapping schedules to avoid conflicts.
 
 ### Holiday Import Feature
 
-The Scheduler integration includes a powerful holiday import feature that allows you to automatically create schedules for holidays from any supported country using the Python `holidays` library.
+The HA Scheduler integration includes a powerful holiday import feature that allows you to automatically create schedules for holidays from any supported country using the Python `holidays` library.
 
 #### How to Import Holidays
 
 1. Go to Settings → Devices & Services
-2. Find your Scheduler integration and click "Configure"
+2. Find your HA Scheduler integration and click "Configure"
 3. Select "Import Holidays"
 4. **Step 1**: Choose a country from the extensive list of available options (e.g., US, CA, GB, DE, FR, AU, etc.)
 5. **Step 2**: Select holiday categories available for that country (Public, Bank, School, Observance, etc.)
@@ -197,7 +182,7 @@ The import feature includes comprehensive conflict detection:
 
 ## Schedule Types
 
-The Scheduler integration supports three types of schedules to cover different use cases:
+The HA Scheduler integration supports three types of schedules to cover different use cases:
 
 ### 1. Date-Based Schedules
 
@@ -270,7 +255,7 @@ The Scheduler integration supports three types of schedules to cover different u
 
 ### Calendar Integration
 
-The Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`) that displays all your schedules as calendar events. Each schedule appears as an event during its active period, making it easy to visualize your schedules in Home Assistant's calendar view.
+The HA Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`) that displays all your schedules as calendar events. Each schedule appears as an event during its active period, making it easy to visualize your schedules in Home Assistant's calendar view.
 
 **Calendar Features:**
 - Automatically updates when schedules are added, modified, or deleted
@@ -650,13 +635,13 @@ End: Month 12, Week 0, Day: Friday
 
 ## Diagnostics
 
-The Scheduler integration provides comprehensive diagnostic information to help troubleshoot issues and understand your schedule configuration. The diagnostics include detailed information about each schedule, future date calculations, overlap detection, and more.
+The HA Scheduler integration provides comprehensive diagnostic information to help troubleshoot issues and understand your schedule configuration. The diagnostics include detailed information about each schedule, future date calculations, overlap detection, and more.
 
 ### How to Generate Diagnostics
 
 1. **Via Home Assistant UI:**
    - Go to Settings → Devices & Services
-   - Find your Scheduler integration
+   - Find your HA Scheduler integration
    - Click on the integration name
    - Click the three dots menu (⋮) in the top right
    - Select "Download diagnostics"
