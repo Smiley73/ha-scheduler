@@ -31,6 +31,9 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # Prevent pycares upgrades to 5.0.0+ (incompatible with aiodns)
+      - dependency-name: "pycares"
+        versions: [">=5.0.0"]
 
   # Monitor GitHub Actions
   - package-ecosystem: "github-actions"
