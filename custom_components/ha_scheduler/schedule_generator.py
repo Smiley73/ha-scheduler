@@ -394,8 +394,8 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
             )
         else:
             # Both days specified
-            assert start_day_of_week is not None
-            assert end_day_of_week is not None
+            if start_day_of_week is None or end_day_of_week is None:
+                return []
             return _generate_specific_day_range(
                 year,
                 start_month,

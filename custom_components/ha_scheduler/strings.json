@@ -89,9 +89,15 @@
       },
       "remove_schedule": {
         "title": "Remove schedule",
+        "description": "Select a schedule to remove",
+        "data": {
+          "schedule_id": "Schedule"
+        }
+      },
+      "remove_schedule_confirm": {
+        "title": "Remove schedule",
         "description": "Are you sure you want to remove {schedule_name} ({schedule_type})?",
         "data": {
-          "schedule_id": "Schedule",
           "confirm": "Confirm removal"
         }
       },
@@ -137,10 +143,13 @@
       "no_schedules": "No schedules configured",
       "invalid_yaml": "Invalid YAML configuration",
       "duplicate_name": "A schedule with this name already exists. Please choose a different name.",
-      "duplicate_scheduler_name": "Name already exists. Please choose a different name.",
-      "schedule_overlap": "This schedule overlaps with another schedule",
+      "duplicate_scheduler_name": "A scheduler with this name already exists. Please choose a different name.",
+      "schedule_overlap": "This schedule overlaps with an existing schedule",
       "no_countries_available": "No countries available for holiday import",
-      "import_error": "Failed to load holiday data"
+      "import_error": "Failed to load holiday data",
+      "no_holidays_imported": "No holidays were imported. All selected holidays were already present or would overlap with existing schedules.",
+      "entry_not_found": "Config entry not found",
+      "no_holidays_selected": "Please select at least one holiday to import"
     },
     "abort": {
       "no_schedules": "No schedules to edit or remove",

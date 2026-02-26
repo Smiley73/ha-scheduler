@@ -9,8 +9,8 @@ from typing import Any
 import voluptuous as vol
 import yaml
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -80,7 +80,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors = {}
 
@@ -122,13 +122,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> OptionsFlowHandler:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Scheduler."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    def __init__(self) -> None:
         """Initialize options flow."""
         self._schedule_id: str | None = None
         self._schedule_data: dict[str, Any] = {}
@@ -197,9 +197,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 sid != self._schedule_id
                 and schedule["name"].strip().lower() == schedule_name
             ):
-                errors["name"] = (
-                    "A schedule with this name already exists. Please choose a different name."
-                )
+                errors["name"] = "duplicate_name"
                 break
 
         if not errors:
@@ -218,7 +216,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         return self.async_show_menu(
             step_id="init",
@@ -233,7 +231,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_add_schedule(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Add a new schedule - select type first."""
         if user_input is not None:
             self._schedule_data = {"schedule_type": user_input["schedule_type"]}
@@ -269,9 +267,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_configure_date(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure date-based schedule (single page)."""
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -366,9 +364,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_configure_week(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure week-based schedule (single page)."""
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -539,9 +537,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_configure_nth_day(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure nth-day schedule (single page)."""
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -639,7 +637,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_edit_schedule(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Select a schedule to edit."""
         schedules = self._get_service_schedules()
 
@@ -689,7 +687,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_remove_schedule(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Remove a schedule."""
         schedules = self._get_service_schedules()
 
@@ -735,7 +733,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_remove_schedule_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Confirm schedule removal."""
         schedules = self._get_service_schedules()
 
@@ -755,9 +753,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_default_configuration(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure default configuration."""
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -774,7 +772,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     self.config_entry.entry_id
                 )
                 if not entry:
-                    errors["base"] = "Entry not found"
+                    errors["base"] = "entry_not_found"
                     return self.async_show_form(
                         step_id="default_configuration",
                         data_schema=vol.Schema(
@@ -820,6 +818,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         current_config = services.get(self._service_id, {}).get("configuration", {})
         config_str = yaml.dump(current_config) if current_config else ""
 
+        # If re-displaying after an error, preserve what the user typed so they can correct it
+        if user_input is not None and errors:
+            config_str = user_input.get("configuration") or ""
+
         return self.async_show_form(
             step_id="default_configuration",
             data_schema=vol.Schema(
@@ -834,7 +836,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_import_holidays(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import holidays - step 1: select country."""
         if user_input is not None:
             self._holiday_data = {"country": user_input["country"]}
@@ -872,7 +874,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_import_holidays_categories(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import holidays - step 2: select categories."""
         if user_input is not None:
             self._holiday_data["categories"] = user_input.get("categories", ["public"])
@@ -917,7 +919,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_import_holidays_select(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import holidays - step 3: select specific holidays."""
         if user_input is not None:
             selected_holidays = user_input.get("holidays", [])
@@ -929,7 +931,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_show_form(
                     step_id="import_holidays_select",
                     data_schema=await self._get_holiday_selection_schema(),
-                    errors={"holidays": "Please select at least one holiday to import"},
+                    errors={"holidays": "no_holidays_selected"},
                 )
 
             return await self._import_selected_holidays(
@@ -1042,7 +1044,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         overwrite_existing: bool,
         skip_on_overlap: bool,
         include_country_name: bool = False,
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import the selected holidays as schedules."""
         try:
             from .holiday_importer import get_holidays_for_country
@@ -1052,11 +1054,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             categories = self._holiday_data.get("categories", ["public"])
 
             if not country:
-                return self.async_show_form(
-                    step_id="import_holidays_select",
-                    data_schema=await self._get_holiday_selection_schema(),
-                    errors={"base": "Country not selected"},
-                )
+                return self.async_abort(reason="import_error")
 
             all_holidays = await get_holidays_for_country(country, categories)
 
@@ -1148,28 +1146,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if skipped_count > 0:
                     messages.append(f"Skipped {skipped_count} holiday(s)")
 
-                success_message = ", ".join(messages)
-
-                return self.async_create_entry(
-                    title="", data=updated_options, description=success_message
-                )
+                return self.async_create_entry(title="", data=updated_options)
             else:
-                # Nothing was imported
-                shown = errors[:3]
-                suffix = f" (and {len(errors) - 3} more)" if len(errors) > 3 else ""
-                error_message = (
-                    "No holidays were imported. " + "; ".join(shown) + suffix
-                )
+                # Nothing was imported - all selected holidays were skipped or errored
+                _LOGGER.debug("No holidays imported. Details: %s", errors)
                 return self.async_show_form(
                     step_id="import_holidays_select",
                     data_schema=await self._get_holiday_selection_schema(),
-                    errors={"base": error_message},
+                    errors={"base": "no_holidays_imported"},
                 )
 
-        except Exception as e:
+        except Exception:
             _LOGGER.exception("Failed to import holidays")
             return self.async_show_form(
                 step_id="import_holidays_select",
                 data_schema=await self._get_holiday_selection_schema(),
-                errors={"base": f"Import failed: {str(e)}"},
+                errors={"base": "import_error"},
             )

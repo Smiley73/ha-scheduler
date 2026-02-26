@@ -465,7 +465,7 @@ class TestHolidayImportOptions:
             assert result["type"] == FlowResultType.FORM
             assert "errors" in result
             assert "base" in result["errors"]
-            assert "already exists" in result["errors"]["base"]
+            assert result["errors"]["base"] == "no_holidays_imported"
 
             # Original schedules should remain unchanged
             updated_entry = hass.config_entries.async_get_entry(
@@ -953,10 +953,7 @@ class TestHolidayImportErrorHandling:
             assert result["type"] == FlowResultType.FORM
             assert "errors" in result
             assert "holidays" in result["errors"]
-            assert (
-                "Please select at least one holiday to import"
-                in result["errors"]["holidays"]
-            )
+            assert result["errors"]["holidays"] == "no_holidays_selected"
 
             # Original schedules should remain unchanged
             updated_entry = hass.config_entries.async_get_entry(
@@ -1025,7 +1022,7 @@ class TestHolidayImportErrorHandling:
             assert result["type"] == FlowResultType.FORM
             assert "errors" in result
             assert "base" in result["errors"]
-            assert "Could not determine pattern" in result["errors"]["base"]
+            assert result["errors"]["base"] == "no_holidays_imported"
 
             # Should not add schedules with invalid patterns
             updated_entry = hass.config_entries.async_get_entry(

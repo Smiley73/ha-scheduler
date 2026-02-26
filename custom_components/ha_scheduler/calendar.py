@@ -9,10 +9,13 @@ import homeassistant.util.dt as dt_util
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CALENDAR_YEAR_LOOKAROUND
 from .schedule_generator import generate_schedule_dates
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -72,14 +75,18 @@ class SchedulerCalendar(CalendarEntity):
         self._attr_name = service_name
 
         # Set device info to group calendars under the scheduler service
-        self._attr_device_info = {
-            "identifiers": {("ha_scheduler", entry.entry_id)},
-            "name": entry.title,
-            "manufacturer": "HA Scheduler",
-            "model": "Scheduler Service",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={("ha_scheduler", entry.entry_id)},
+            name=entry.title,
+            manufacturer="HA Scheduler",
+            model="Scheduler Service",
+        )
 
-        entry.async_on_unload(entry.add_update_listener(self._async_update_listener))
+    async def async_added_to_hass(self) -> None:
+        """Register update listener when entity is added to hass."""
+        self._entry.async_on_unload(
+            self._entry.add_update_listener(self._async_update_listener)
+        )
 
     async def _async_update_listener(
         self, hass: HomeAssistant, entry: ConfigEntry

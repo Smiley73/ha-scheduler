@@ -699,10 +699,9 @@ Implement comprehensive diagnostics data collection:
 - Maintains data structure integrity (preserves dict/list types)
 
 **Privacy and Security**:
-- No sensitive data exposure (API keys, passwords, personal info)
 - Schedule names and service names included for context
-- Configuration content included but should not contain sensitive data
 - Entry IDs included for correlation but are not sensitive
+- Configuration content is passed through `async_redact_data` with a set of common sensitive key names (e.g., `api_key`, `password`, `token`, `secret`) before inclusion, so user-stored credentials are automatically masked
 
 **Diagnostic Data Structure**:
 ```python
@@ -778,13 +777,18 @@ Implement comprehensive diagnostics data collection:
 
 4. **Device Integration**:
    ```python
-   self._attr_device_info = {
-       "identifiers": {("ha_scheduler", entry.entry_id)},
-       "name": entry.title,
-       "manufacturer": "HA Scheduler",
-       "model": "Scheduler Service",
-   }
+   from homeassistant.helpers.device_registry import DeviceInfo
+   self._attr_device_info = DeviceInfo(
+       identifiers={("ha_scheduler", entry.entry_id)},
+       name=entry.title,
+       manufacturer="HA Scheduler",
+       model="Scheduler Service",
+   )
    ```
+
+5. **Parallel Updates**: Set `PARALLEL_UPDATES = 0` at module level (no external I/O).
+
+6. **Update Listener**: Register the config entry update listener in `async_added_to_hass()`, not in `__init__`, so it only activates after the entity is fully registered with the entity registry.
 
 ### schedule_generator.py
 Implement functions:

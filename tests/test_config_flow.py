@@ -372,9 +372,7 @@ async def test_add_schedule_duplicate_name(
     )
 
     assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {
-        "name": "A schedule with this name already exists. Please choose a different name."
-    }
+    assert result["errors"] == {"name": "duplicate_name"}
 
 
 async def test_edit_schedule_keep_same_name(
@@ -550,8 +548,6 @@ async def test_holiday_import_error_truncation(
             },
         )
 
-    # All 5 overlap → shows first 3 errors + "(and 2 more)"
+    # All 5 overlap → shows no_holidays_imported key (details logged, not shown to user)
     assert result["type"] == FlowResultType.FORM
-    error_msg = result["errors"]["base"]
-    assert "No holidays were imported." in error_msg
-    assert "(and 2 more)" in error_msg
+    assert result["errors"]["base"] == "no_holidays_imported"

@@ -157,7 +157,7 @@ def _get_supported_countries_sync() -> dict[str, str]:
 
 async def get_supported_countries() -> dict[str, str]:
     """Get list of all supported countries dynamically."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_supported_countries_sync)
 
 
@@ -222,7 +222,7 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
 
 async def get_available_categories(country_code: str) -> dict[str, str]:
     """Get available holiday categories for a specific country."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None, _get_available_categories_sync, country_code
     )
@@ -340,7 +340,7 @@ async def get_holidays_for_country(
     country_code: str, categories: list[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Get all holidays for a country with their patterns."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None, _get_holidays_for_country_sync, country_code, categories
     )
