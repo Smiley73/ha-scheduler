@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CALENDAR_YEAR_LOOKAROUND
+from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN
 from .schedule_generator import generate_schedule_dates
 
 PARALLEL_UPDATES = 0
@@ -76,7 +76,7 @@ class SchedulerCalendar(CalendarEntity):
 
         # Set device info to group calendars under the scheduler service
         self._attr_device_info = DeviceInfo(
-            identifiers={("ha_scheduler", entry.entry_id)},
+            identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
             manufacturer="HA Scheduler",
             model="Scheduler Service",
