@@ -132,7 +132,7 @@ The integration includes a comprehensive holiday import feature that automatical
 - **Optional**: Optional or regional holidays
 
 #### Pattern Analysis
-The system automatically analyzes holidays across multiple years (2023-2025) to determine the optimal schedule type:
+The system automatically analyzes holidays across multiple years (dynamic range: `today.year ± CALENDAR_YEAR_LOOKAROUND`) to determine the optimal schedule type:
 
 **Fixed Date Holidays** (e.g., Independence Day, Christmas):
 - Same date every year (July 4th, December 25th)
@@ -205,7 +205,7 @@ The system automatically analyzes holidays across multiple years (2023-2025) to 
 - **Lazy Imports**: Babel and holidays libraries imported inside functions to avoid blocking I/O during module import
 - **Graceful Fallback**: Complete feature gracefully disabled when holidays library unavailable
 - **Comprehensive Error Handling**: Individual holiday processing errors don't stop entire import
-- **Multi-Year Analysis**: Pattern analysis across 3 years (2023-2025) for accuracy
+- **Multi-Year Analysis**: Pattern analysis across a dynamic year range (`today.year ± CALENDAR_YEAR_LOOKAROUND`) for accuracy; never hardcodes specific years
 - **Category Support**: Dynamic category discovery per country with fallback to "public" holidays
 - **Localization Support**: Babel integration for proper country names and date formatting
 
@@ -347,6 +347,12 @@ Present menu with five options:
    - Handle date overlaps based on skip setting
    - Generate schedule names: "{Holiday Name} ({Country})" or "{Holiday Name}" based on flag
    - Show import results: imported count, skipped count, overwritten count, errors
+   - **Error message truncation**: When all selected holidays fail to import, show the first 3 error reasons followed by `" (and N more)"` if there are additional errors beyond 3:
+     ```python
+     shown = errors[:3]
+     suffix = f" (and {len(errors) - 3} more)" if len(errors) > 3 else ""
+     error_message = "No holidays were imported. " + "; ".join(shown) + suffix
+     ```
 
 ### Default Configuration Flow
 1. Single-page form with YAML input (TemplateSelector)
@@ -479,6 +485,7 @@ Present menu with five options:
 - Each event has unique UID: `{schedule_uid}_{year}`
 - All events are all-day events
 - End date is exclusive (add 1 day for calendar display)
+- **Current event detection** (`event` property): scans `±CALENDAR_YEAR_LOOKAROUND` years from today using the `CALENDAR_YEAR_LOOKAROUND` constant (7-year window total)
 
 ### Event Properties
 - **summary**: Schedule name
@@ -645,10 +652,21 @@ Define constants:
 ```python
 DOMAIN = "ha_scheduler"
 
+# Calendar event window: generate events ±CALENDAR_YEAR_LOOKAROUND years from today
+CALENDAR_YEAR_LOOKAROUND = 3  # used in calendar.py and holiday_importer.py
+
+# Internal keys (lowercase, used for option values and data storage)
 MONTH_NAMES = ["january", "february", "march", ...]  # 12 items
 DAY_NAMES = ["monday", "tuesday", "wednesday", ...]  # 7 items
 OCCURRENCE_NAMES = ["first", "second", "third", "fourth", "last"]  # 5 items
+
+# Display labels (Title Case, used in UI dropdowns and holiday pattern descriptions)
+MONTH_NAMES_DISPLAY = ["January", "February", "March", ...]  # 12 items
+DAY_NAMES_DISPLAY = ["Monday", "Tuesday", "Wednesday", ...]  # 7 items
+OCCURRENCE_NAMES_DISPLAY = ["First", "Second", "Third", "Fourth", "Last"]  # 5 items
 ```
+
+**Key rule**: `MONTH_NAMES_DISPLAY`, `DAY_NAMES_DISPLAY`, and `OCCURRENCE_NAMES_DISPLAY` are the single source of truth for human-readable name arrays. They must not be duplicated inline in `config_flow.py`, `holiday_importer.py`, or `diagnostics.py` — import from `const.py` instead.
 
 ### diagnostics.py
 Implement comprehensive diagnostics data collection:
@@ -885,6 +903,14 @@ The system automatically detects and handles different week start conventions:
 
 **Critical Implementation Requirements**:
 
+0. **Shared conflict validation helper** — `_validate_schedule_conflicts()` in `OptionsFlowHandler` consolidates the duplicate-name + overlap checks that previously appeared in three separate step methods (add, edit, holiday import). Call this helper from each step instead of duplicating the logic:
+   ```python
+   def _validate_schedule_conflicts(
+       self, schedule_data: dict, exclude_uid: str | None = None
+   ) -> dict[str, str]:
+       """Check for duplicate name and overlap; return errors dict."""
+   ```
+
 1. **Always use fresh options data**:
    ```python
    entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
@@ -984,15 +1010,25 @@ Include `data_description` for configuration fields:
 
 ## Testing Requirements
 
+### Test Infrastructure
+
+**`tests/conftest.py`** provides shared fixtures and helpers for all tests:
+- `create_service_entry` fixture — factory function returning `MockConfigEntry` with the `services` structure; accepts `title`, `schedules`, and `configuration` kwargs
+- `get_schedules_from_entry(entry)` — module-level helper to extract schedules dict from a service entry
+- `get_configuration_from_entry(entry)` — module-level helper to extract configuration dict from a service entry
+- All new tests should use these fixtures instead of defining local helpers
+- All `MockConfigEntry` instances must use the `services` structure (not legacy `schedules`/`configuration` at top level)
+
 ### Test Coverage Areas
 1. **Config flow tests**: All flow paths (add, edit, remove, import holidays, default config)
 2. **Schedule generator tests**: All schedule types, edge cases, overlap detection
-3. **Calendar tests**: Event generation, year wrapping, configuration handling, entity ID validation
-4. **Integration tests**: Full setup/unload cycle
+3. **Calendar tests**: Event generation, year wrapping, configuration handling, entity ID validation, `CALENDAR_YEAR_LOOKAROUND` constant value, 7-year event window
+4. **Integration tests**: Full setup/unload/reload cycle
 5. **Persistence tests**: Verify schedules are properly saved and loaded
 6. **Diagnostics tests**: All schedule types, configuration handling, service-based data structure
 7. **Migration tests**: V1 to V2 migration, data preservation, entity continuity
 8. **Holiday import tests**: Country discovery, category detection, pattern analysis, conflict resolution
+9. **Multi-service tests**: Multiple services per config entry, independent calendars and schedules, per-service unique IDs and default configurations
 
 ### Critical Test Scenarios
 - Adding multiple schedules without overwriting existing ones
@@ -1013,6 +1049,10 @@ Include `data_description` for configuration fields:
 - **Migration testing**: V1 to V2 migration preserves all data and entity IDs
 - **Entity ID continuity**: Verify no duplicate entities are created during migration
 - **Unique ID preservation**: Confirm default service maintains original unique ID format
+- **`CALENDAR_YEAR_LOOKAROUND` constant**: Verify value is 3; verify `async_get_events` returns exactly `2 * CALENDAR_YEAR_LOOKAROUND + 1` annual occurrences over the full ±lookaround window
+- **Integration lifecycle**: Verify `async_setup_entry` → `async_unload_entry` → `async_setup_entry` (reload) leaves entity state intact
+- **Multi-service config entries**: Both calendars created, each shows only its own schedules, unique IDs assigned correctly, `default_configuration` is per-service
+- **Holiday import error truncation**: When >3 holidays fail to import, error message ends with `" (and N more)"`
 
 ### Holiday Import Test Scenarios
 - **Country Discovery**: Dynamic loading of 499+ countries from holidays library
@@ -1025,6 +1065,7 @@ Include `data_description` for configuration fields:
 - **Async Operations**: Non-blocking holiday data processing
 - **Import Results**: Accurate reporting of imported/skipped/overwritten counts
 - **Pattern Fallbacks**: Single-date holidays get appropriate fallback patterns
+- **Error Truncation**: When all imports fail and >3 errors, message shows `"(and N more)"`
 
 ### Diagnostics Test Scenarios
 - Empty schedules (no schedules configured)
