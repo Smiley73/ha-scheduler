@@ -1181,3 +1181,277 @@ async def test_import_holidays_no_holidays_selected(
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"holidays": "no_holidays_selected"}
+
+
+async def test_options_flow_add_date_schedule_with_configuration(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test adding a date schedule with YAML configuration."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_type": "date"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Configured Schedule",
+            "start_month": "2",
+            "start_day": 1,
+            "end_month": "3",
+            "end_day": 15,
+            "configuration": "color: red\nbrightness: 75",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    schedules = get_schedules_from_entry(entry)
+    schedule = list(schedules.values())[0]
+    assert schedule["configuration"] == {"color": "red", "brightness": 75}
+
+
+async def test_options_flow_invalid_yaml_non_dict(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test non-dict YAML is rejected for schedule configuration."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_type": "date"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Bad Config Schedule",
+            "start_month": "1",
+            "start_day": 1,
+            "end_month": "12",
+            "end_day": 31,
+            "configuration": "- one\n- two",
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "invalid_yaml_with_details"
+    assert "YAML dictionary" in result["description_placeholders"]["details"]
+
+
+async def test_default_configuration_invalid_yaml_non_dict(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test non-dict YAML is rejected for default configuration."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "default_configuration"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"configuration": "- one\n- two"},
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "invalid_yaml_with_details"
+    assert "YAML dictionary" in result["description_placeholders"]["details"]
+
+
+async def test_options_flow_add_week_schedule_whole_week_no_types(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test week schedule without week types or day filters."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_type": "week"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Whole Week Schedule",
+            "start_month": "1",
+            "start_week": "1",
+            "start_day_of_week": "",
+            "end_month": "2",
+            "end_week": "4",
+            "end_day_of_week": "",
+            "configuration": "",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    schedules = get_schedules_from_entry(entry)
+    schedule = list(schedules.values())[0]
+    assert schedule["start_week"] == 1
+    assert schedule["end_week"] == 4
+    assert "start_week_type" not in schedule
+    assert "end_week_type" not in schedule
+    assert "start_day_of_week" not in schedule
+    assert "end_day_of_week" not in schedule
+
+
+async def test_holiday_selection_schema_without_holiday_data(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test holiday selection schema with missing holiday data."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow = hass.config_entries.options._progress[result["flow_id"]]
+    result = await flow.async_step_import_holidays_select()
+
+    assert result["type"] == FlowResultType.FORM
+    schema = result["data_schema"].schema
+    holiday_selector = next(
+        value for key, value in schema.items() if str(key) == "holidays"
+    )
+    assert holiday_selector.config["options"] == []
+
+
+async def test_holiday_selection_schema_fetch_error(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test holiday selection schema when fetching holidays fails."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow._holiday_data = {"country": "US", "categories": ["public"]}
+
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+        new=AsyncMock(side_effect=Exception("boom")),
+    ):
+        result = await flow.async_step_import_holidays_select()
+
+    assert result["type"] == FlowResultType.FORM
+    schema = result["data_schema"].schema
+    holiday_selector = next(
+        value for key, value in schema.items() if str(key) == "holidays"
+    )
+    assert holiday_selector.config["options"] == []
+
+
+async def test_import_holidays_categories_error(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test import holidays aborts when categories cannot be loaded."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"US": "United States"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(side_effect=Exception("boom")),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "import_holidays"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"country": "US"}
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "import_error"
+
+
+async def test_import_holidays_missing_country(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test import holidays aborts when country is missing."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow._holiday_data = {"categories": ["public"]}
+
+    result = await flow.async_step_import_holidays_select(
+        {
+            "holidays": ["Holiday A"],
+        }
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "import_error"
+
+
+async def test_default_configuration_clear_with_single_space(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test clearing default configuration using a single space."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "default_configuration"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"configuration": "key: value"},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "default_configuration"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"configuration": " "},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"]["services"]["default"]["configuration"] == {}

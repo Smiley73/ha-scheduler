@@ -11,7 +11,7 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
 async def test_config_flow_duplicate_name(hass: HomeAssistant) -> None:
-    """Test config flow allows duplicate integration names."""
+    """Test config flow rejects duplicate integration names."""
     # Create first entry
     entry1 = MockConfigEntry(
         domain=DOMAIN,
@@ -31,8 +31,8 @@ async def test_config_flow_duplicate_name(hass: HomeAssistant) -> None:
         {"scheduler_name": "Test Scheduler"},  # Same name as existing entry
     )
 
-    # Should show form (Home Assistant allows duplicate titles but may show form for additional config)
-    assert result["type"] in [FlowResultType.CREATE_ENTRY, FlowResultType.FORM]
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"scheduler_name": "duplicate_scheduler_name"}
 
 
 async def test_options_flow_with_corrupted_data(hass: HomeAssistant) -> None:
