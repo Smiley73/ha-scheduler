@@ -136,11 +136,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self) -> None:
         """Initialize options flow."""
-        self._schedule_id: str | None = None
-        self._schedule_data: dict[str, Any] = {}
+        self._schedule_id: str | None = (
+            None  # UUID of the schedule being added or edited
+        )
+        self._schedule_data: dict[
+            str, Any
+        ] = {}  # Form defaults for the active schedule step
         self._service_id: str = "default"  # Default service for now
-        self._holiday_data: dict[str, Any] = {}
+        self._holiday_data: dict[
+            str, Any
+        ] = {}  # State carried across the multi-step holiday import flow
+        # Populated by _validate_schedule_conflicts to carry the conflicting schedule's
+        # name into the error placeholder shown to the user.
         self._overlap_conflicting_name: str | None = None
+        # Populated when YAML parsing fails so the error message can include details.
         self._yaml_error_details: str | None = None
 
     def _get_service_schedules(self) -> dict[str, Any]:
@@ -242,6 +251,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             has_overlap, conflicting_name = check_overlap(
                 data,
                 list(schedules.values()),
+                # When editing, exclude the current schedule so it doesn't conflict with itself.
+                # When adding, _schedule_id is a new UUID not yet in schedules, so exclude_uid=None.
                 exclude_uid=self._schedule_id
                 if self._schedule_id in schedules
                 else None,

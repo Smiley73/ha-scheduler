@@ -142,6 +142,7 @@ class SchedulerCalendar(CalendarEntity):
 
         all_events = []
         for schedule in schedules:
+            # Check surrounding years to catch schedules that wrap across year boundaries
             for year in range(
                 current_year - CALENDAR_YEAR_LOOKAROUND,
                 current_year + CALENDAR_YEAR_LOOKAROUND + 1,
