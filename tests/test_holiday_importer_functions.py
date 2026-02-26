@@ -130,7 +130,7 @@ class TestGetSupportedCountriesSync:
 
                     # Should still return the successful country
                     assert isinstance(result, dict)
-                    assert "US" in result or len(result) > 0
+                    assert "US" in result
 
     def test_get_supported_countries_fallback_on_total_failure(self):
         """Test fallback when all country discovery fails."""
@@ -211,9 +211,12 @@ class TestGetHolidaysForCountrySync:
     def test_get_holidays_multiple_years(self):
         """Test that holidays are collected across multiple years."""
 
-        # Mock different holidays in different years
+        # Mock different holidays in different years.
+        # The importer calls holidays.country_holidays(country, years=year) with
+        # years as an int, so the mock must handle both int and list.
         def mock_holiday_factory(country, **kwargs):
-            year = kwargs.get("years", [2024])[0]
+            years_arg = kwargs.get("years", 2024)
+            year = years_arg[0] if isinstance(years_arg, (list, tuple)) else years_arg
             if year == 2023:
                 return {date(2023, 7, 4): "Independence Day"}
             elif year == 2024:
@@ -231,12 +234,13 @@ class TestGetHolidaysForCountrySync:
                 ):
                     result = _get_holidays_for_country_sync("US", ["public"])
 
-                    # Should have collected holidays from multiple years
-                    if result:
-                        for holiday_name, holiday_data in result.items():
-                            if "dates" in holiday_data:
-                                # Check that dates span multiple years
-                                assert isinstance(holiday_data["dates"], list)
+                    # Should have collected "Independence Day" from multiple years
+                    assert "Independence Day" in result
+                    holiday_data = result["Independence Day"]
+                    assert "dates" in holiday_data
+                    assert isinstance(holiday_data["dates"], list)
+                    # Collected from ≥2 distinct years
+                    assert len(holiday_data["dates"]) >= 2
 
     def test_get_holidays_holidays_unavailable(self):
         """Test getting holidays when library unavailable."""

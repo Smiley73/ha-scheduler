@@ -2,9 +2,7 @@
 
 import pytest
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.ha_scheduler.const import DOMAIN
 from custom_components.ha_scheduler.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -12,34 +10,11 @@ from custom_components.ha_scheduler.diagnostics import (
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
-def _create_service_entry(title="Test Scheduler", schedules=None, configuration=None):
-    """Create a test config entry with service-based structure."""
-    if schedules is None:
-        schedules = {}
-    if configuration is None:
-        configuration = {}
-
-    return MockConfigEntry(
-        domain=DOMAIN,
-        title=title,
-        data={"scheduler_name": title},
-        options={
-            "services": {
-                "default": {
-                    "name": title,
-                    "schedules": schedules,
-                    "configuration": configuration,
-                }
-            }
-        },
-        version=2,  # Set version to 2 to avoid migration
-        minor_version=1,
-    )
-
-
-async def test_diagnostics_empty_schedules(hass: HomeAssistant) -> None:
+async def test_diagnostics_empty_schedules(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with no schedules."""
-    entry = _create_service_entry()
+    entry = create_service_entry()
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -56,7 +31,9 @@ async def test_diagnostics_empty_schedules(hass: HomeAssistant) -> None:
     assert default_service["default_configuration"]["has_configuration"] is False
 
 
-async def test_diagnostics_with_date_schedule(hass: HomeAssistant) -> None:
+async def test_diagnostics_with_date_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with a date-based schedule."""
     schedule_data = {
         "schedule-1": {
@@ -69,7 +46,7 @@ async def test_diagnostics_with_date_schedule(hass: HomeAssistant) -> None:
             "uid": "schedule-1",
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -90,7 +67,9 @@ async def test_diagnostics_with_date_schedule(hass: HomeAssistant) -> None:
     assert schedule["has_configuration"] is False
 
 
-async def test_diagnostics_with_week_schedule(hass: HomeAssistant) -> None:
+async def test_diagnostics_with_week_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with a week-based schedule."""
     schedule_data = {
         "schedule-2": {
@@ -105,7 +84,7 @@ async def test_diagnostics_with_week_schedule(hass: HomeAssistant) -> None:
             "uid": "schedule-2",
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -119,7 +98,9 @@ async def test_diagnostics_with_week_schedule(hass: HomeAssistant) -> None:
     assert schedule["end_week"] == 4
 
 
-async def test_diagnostics_with_nth_day_schedule(hass: HomeAssistant) -> None:
+async def test_diagnostics_with_nth_day_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with an nth-day schedule."""
     schedule_data = {
         "schedule-3": {
@@ -133,7 +114,7 @@ async def test_diagnostics_with_nth_day_schedule(hass: HomeAssistant) -> None:
             "uid": "schedule-3",
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -148,7 +129,9 @@ async def test_diagnostics_with_nth_day_schedule(hass: HomeAssistant) -> None:
     assert schedule["day_of_week"] == 1
 
 
-async def test_diagnostics_with_configuration(hass: HomeAssistant) -> None:
+async def test_diagnostics_with_configuration(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with schedule configuration."""
     schedule_data = {
         "schedule-4": {
@@ -165,7 +148,7 @@ async def test_diagnostics_with_configuration(hass: HomeAssistant) -> None:
             },
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -177,13 +160,15 @@ async def test_diagnostics_with_configuration(hass: HomeAssistant) -> None:
     assert schedule["configuration"]["description"] == "Test Description"
 
 
-async def test_diagnostics_with_default_configuration(hass: HomeAssistant) -> None:
+async def test_diagnostics_with_default_configuration(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with default configuration."""
     default_config = {
         "summary": "Default Event",
         "location": "Home",
     }
-    entry = _create_service_entry(configuration=default_config)
+    entry = create_service_entry(configuration=default_config)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -199,7 +184,9 @@ async def test_diagnostics_with_default_configuration(hass: HomeAssistant) -> No
     )
 
 
-async def test_diagnostics_multiple_schedules(hass: HomeAssistant) -> None:
+async def test_diagnostics_multiple_schedules(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test diagnostics with multiple schedules."""
     schedule_data = {
         "schedule-1": {
@@ -223,7 +210,7 @@ async def test_diagnostics_multiple_schedules(hass: HomeAssistant) -> None:
             "uid": "schedule-2",
         },
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -237,7 +224,9 @@ async def test_diagnostics_multiple_schedules(hass: HomeAssistant) -> None:
     assert names == {"Schedule 1", "Schedule 2"}
 
 
-async def test_diagnostics_includes_future_dates(hass: HomeAssistant) -> None:
+async def test_diagnostics_includes_future_dates(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test that diagnostics includes future date calculations."""
     schedule_data = {
         "schedule-1": {
@@ -250,7 +239,7 @@ async def test_diagnostics_includes_future_dates(hass: HomeAssistant) -> None:
             "uid": "schedule-1",
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -277,7 +266,9 @@ async def test_diagnostics_includes_future_dates(hass: HomeAssistant) -> None:
             assert year_data["duration_days"] == 92
 
 
-async def test_diagnostics_day_names_week_schedule(hass: HomeAssistant) -> None:
+async def test_diagnostics_day_names_week_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test that week schedules include day names alongside day numbers."""
     schedule_data = {
         "schedule-week": {
@@ -292,7 +283,7 @@ async def test_diagnostics_day_names_week_schedule(hass: HomeAssistant) -> None:
             "uid": "schedule-week",
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
@@ -305,7 +296,9 @@ async def test_diagnostics_day_names_week_schedule(hass: HomeAssistant) -> None:
     assert schedule["end_day_name"] == "Friday"
 
 
-async def test_diagnostics_day_names_nth_day_schedule(hass: HomeAssistant) -> None:
+async def test_diagnostics_day_names_nth_day_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test that nth-day schedules include day names alongside day numbers."""
     schedule_data = {
         "schedule-thanksgiving": {
@@ -319,7 +312,7 @@ async def test_diagnostics_day_names_nth_day_schedule(hass: HomeAssistant) -> No
             "uid": "schedule-thanksgiving",
         }
     }
-    entry = _create_service_entry(schedules=schedule_data)
+    entry = create_service_entry(schedules=schedule_data)
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
