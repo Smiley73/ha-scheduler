@@ -243,7 +243,9 @@ async def test_options_flow_invalid_yaml(
         },
     )
     assert result["type"] == FlowResultType.FORM
-    assert "base" in result["errors"]
+    assert result["errors"]["base"] == "invalid_yaml_with_details"
+    assert "details" in result["description_placeholders"]
+    assert "Invalid YAML:" in result["description_placeholders"]["details"]
 
 
 async def test_options_flow_edit_schedule_with_configuration(

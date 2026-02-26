@@ -134,6 +134,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self._schedule_data: dict[str, Any] = {}
         self._service_id: str = "default"  # Default service for now
         self._holiday_data: dict[str, Any] = {}
+        self._overlap_conflicting_name: str | None = None
+        self._yaml_error_details: str | None = None
 
     def _get_service_schedules(self) -> dict[str, Any]:
         """Get schedules for the current service."""
@@ -179,6 +181,35 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # Legacy structure - update directly
             return {**entry.options, "schedules": schedules}
 
+    def _get_overlap_placeholders(
+        self, errors: dict[str, str]
+    ) -> dict[str, str] | None:
+        """Return placeholders for overlap errors when available."""
+        if errors.get("base") != "schedule_overlap_with_name":
+            return None
+        if not self._overlap_conflicting_name:
+            return None
+        return {"conflicting_schedule": self._overlap_conflicting_name}
+
+    def _get_yaml_error_placeholders(
+        self, errors: dict[str, str]
+    ) -> dict[str, str] | None:
+        """Return placeholders for YAML validation errors when available."""
+        if errors.get("base") != "invalid_yaml_with_details":
+            return None
+        if not self._yaml_error_details:
+            return None
+        return {"details": self._yaml_error_details}
+
+    def _get_error_placeholders(self, errors: dict[str, str]) -> dict[str, str] | None:
+        """Return placeholders for the current error state when available."""
+        placeholders: dict[str, str] = {}
+        if overlap_placeholders := self._get_overlap_placeholders(errors):
+            placeholders.update(overlap_placeholders)
+        if yaml_placeholders := self._get_yaml_error_placeholders(errors):
+            placeholders.update(yaml_placeholders)
+        return placeholders or None
+
     def _validate_schedule_conflicts(
         self, data: dict[str, Any], schedules: dict[str, Any]
     ) -> dict[str, str]:
@@ -189,6 +220,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         from .schedule_generator import check_overlap
 
         errors: dict[str, str] = {}
+        self._overlap_conflicting_name = None
 
         # Check for duplicate schedule names
         schedule_name = data["name"].strip().lower()
@@ -210,7 +242,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
             if has_overlap:
-                errors["base"] = f"This schedule overlaps with '{conflicting_name}'"
+                _LOGGER.debug(
+                    "Schedule overlaps with existing schedule: %s", conflicting_name
+                )
+                self._overlap_conflicting_name = conflicting_name
+                if conflicting_name:
+                    errors["base"] = "schedule_overlap_with_name"
+                else:
+                    errors["base"] = "schedule_overlap"
 
         return errors
 
@@ -269,6 +308,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure date-based schedule (single page)."""
+        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -308,7 +348,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -360,12 +404,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="configure_date",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_configure_week(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure week-based schedule (single page)."""
+        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -450,7 +496,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -533,12 +583,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="configure_week",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_configure_nth_day(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure nth-day schedule (single page)."""
+        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -576,7 +628,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -633,6 +689,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="configure_nth_day",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_edit_schedule(
@@ -755,6 +812,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure default configuration."""
+        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -807,7 +865,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -832,6 +894,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 }
             ),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_import_holidays(
