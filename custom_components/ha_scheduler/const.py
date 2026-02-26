@@ -2,6 +2,9 @@
 
 DOMAIN = "ha_scheduler"
 
+# How many years before/after today to include when generating calendar events
+CALENDAR_YEAR_LOOKAROUND = 3
+
 # Month names for display
 MONTH_NAMES = [
     "january",
@@ -37,6 +40,13 @@ OCCURRENCE_NAMES = [
     "fourth",
     "last",
 ]
+
+# Title-case display variants used in human-readable descriptions and messages.
+# MONTH_NAMES_DISPLAY is 1-indexed (index 0 is empty) to allow direct use with
+# month integers (1=January … 12=December).
+OCCURRENCE_NAMES_DISPLAY = [name.capitalize() for name in OCCURRENCE_NAMES]
+DAY_NAMES_DISPLAY = [name.capitalize() for name in DAY_NAMES]
+MONTH_NAMES_DISPLAY = [""] + [name.capitalize() for name in MONTH_NAMES]
 
 # Week occurrence options with type support
 # Format: "occurrence_type" where occurrence is 0-4 and type is "partial" or "full"

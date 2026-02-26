@@ -1,7 +1,6 @@
 """Test edge cases for calendar functionality."""
 
 from datetime import date, datetime
-from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -15,64 +14,9 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 def _create_calendar_from_entry(entry: MockConfigEntry) -> SchedulerCalendar:
     """Helper to create calendar with proper service data structure."""
-    # Handle both new service-based structure and legacy structure
     services = entry.options.get("services", {})
-
-    if services:
-        # Use first service
-        service_id, service_data = next(iter(services.items()))
-        return SchedulerCalendar(entry, service_id, service_data)
-    else:
-        # Legacy structure - create service data directly for the calendar
-        # The calendar will still look at the entry for schedules, but we need to
-        # create a mock service structure
-        legacy_schedules = entry.options.get("schedules", {})
-        legacy_config = entry.options.get("configuration", {})
-
-        service_data = {
-            "name": entry.title,
-            "schedules": legacy_schedules,
-            "configuration": legacy_config,
-        }
-
-        # Create a calendar that will use the legacy structure
-        calendar = SchedulerCalendar(entry, "default", service_data)
-
-        # Override the _get_schedules method to return the legacy schedules directly
-        def get_legacy_schedules():
-            return list(legacy_schedules.values())
-
-        # Override extra_state_attributes to use legacy configuration
-        @property
-        def legacy_extra_state_attributes(self) -> dict[str, Any]:
-            # Add current event configuration if available
-            current_event = self.event
-            if current_event:
-                # Extract configuration from the current event
-                schedules = self._get_schedules()
-
-                # Find the schedule that matches the current event
-                for schedule in schedules:
-                    if current_event.summary == schedule["name"]:
-                        schedule_config = schedule.get("configuration", legacy_config)
-                        return {
-                            "configuration": schedule_config,
-                            "name": schedule["name"],
-                            "schedule_uid": schedule["uid"],
-                            "default_configuration": legacy_config,
-                        }
-
-            # No active event, return default configuration
-            return {
-                "configuration": legacy_config,
-                "name": None,
-                "schedule_uid": None,
-                "default_configuration": legacy_config,
-            }
-
-        calendar._get_schedules = get_legacy_schedules
-        calendar.__class__.extra_state_attributes = legacy_extra_state_attributes
-        return calendar
+    service_id, service_data = next(iter(services.items()))
+    return SchedulerCalendar(entry, service_id, service_data)
 
 
 async def test_calendar_with_empty_schedules(hass: HomeAssistant) -> None:
@@ -81,7 +25,15 @@ async def test_calendar_with_empty_schedules(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Empty Scheduler",
         data={},
-        options={"schedules": {}},
+        options={
+            "services": {
+                "default": {
+                    "name": "Empty Scheduler",
+                    "schedules": {},
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -113,7 +65,15 @@ async def test_calendar_with_invalid_schedules(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Invalid Scheduler",
         data={},
-        options={"schedules": invalid_schedules},
+        options={
+            "services": {
+                "default": {
+                    "name": "Invalid Scheduler",
+                    "schedules": invalid_schedules,
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -151,7 +111,15 @@ async def test_calendar_year_boundary_events(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Year Wrap Scheduler",
         data={},
-        options={"schedules": schedules},
+        options={
+            "services": {
+                "default": {
+                    "name": "Year Wrap Scheduler",
+                    "schedules": schedules,
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -195,7 +163,15 @@ async def test_calendar_leap_year_handling(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Leap Year Scheduler",
         data={},
-        options={"schedules": schedules},
+        options={
+            "services": {
+                "default": {
+                    "name": "Leap Year Scheduler",
+                    "schedules": schedules,
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -244,7 +220,15 @@ async def test_calendar_very_long_date_range(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Annual Scheduler",
         data={},
-        options={"schedules": schedules},
+        options={
+            "services": {
+                "default": {
+                    "name": "Annual Scheduler",
+                    "schedules": schedules,
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -294,7 +278,15 @@ async def test_calendar_current_event_selection(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Current Event Scheduler",
         data={},
-        options={"schedules": schedules},
+        options={
+            "services": {
+                "default": {
+                    "name": "Current Event Scheduler",
+                    "schedules": schedules,
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -340,7 +332,15 @@ async def test_calendar_overlapping_schedules(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Overlap Scheduler",
         data={},
-        options={"schedules": schedules},
+        options={
+            "services": {
+                "default": {
+                    "name": "Overlap Scheduler",
+                    "schedules": schedules,
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -394,8 +394,13 @@ async def test_calendar_configuration_inheritance(hass: HomeAssistant) -> None:
         title="Config Test Scheduler",
         data={},
         options={
-            "schedules": schedules,
-            "configuration": default_config,
+            "services": {
+                "default": {
+                    "name": "Config Test Scheduler",
+                    "schedules": schedules,
+                    "configuration": default_config,
+                }
+            }
         },
         version=2,
         minor_version=1,
@@ -422,7 +427,15 @@ async def test_calendar_update_listener(hass: HomeAssistant) -> None:
         domain=DOMAIN,
         title="Update Test Scheduler",
         data={},
-        options={"schedules": {}},
+        options={
+            "services": {
+                "default": {
+                    "name": "Update Test Scheduler",
+                    "schedules": {},
+                    "configuration": {},
+                }
+            }
+        },
         version=2,
         minor_version=1,
     )
@@ -451,8 +464,13 @@ async def test_calendar_extra_state_attributes(hass: HomeAssistant) -> None:
         title="Attributes Test Scheduler",
         data={},
         options={
-            "schedules": {},
-            "configuration": default_config,
+            "services": {
+                "default": {
+                    "name": "Attributes Test Scheduler",
+                    "schedules": {},
+                    "configuration": default_config,
+                }
+            }
         },
         version=2,
         minor_version=1,

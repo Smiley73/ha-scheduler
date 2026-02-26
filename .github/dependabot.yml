@@ -31,9 +31,15 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # Prevent pycares upgrades to 5.0.0+ (incompatible with aiodns)
+      # Prevent pycares upgrades to 5.0.0+ (incompatible with current aiodns)
       - dependency-name: "pycares"
         versions: [">=5.0.0"]
+      # aiodns 4.0.0 requires pycares>=5.0.0 — block until pycares upgrade is vetted
+      - dependency-name: "aiodns"
+        versions: [">=4.0.0"]
+      # homeassistant is pinned intentionally — frozen at current version
+      - dependency-name: "homeassistant"
+        versions: [">=0.0.0"]
 
   # Monitor GitHub Actions
   - package-ecosystem: "github-actions"

@@ -6,11 +6,28 @@ import logging
 from datetime import date
 from typing import Any
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DAY_NAMES
 from .schedule_generator import generate_schedule_dates
+
+# Keys that may contain sensitive user data in YAML configuration blobs
+_REDACT_KEYS = frozenset(
+    {
+        "api_key",
+        "api_token",
+        "password",
+        "secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "key",
+        "authorization",
+        "credential",
+    }
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -71,7 +88,9 @@ async def async_get_config_entry_diagnostics(
             },
             "default_configuration": {
                 "has_configuration": bool(service_config),
-                "configuration": service_config if service_config else None,
+                "configuration": async_redact_data(service_config, _REDACT_KEYS)
+                if service_config
+                else None,
             },
         }
 
@@ -156,10 +175,12 @@ def _build_schedule_info(
             }
         )
 
-    # Include configuration if present
+    # Include configuration if present (redact sensitive keys)
     if "configuration" in schedule_data:
         schedule_info["has_configuration"] = True
-        schedule_info["configuration"] = schedule_data["configuration"]
+        schedule_info["configuration"] = async_redact_data(
+            schedule_data["configuration"], _REDACT_KEYS
+        )
     else:
         schedule_info["has_configuration"] = False
 

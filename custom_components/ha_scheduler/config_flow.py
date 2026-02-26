@@ -9,8 +9,8 @@ from typing import Any
 import voluptuous as vol
 import yaml
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult, UnknownEntry
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -80,31 +80,37 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the initial step."""
         errors = {}
 
         if user_input is not None:
-            name = user_input.get("scheduler_name", "Scheduler").strip()
+            raw_name = user_input.get("scheduler_name", "Scheduler")
+            name = raw_name.strip() if isinstance(raw_name, str) else "Scheduler"
 
-            # Check for duplicate scheduler names
-            existing_entries = self._async_current_entries()
-            if any(entry.title.lower() == name.lower() for entry in existing_entries):
-                errors["scheduler_name"] = "duplicate_scheduler_name"
+            if not name:
+                errors["scheduler_name"] = "empty_scheduler_name"
             else:
-                return self.async_create_entry(
-                    title=name,
-                    data={"scheduler_name": name},
-                    options={
-                        "services": {
-                            "default": {
-                                "name": name,
-                                "schedules": {},
-                                "configuration": {},
+                # Check for duplicate scheduler names
+                existing_entries = self._async_current_entries()
+                if any(
+                    entry.title.lower() == name.lower() for entry in existing_entries
+                ):
+                    errors["scheduler_name"] = "duplicate_scheduler_name"
+                else:
+                    return self.async_create_entry(
+                        title=name,
+                        data={"scheduler_name": name},
+                        options={
+                            "services": {
+                                "default": {
+                                    "name": name,
+                                    "schedules": {},
+                                    "configuration": {},
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
 
         return self.async_show_form(
             step_id="user",
@@ -122,18 +128,29 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> OptionsFlowHandler:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
 
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for Scheduler."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+    def __init__(self) -> None:
         """Initialize options flow."""
-        self._schedule_id: str | None = None
-        self._schedule_data: dict[str, Any] = {}
+        self._schedule_id: str | None = (
+            None  # UUID of the schedule being added or edited
+        )
+        self._schedule_data: dict[
+            str, Any
+        ] = {}  # Form defaults for the active schedule step
         self._service_id: str = "default"  # Default service for now
-        self._holiday_data: dict[str, Any] = {}
+        self._holiday_data: dict[
+            str, Any
+        ] = {}  # State carried across the multi-step holiday import flow
+        # Populated by _validate_schedule_conflicts to carry the conflicting schedule's
+        # name into the error placeholder shown to the user.
+        self._overlap_conflicting_name: str | None = None
+        # Populated when YAML parsing fails so the error message can include details.
+        self._yaml_error_details: str | None = None
 
     def _get_service_schedules(self) -> dict[str, Any]:
         """Get schedules for the current service."""
@@ -179,9 +196,83 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # Legacy structure - update directly
             return {**entry.options, "schedules": schedules}
 
+    def _get_overlap_placeholders(
+        self, errors: dict[str, str]
+    ) -> dict[str, str] | None:
+        """Return placeholders for overlap errors when available."""
+        if errors.get("base") != "schedule_overlap_with_name":
+            return None
+        if not self._overlap_conflicting_name:
+            return None
+        return {"conflicting_schedule": self._overlap_conflicting_name}
+
+    def _get_yaml_error_placeholders(
+        self, errors: dict[str, str]
+    ) -> dict[str, str] | None:
+        """Return placeholders for YAML validation errors when available."""
+        if errors.get("base") != "invalid_yaml_with_details":
+            return None
+        if not self._yaml_error_details:
+            return None
+        return {"details": self._yaml_error_details}
+
+    def _get_error_placeholders(self, errors: dict[str, str]) -> dict[str, str] | None:
+        """Return placeholders for the current error state when available."""
+        placeholders: dict[str, str] = {}
+        if overlap_placeholders := self._get_overlap_placeholders(errors):
+            placeholders.update(overlap_placeholders)
+        if yaml_placeholders := self._get_yaml_error_placeholders(errors):
+            placeholders.update(yaml_placeholders)
+        return placeholders or None
+
+    def _validate_schedule_conflicts(
+        self, data: dict[str, Any], schedules: dict[str, Any]
+    ) -> dict[str, str]:
+        """Check for duplicate names and date overlaps against existing schedules.
+
+        Returns an errors dict (empty when there are no conflicts).
+        """
+        from .schedule_generator import check_overlap
+
+        errors: dict[str, str] = {}
+        self._overlap_conflicting_name = None
+
+        # Check for duplicate schedule names
+        schedule_name = data["name"].strip().lower()
+        for sid, schedule in schedules.items():
+            if (
+                sid != self._schedule_id
+                and schedule["name"].strip().lower() == schedule_name
+            ):
+                errors["name"] = "duplicate_name"
+                break
+
+        if not errors:
+            has_overlap, conflicting_name = check_overlap(
+                data,
+                list(schedules.values()),
+                # When editing, exclude the current schedule so it doesn't conflict with itself.
+                # When adding, _schedule_id is a new UUID not yet in schedules, so exclude_uid=None.
+                exclude_uid=self._schedule_id
+                if self._schedule_id in schedules
+                else None,
+            )
+
+            if has_overlap:
+                _LOGGER.debug(
+                    "Schedule overlaps with existing schedule: %s", conflicting_name
+                )
+                self._overlap_conflicting_name = conflicting_name
+                if conflicting_name:
+                    errors["base"] = "schedule_overlap_with_name"
+                else:
+                    errors["base"] = "schedule_overlap"
+
+        return errors
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Manage the options."""
         return self.async_show_menu(
             step_id="init",
@@ -196,7 +287,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_add_schedule(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Add a new schedule - select type first."""
         if user_input is not None:
             self._schedule_data = {"schedule_type": user_input["schedule_type"]}
@@ -232,9 +323,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_configure_date(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure date-based schedule (single page)."""
-        errors = {}
+        self._yaml_error_details = None
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -259,36 +351,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get current schedules
+                # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-
-                # Check for duplicate schedule names
-                schedule_name = data["name"].strip().lower()
-                for sid, schedule in schedules.items():
-                    if (
-                        sid != self._schedule_id
-                        and schedule["name"].strip().lower() == schedule_name
-                    ):
-                        errors["name"] = (
-                            "A schedule with this name already exists. Please choose a different name."
-                        )
-                        break
-
-                if not errors:
-                    from .schedule_generator import check_overlap
-
-                    has_overlap, conflicting_name = check_overlap(
-                        data,
-                        list(schedules.values()),
-                        exclude_uid=self._schedule_id
-                        if self._schedule_id in schedules
-                        else None,
-                    )
-
-                    if has_overlap:
-                        errors["base"] = (
-                            f"This schedule overlaps with '{conflicting_name}'"
-                        )
+                errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     # Save schedule
@@ -300,7 +365,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -352,13 +421,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="configure_date",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_configure_week(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure week-based schedule (single page)."""
-        errors = {}
+        self._yaml_error_details = None
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -429,36 +500,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get current schedules
+                # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-
-                # Check for duplicate schedule names
-                schedule_name = data["name"].strip().lower()
-                for sid, schedule in schedules.items():
-                    if (
-                        sid != self._schedule_id
-                        and schedule["name"].strip().lower() == schedule_name
-                    ):
-                        errors["name"] = (
-                            "A schedule with this name already exists. Please choose a different name."
-                        )
-                        break
-
-                if not errors:
-                    from .schedule_generator import check_overlap
-
-                    has_overlap, conflicting_name = check_overlap(
-                        data,
-                        list(schedules.values()),
-                        exclude_uid=self._schedule_id
-                        if self._schedule_id in schedules
-                        else None,
-                    )
-
-                    if has_overlap:
-                        errors["base"] = (
-                            f"This schedule overlaps with '{conflicting_name}'"
-                        )
+                errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -469,7 +513,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -552,13 +600,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="configure_week",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_configure_nth_day(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure nth-day schedule (single page)."""
-        errors = {}
+        self._yaml_error_details = None
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -582,36 +632,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get current schedules
+                # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-
-                # Check for duplicate schedule names
-                schedule_name = data["name"].strip().lower()
-                for sid, schedule in schedules.items():
-                    if (
-                        sid != self._schedule_id
-                        and schedule["name"].strip().lower() == schedule_name
-                    ):
-                        errors["name"] = (
-                            "A schedule with this name already exists. Please choose a different name."
-                        )
-                        break
-
-                if not errors:
-                    from .schedule_generator import check_overlap
-
-                    has_overlap, conflicting_name = check_overlap(
-                        data,
-                        list(schedules.values()),
-                        exclude_uid=self._schedule_id
-                        if self._schedule_id in schedules
-                        else None,
-                    )
-
-                    if has_overlap:
-                        errors["base"] = (
-                            f"This schedule overlaps with '{conflicting_name}'"
-                        )
+                errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -622,7 +645,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -679,11 +706,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="configure_nth_day",
             data_schema=vol.Schema(schema_dict),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_edit_schedule(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Select a schedule to edit."""
         schedules = self._get_service_schedules()
 
@@ -733,7 +761,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_remove_schedule(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Remove a schedule."""
         schedules = self._get_service_schedules()
 
@@ -779,7 +807,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_remove_schedule_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Confirm schedule removal."""
         schedules = self._get_service_schedules()
 
@@ -799,9 +827,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_default_configuration(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Configure default configuration."""
-        errors = {}
+        self._yaml_error_details = None
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
@@ -814,11 +843,25 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     config_dict = _validate_yaml_config(config_yaml)
 
                 # Get fresh entry before update
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
+                try:
+                    entry_id = self.config_entry.entry_id
+                    entry = self.hass.config_entries.async_get_entry(entry_id)
+                except UnknownEntry:
+                    errors["base"] = "entry_not_found"
+                    return self.async_show_form(
+                        step_id="default_configuration",
+                        data_schema=vol.Schema(
+                            {
+                                vol.Optional(
+                                    "configuration", default=""
+                                ): TemplateSelector(),
+                            }
+                        ),
+                        errors=errors,
+                    )
+
                 if not entry:
-                    errors["base"] = "Entry not found"
+                    errors["base"] = "entry_not_found"
                     return self.async_show_form(
                         step_id="default_configuration",
                         data_schema=vol.Schema(
@@ -853,7 +896,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             except ValueError as err:
                 _LOGGER.warning("Validation error: %s", err)
-                errors["base"] = str(err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
             except Exception:
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
@@ -863,6 +910,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         services = entry.options.get("services", {}) if entry else {}
         current_config = services.get(self._service_id, {}).get("configuration", {})
         config_str = yaml.dump(current_config) if current_config else ""
+
+        # If re-displaying after an error, preserve what the user typed so they can correct it
+        if user_input is not None and errors:
+            config_str = user_input.get("configuration") or ""
 
         return self.async_show_form(
             step_id="default_configuration",
@@ -874,11 +925,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 }
             ),
             errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
         )
 
     async def async_step_import_holidays(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import holidays - step 1: select country."""
         if user_input is not None:
             self._holiday_data = {"country": user_input["country"]}
@@ -916,7 +968,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_import_holidays_categories(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import holidays - step 2: select categories."""
         if user_input is not None:
             self._holiday_data["categories"] = user_input.get("categories", ["public"])
@@ -961,7 +1013,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_import_holidays_select(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import holidays - step 3: select specific holidays."""
         if user_input is not None:
             selected_holidays = user_input.get("holidays", [])
@@ -973,7 +1025,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_show_form(
                     step_id="import_holidays_select",
                     data_schema=await self._get_holiday_selection_schema(),
-                    errors={"holidays": "Please select at least one holiday to import"},
+                    errors={"holidays": "no_holidays_selected"},
                 )
 
             return await self._import_selected_holidays(
@@ -1086,7 +1138,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         overwrite_existing: bool,
         skip_on_overlap: bool,
         include_country_name: bool = False,
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Import the selected holidays as schedules."""
         try:
             from .holiday_importer import get_holidays_for_country
@@ -1096,11 +1148,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             categories = self._holiday_data.get("categories", ["public"])
 
             if not country:
-                return self.async_show_form(
-                    step_id="import_holidays_select",
-                    data_schema=await self._get_holiday_selection_schema(),
-                    errors={"base": "Country not selected"},
-                )
+                return self.async_abort(reason="import_error")
 
             all_holidays = await get_holidays_for_country(country, categories)
 
@@ -1166,18 +1214,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     schedule, existing_schedules_list
                 )
 
-                if has_overlap:
-                    if skip_on_overlap:
-                        skipped_count += 1
-                        errors.append(
-                            f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
-                        )
-                        continue
-                    else:
-                        # Import anyway despite overlap
-                        pass
+                if has_overlap and skip_on_overlap:
+                    skipped_count += 1
+                    errors.append(
+                        f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
+                    )
+                    continue
 
-                # Add the schedule
+                # Add the schedule (importing despite overlap when skip_on_overlap is False)
                 new_schedules[schedule["uid"]] = schedule
                 imported_count += 1
 
@@ -1196,24 +1240,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 if skipped_count > 0:
                     messages.append(f"Skipped {skipped_count} holiday(s)")
 
-                success_message = ", ".join(messages)
-
-                return self.async_create_entry(
-                    title="", data=updated_options, description=success_message
-                )
+                return self.async_create_entry(title="", data=updated_options)
             else:
-                # Nothing was imported
-                error_message = "No holidays were imported. " + "; ".join(errors[:3])
+                # Nothing was imported - all selected holidays were skipped or errored
+                _LOGGER.debug("No holidays imported. Details: %s", errors)
                 return self.async_show_form(
                     step_id="import_holidays_select",
                     data_schema=await self._get_holiday_selection_schema(),
-                    errors={"base": error_message},
+                    errors={"base": "no_holidays_imported"},
                 )
 
-        except Exception as e:
+        except Exception:
             _LOGGER.exception("Failed to import holidays")
             return self.async_show_form(
                 step_id="import_holidays_select",
                 data_schema=await self._get_holiday_selection_schema(),
-                errors={"base": f"Import failed: {str(e)}"},
+                errors={"base": "import_error"},
             )

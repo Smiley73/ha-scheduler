@@ -11,6 +11,10 @@
     },
     "abort": {
       "already_configured": "Scheduler is already configured"
+    },
+    "error": {
+      "duplicate_scheduler_name": "A scheduler with this name already exists. Please choose a different name.",
+      "empty_scheduler_name": "Please enter a name for the scheduler."
     }
   },
   "options": {
@@ -142,15 +146,21 @@
       "unknown": "Unexpected error occurred",
       "no_schedules": "No schedules configured",
       "invalid_yaml": "Invalid YAML configuration",
+      "invalid_yaml_with_details": "Invalid YAML configuration: {details}.",
       "duplicate_name": "A schedule with this name already exists. Please choose a different name.",
-      "duplicate_scheduler_name": "Name already exists. Please choose a different name.",
-      "schedule_overlap": "This schedule overlaps with another schedule",
+      "duplicate_scheduler_name": "A scheduler with this name already exists. Please choose a different name.",
+      "schedule_overlap": "This schedule overlaps with an existing schedule.",
+      "schedule_overlap_with_name": "This schedule overlaps with {conflicting_schedule}.",
       "no_countries_available": "No countries available for holiday import",
-      "import_error": "Failed to load holiday data"
+      "import_error": "Failed to load holiday data",
+      "no_holidays_imported": "No holidays were imported. All selected holidays were already present or would overlap with existing schedules.",
+      "entry_not_found": "Config entry not found",
+      "no_holidays_selected": "Please select at least one holiday to import"
     },
     "abort": {
       "no_schedules": "No schedules to edit or remove",
       "not_confirmed": "Removal not confirmed",
+      "unknown": "Unexpected error occurred",
       "no_countries_available": "No countries available for holiday import",
       "import_error": "Failed to load holiday data"
     }

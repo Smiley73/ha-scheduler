@@ -275,7 +275,7 @@ The HA Scheduler integration creates a calendar entity (`calendar.<scheduler_nam
 
 ### Schedule-Specific Configuration
 
-Each schedule can have optional YAML configuration that provides custom attributes for that schedule. This configuration is included in the calendar event's description field.
+Each schedule can have optional YAML configuration that provides custom attributes for that schedule. This configuration is exposed through the calendar entity attributes when the schedule is active.
 
 **Example: Christmas Lighting Schedule**
 

@@ -226,11 +226,11 @@ async def test_add_schedule_with_overlap_error(hass: HomeAssistant) -> None:
         },
     )
 
-    # Should show error
+    # Should show overlap error
     assert result["type"] == FlowResultType.FORM
     assert "errors" in result
-    assert "base" in result["errors"]
-    assert "Schedule 1" in result["errors"]["base"]
+    assert result["errors"]["base"] == "schedule_overlap_with_name"
+    assert result["description_placeholders"]["conflicting_schedule"] == "Schedule 1"
 
     # Verify only one schedule exists
     updated_entry = hass.config_entries.async_get_entry(entry.entry_id)

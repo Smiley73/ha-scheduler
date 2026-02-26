@@ -7,6 +7,13 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+from .const import (
+    CALENDAR_YEAR_LOOKAROUND,
+    DAY_NAMES_DISPLAY,
+    MONTH_NAMES_DISPLAY,
+    OCCURRENCE_NAMES_DISPLAY,
+)
+
 # Babel imports moved inside functions to avoid blocking I/O during module import
 
 _LOGGER = logging.getLogger(__name__)
@@ -150,7 +157,7 @@ def _get_supported_countries_sync() -> dict[str, str]:
 
 async def get_supported_countries() -> dict[str, str]:
     """Get list of all supported countries dynamically."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _get_supported_countries_sync)
 
 
@@ -215,7 +222,7 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
 
 async def get_available_categories(country_code: str) -> dict[str, str]:
     """Get available holiday categories for a specific country."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None, _get_available_categories_sync, country_code
     )
@@ -235,7 +242,13 @@ def _get_holidays_for_country_sync(
         all_holidays: dict[str, dict[str, Any]] = {}
 
         # Get holidays for multiple years to analyze patterns
-        years = [2023, 2024, 2025]
+        today = date.today()
+        years = list(
+            range(
+                today.year - CALENDAR_YEAR_LOOKAROUND,
+                today.year + CALENDAR_YEAR_LOOKAROUND + 1,
+            )
+        )
 
         _LOGGER.debug(
             "Getting holidays for %s, categories: %s", country_code, categories
@@ -327,7 +340,7 @@ async def get_holidays_for_country(
     country_code: str, categories: list[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Get all holidays for a country with their patterns."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None, _get_holidays_for_country_sync, country_code, categories
     )
@@ -380,32 +393,6 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             occurrence = calculate_occurrence(first_date)
 
             if occurrence is not None:
-                occurrence_names = ["First", "Second", "Third", "Fourth", "Last"]
-                day_names = [
-                    "Monday",
-                    "Tuesday",
-                    "Wednesday",
-                    "Thursday",
-                    "Friday",
-                    "Saturday",
-                    "Sunday",
-                ]
-                month_names = [
-                    "",
-                    "January",
-                    "February",
-                    "March",
-                    "April",
-                    "May",
-                    "June",
-                    "July",
-                    "August",
-                    "September",
-                    "October",
-                    "November",
-                    "December",
-                ]
-
                 # Check if this could be a week-based pattern instead
                 # Some holidays might span multiple days in the same week
                 week_pattern = _analyze_week_pattern(dates)
@@ -419,7 +406,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
                     "day_of_week": day_of_week,
                     "start_offset": 0,
                     "end_offset": 0,
-                    "description": f"{occurrence_names[occurrence]} {day_names[day_of_week]} of {month_names[month]}",
+                    "description": f"{OCCURRENCE_NAMES_DISPLAY[occurrence]} {DAY_NAMES_DISPLAY[day_of_week]} of {MONTH_NAMES_DISPLAY[month]}",
                 }
 
         # Check for week-based patterns (holidays that span multiple days)
@@ -499,38 +486,6 @@ def _analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None:
                                 break
 
                     if consistent:
-                        occurrence_names = [
-                            "First",
-                            "Second",
-                            "Third",
-                            "Fourth",
-                            "Last",
-                        ]
-                        day_names = [
-                            "Monday",
-                            "Tuesday",
-                            "Wednesday",
-                            "Thursday",
-                            "Friday",
-                            "Saturday",
-                            "Sunday",
-                        ]
-                        month_names = [
-                            "",
-                            "January",
-                            "February",
-                            "March",
-                            "April",
-                            "May",
-                            "June",
-                            "July",
-                            "August",
-                            "September",
-                            "October",
-                            "November",
-                            "December",
-                        ]
-
                         # Create week-based schedule with appropriate week types
                         schedule = {
                             "schedule_type": "week",
@@ -552,12 +507,12 @@ def _analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None:
                         if start_occurrence == end_occurrence:
                             # Same week, different days
                             schedule["description"] = (
-                                f"{occurrence_names[start_occurrence]} week of {month_names[first_date.month]} ({day_names[first_date.weekday()]} to {day_names[last_date.weekday()]})"
+                                f"{OCCURRENCE_NAMES_DISPLAY[start_occurrence]} week of {MONTH_NAMES_DISPLAY[first_date.month]} ({DAY_NAMES_DISPLAY[first_date.weekday()]} to {DAY_NAMES_DISPLAY[last_date.weekday()]})"
                             )
                         else:
                             # Different weeks
                             schedule["description"] = (
-                                f"{occurrence_names[start_occurrence]} {day_names[first_date.weekday()]} to {occurrence_names[end_occurrence]} {day_names[last_date.weekday()]} of {month_names[first_date.month]}"
+                                f"{OCCURRENCE_NAMES_DISPLAY[start_occurrence]} {DAY_NAMES_DISPLAY[first_date.weekday()]} to {OCCURRENCE_NAMES_DISPLAY[end_occurrence]} {DAY_NAMES_DISPLAY[last_date.weekday()]} of {MONTH_NAMES_DISPLAY[first_date.month]}"
                             )
 
                         return schedule
