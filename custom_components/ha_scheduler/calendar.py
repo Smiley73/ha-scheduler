@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import CALENDAR_YEAR_LOOKAROUND
 from .schedule_generator import generate_schedule_dates
 
 
@@ -134,8 +135,10 @@ class SchedulerCalendar(CalendarEntity):
 
         all_events = []
         for schedule in schedules:
-            # Check current year and previous year (for year-wrapping schedules)
-            for year in [current_year - 1, current_year, current_year + 1]:
+            for year in range(
+                current_year - CALENDAR_YEAR_LOOKAROUND,
+                current_year + CALENDAR_YEAR_LOOKAROUND + 1,
+            ):
                 date_ranges = generate_schedule_dates(schedule, year)
 
                 for schedule_start, schedule_end in date_ranges:

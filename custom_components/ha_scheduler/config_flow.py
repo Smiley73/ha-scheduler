@@ -179,6 +179,43 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # Legacy structure - update directly
             return {**entry.options, "schedules": schedules}
 
+    def _validate_schedule_conflicts(
+        self, data: dict[str, Any], schedules: dict[str, Any]
+    ) -> dict[str, str]:
+        """Check for duplicate names and date overlaps against existing schedules.
+
+        Returns an errors dict (empty when there are no conflicts).
+        """
+        from .schedule_generator import check_overlap
+
+        errors: dict[str, str] = {}
+
+        # Check for duplicate schedule names
+        schedule_name = data["name"].strip().lower()
+        for sid, schedule in schedules.items():
+            if (
+                sid != self._schedule_id
+                and schedule["name"].strip().lower() == schedule_name
+            ):
+                errors["name"] = (
+                    "A schedule with this name already exists. Please choose a different name."
+                )
+                break
+
+        if not errors:
+            has_overlap, conflicting_name = check_overlap(
+                data,
+                list(schedules.values()),
+                exclude_uid=self._schedule_id
+                if self._schedule_id in schedules
+                else None,
+            )
+
+            if has_overlap:
+                errors["base"] = f"This schedule overlaps with '{conflicting_name}'"
+
+        return errors
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -259,36 +296,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get current schedules
+                # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-
-                # Check for duplicate schedule names
-                schedule_name = data["name"].strip().lower()
-                for sid, schedule in schedules.items():
-                    if (
-                        sid != self._schedule_id
-                        and schedule["name"].strip().lower() == schedule_name
-                    ):
-                        errors["name"] = (
-                            "A schedule with this name already exists. Please choose a different name."
-                        )
-                        break
-
-                if not errors:
-                    from .schedule_generator import check_overlap
-
-                    has_overlap, conflicting_name = check_overlap(
-                        data,
-                        list(schedules.values()),
-                        exclude_uid=self._schedule_id
-                        if self._schedule_id in schedules
-                        else None,
-                    )
-
-                    if has_overlap:
-                        errors["base"] = (
-                            f"This schedule overlaps with '{conflicting_name}'"
-                        )
+                errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     # Save schedule
@@ -429,36 +439,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get current schedules
+                # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-
-                # Check for duplicate schedule names
-                schedule_name = data["name"].strip().lower()
-                for sid, schedule in schedules.items():
-                    if (
-                        sid != self._schedule_id
-                        and schedule["name"].strip().lower() == schedule_name
-                    ):
-                        errors["name"] = (
-                            "A schedule with this name already exists. Please choose a different name."
-                        )
-                        break
-
-                if not errors:
-                    from .schedule_generator import check_overlap
-
-                    has_overlap, conflicting_name = check_overlap(
-                        data,
-                        list(schedules.values()),
-                        exclude_uid=self._schedule_id
-                        if self._schedule_id in schedules
-                        else None,
-                    )
-
-                    if has_overlap:
-                        errors["base"] = (
-                            f"This schedule overlaps with '{conflicting_name}'"
-                        )
+                errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -582,36 +565,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
-                # Get current schedules
+                # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-
-                # Check for duplicate schedule names
-                schedule_name = data["name"].strip().lower()
-                for sid, schedule in schedules.items():
-                    if (
-                        sid != self._schedule_id
-                        and schedule["name"].strip().lower() == schedule_name
-                    ):
-                        errors["name"] = (
-                            "A schedule with this name already exists. Please choose a different name."
-                        )
-                        break
-
-                if not errors:
-                    from .schedule_generator import check_overlap
-
-                    has_overlap, conflicting_name = check_overlap(
-                        data,
-                        list(schedules.values()),
-                        exclude_uid=self._schedule_id
-                        if self._schedule_id in schedules
-                        else None,
-                    )
-
-                    if has_overlap:
-                        errors["base"] = (
-                            f"This schedule overlaps with '{conflicting_name}'"
-                        )
+                errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -1166,18 +1122,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     schedule, existing_schedules_list
                 )
 
-                if has_overlap:
-                    if skip_on_overlap:
-                        skipped_count += 1
-                        errors.append(
-                            f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
-                        )
-                        continue
-                    else:
-                        # Import anyway despite overlap
-                        pass
+                if has_overlap and skip_on_overlap:
+                    skipped_count += 1
+                    errors.append(
+                        f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
+                    )
+                    continue
 
-                # Add the schedule
+                # Add the schedule (importing despite overlap when skip_on_overlap is False)
                 new_schedules[schedule["uid"]] = schedule
                 imported_count += 1
 
@@ -1203,7 +1155,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
             else:
                 # Nothing was imported
-                error_message = "No holidays were imported. " + "; ".join(errors[:3])
+                shown = errors[:3]
+                suffix = f" (and {len(errors) - 3} more)" if len(errors) > 3 else ""
+                error_message = (
+                    "No holidays were imported. " + "; ".join(shown) + suffix
+                )
                 return self.async_show_form(
                     step_id="import_holidays_select",
                     data_schema=await self._get_holiday_selection_schema(),
