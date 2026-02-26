@@ -11,6 +11,10 @@
     },
     "abort": {
       "already_configured": "Scheduler is already configured"
+    },
+    "error": {
+      "duplicate_scheduler_name": "A scheduler with this name already exists. Please choose a different name.",
+      "empty_scheduler_name": "Please enter a name for the scheduler."
     }
   },
   "options": {
@@ -156,6 +160,7 @@
     "abort": {
       "no_schedules": "No schedules to edit or remove",
       "not_confirmed": "Removal not confirmed",
+      "unknown": "Unexpected error occurred",
       "no_countries_available": "No countries available for holiday import",
       "import_error": "Failed to load holiday data"
     }

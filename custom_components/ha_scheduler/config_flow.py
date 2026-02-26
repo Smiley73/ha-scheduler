@@ -9,7 +9,7 @@ from typing import Any
 import voluptuous as vol
 import yaml
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import ConfigFlowResult, UnknownEntry
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     NumberSelector,
@@ -85,26 +85,32 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            name = user_input.get("scheduler_name", "Scheduler").strip()
+            raw_name = user_input.get("scheduler_name", "Scheduler")
+            name = raw_name.strip() if isinstance(raw_name, str) else "Scheduler"
 
-            # Check for duplicate scheduler names
-            existing_entries = self._async_current_entries()
-            if any(entry.title.lower() == name.lower() for entry in existing_entries):
-                errors["scheduler_name"] = "duplicate_scheduler_name"
+            if not name:
+                errors["scheduler_name"] = "empty_scheduler_name"
             else:
-                return self.async_create_entry(
-                    title=name,
-                    data={"scheduler_name": name},
-                    options={
-                        "services": {
-                            "default": {
-                                "name": name,
-                                "schedules": {},
-                                "configuration": {},
+                # Check for duplicate scheduler names
+                existing_entries = self._async_current_entries()
+                if any(
+                    entry.title.lower() == name.lower() for entry in existing_entries
+                ):
+                    errors["scheduler_name"] = "duplicate_scheduler_name"
+                else:
+                    return self.async_create_entry(
+                        title=name,
+                        data={"scheduler_name": name},
+                        options={
+                            "services": {
+                                "default": {
+                                    "name": name,
+                                    "schedules": {},
+                                    "configuration": {},
+                                }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
 
         return self.async_show_form(
             step_id="user",
@@ -826,9 +832,23 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     config_dict = _validate_yaml_config(config_yaml)
 
                 # Get fresh entry before update
-                entry = self.hass.config_entries.async_get_entry(
-                    self.config_entry.entry_id
-                )
+                try:
+                    entry_id = self.config_entry.entry_id
+                    entry = self.hass.config_entries.async_get_entry(entry_id)
+                except UnknownEntry:
+                    errors["base"] = "entry_not_found"
+                    return self.async_show_form(
+                        step_id="default_configuration",
+                        data_schema=vol.Schema(
+                            {
+                                vol.Optional(
+                                    "configuration", default=""
+                                ): TemplateSelector(),
+                            }
+                        ),
+                        errors=errors,
+                    )
+
                 if not entry:
                     errors["base"] = "entry_not_found"
                     return self.async_show_form(
