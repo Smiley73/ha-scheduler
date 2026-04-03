@@ -127,7 +127,7 @@ async def test_options_flow_add_week_schedule(
         {
             "name": "Week Schedule",
             "start_month": "3",
-            "start_week": "0_partial",
+            "start_week": "1",
             "start_day_of_week": "0",
             "end_month": "6",
             "end_week": "4",
@@ -142,6 +142,44 @@ async def test_options_flow_add_week_schedule(
     schedule = list(schedules.values())[0]
     assert schedule["name"] == "Week Schedule"
     assert schedule["schedule_type"] == "week"
+
+
+async def test_options_flow_rejects_invalid_week_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test rejecting week schedules that create reversed date ranges."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_type": "week"},
+    )
+    assert result["step_id"] == "configure_week"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Invalid Week Schedule",
+            "start_month": "3",
+            "start_week": "1",
+            "start_day_of_week": "6",
+            "end_month": "3",
+            "end_week": "1",
+            "end_day_of_week": "4",
+            "configuration": "",
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "invalid_week_schedule"
 
 
 async def test_options_flow_add_nth_day_schedule(

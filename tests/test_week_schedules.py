@@ -301,6 +301,40 @@ def test_generate_by_week_full_type_multiple_weeks() -> None:
     assert end_date >= date(2024, 3, 11)  # Should be in second week
 
 
+def test_start_day_to_end_week_uses_full_week_context_same_month() -> None:
+    """Test start-day to end-of-week uses full-week context in same month."""
+    schedule = {
+        "schedule_type": "week",
+        "start_month": 2,
+        "start_week": 0,
+        "start_day_of_week": 0,
+        "end_month": 2,
+        "end_week": 0,
+        "start_week_type": "full",
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    assert dates[0] == (date(2026, 2, 2), date(2026, 2, 8))
+
+
+def test_week_start_to_end_day_uses_full_week_context_same_month() -> None:
+    """Test week-start to end-day uses full-week context in same month."""
+    schedule = {
+        "schedule_type": "week",
+        "start_month": 2,
+        "start_week": 0,
+        "end_month": 2,
+        "end_week": 0,
+        "end_day_of_week": 4,
+        "start_week_type": "full",
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    assert dates[0] == (date(2026, 2, 2), date(2026, 2, 6))
+
+
 def test_generate_by_week_default_week_type() -> None:
     """Test that default week_type is 'partial' when not specified."""
     schedule = {
@@ -507,6 +541,21 @@ def test_invalid_weekday_in_week_scenarios():
     # But Wednesday should exist in week 1
     result = _get_weekday_in_week(2024, 3, 1, 2, 0, "partial")  # Wednesday in week 1
     assert result == date(2024, 3, 6)  # March 6 is Wednesday
+
+
+def test_reversed_same_week_day_range_returns_empty() -> None:
+    """Test reversed same-week day ranges are discarded."""
+    schedule = {
+        "schedule_type": "week",
+        "start_month": 3,
+        "start_week": 1,
+        "start_day_of_week": 6,
+        "end_month": 3,
+        "end_week": 1,
+        "end_day_of_week": 4,
+    }
+
+    assert generate_schedule_dates(schedule, 2024) == []
 
 
 def test_partial_week_boundary_calculations():

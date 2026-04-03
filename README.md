@@ -234,6 +234,8 @@ The HA Scheduler integration supports three types of schedules to cover differen
 
 **Note:** All days between the start and end dates are active, not just the specified days of the week.
 
+**Validation:** Week-based schedules that do not produce a valid recurring range are rejected during configuration. For example, choosing a start day later than the end day within the same week, or selecting a weekday that does not exist in the chosen partial week pattern, will not be saved.
+
 ### 3. Nth-Day Schedules
 
 **Use for:** Schedules around specific occurrences of weekdays in a month, like "Thanksgiving" or "second Tuesday of March."

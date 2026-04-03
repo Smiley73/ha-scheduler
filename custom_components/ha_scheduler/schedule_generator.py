@@ -202,6 +202,16 @@ def _get_effective_week_type(
     return start_week_type if start_month == end_month else end_week_type
 
 
+def _build_date_range(
+    start_date: date | None,
+    end_date: date | None,
+) -> list[tuple[date, date]]:
+    """Build a single date range when the bounds form a valid interval."""
+    if not start_date or not end_date or start_date > end_date:
+        return []
+    return [(start_date, end_date)]
+
+
 def _generate_whole_week_range(
     year: int,
     start_month: int,
@@ -227,10 +237,7 @@ def _generate_whole_week_range(
     week_end_date = _get_week_end(
         end_year, end_month, end_week, first_weekday, effective_end_week_type
     )
-    if not week_end_date:
-        return []
-
-    return [(week_start_date, week_end_date)]
+    return _build_date_range(week_start_date, week_end_date)
 
 
 def _generate_start_day_to_end_week(
@@ -251,14 +258,15 @@ def _generate_start_day_to_end_week(
     if not start_date:
         return []
 
+    effective_end_week_type = _get_effective_week_type(
+        start_month, end_month, start_week_type, end_week_type
+    )
     end_year = _calculate_end_year(end_month, start_month, year)
     week_end_date = _get_week_end(
-        end_year, end_month, end_week, first_weekday, end_week_type
+        end_year, end_month, end_week, first_weekday, effective_end_week_type
     )
-    if not week_end_date:
-        return []
 
-    return [(start_date, week_end_date)]
+    return _build_date_range(start_date, week_end_date)
 
 
 def _generate_week_start_to_end_day(
@@ -279,14 +287,20 @@ def _generate_week_start_to_end_day(
     if not week_start_date:
         return []
 
+    effective_end_week_type = _get_effective_week_type(
+        start_month, end_month, start_week_type, end_week_type
+    )
     end_year = _calculate_end_year(end_month, start_month, year)
     end_date = _get_weekday_in_week(
-        end_year, end_month, end_week, end_day_of_week, first_weekday, end_week_type
+        end_year,
+        end_month,
+        end_week,
+        end_day_of_week,
+        first_weekday,
+        effective_end_week_type,
     )
-    if not end_date:
-        return []
 
-    return [(week_start_date, end_date)]
+    return _build_date_range(week_start_date, end_date)
 
 
 def _generate_specific_day_range(
@@ -327,10 +341,7 @@ def _generate_specific_day_range(
         first_weekday,
         effective_end_week_type,
     )
-    if not end_date:
-        return []
-
-    return [(start_date, end_date)]
+    return _build_date_range(start_date, end_date)
 
 
 def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, date]]:
@@ -420,6 +431,14 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
     except (ValueError, KeyError):
         return []
+
+
+def week_schedule_has_valid_ranges(schedule: dict[str, Any]) -> bool:
+    """Return whether a week schedule generates a valid range every year."""
+    if schedule.get("schedule_type") != "week":
+        return False
+
+    return _week_schedule_has_valid_ranges(_get_overlap_signature(schedule))
 
 
 def _generate_by_nth_day(
@@ -647,6 +666,11 @@ def _get_weekday_in_week(
         Date of the specific weekday in the specific week, or None if it doesn't exist
     """
     try:
+        if week_occurrence == 4:
+            # For "last week", day-specific selections mean the last occurrence
+            # of that weekday within the month.
+            return _get_nth_weekday(year, month, 4, day_of_week)
+
         # Get the start and end of the specified week
         week_start = _get_week_start(
             year, month, week_occurrence, first_weekday, week_type
@@ -790,27 +814,24 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
     return (schedule_type,)
 
 
-@lru_cache(maxsize=1024)
-def _generate_overlap_ranges(
-    signature: OverlapSignature,
-) -> tuple[tuple[date, date], ...]:
-    """Generate all date ranges needed for deterministic overlap checks."""
+def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | None:
+    """Rebuild the date-relevant schedule fields from a cache signature."""
     if not signature:
-        return ()
+        return None
 
     schedule_type = signature[0]
-    schedule: dict[str, Any]
 
     if schedule_type == "date":
         _, start_month, start_day, end_month, end_day = signature
-        schedule = {
+        return {
             "schedule_type": "date",
             "start_month": start_month,
             "start_day": start_day,
             "end_month": end_month,
             "end_day": end_day,
         }
-    elif schedule_type == "week":
+
+    if schedule_type == "week":
         (
             _,
             start_month,
@@ -838,9 +859,11 @@ def _generate_overlap_ranges(
             schedule["end_day_of_week"] = end_day_of_week
         if country_code is not None:
             schedule["country_code"] = country_code
-    elif schedule_type == "nth-day":
+        return schedule
+
+    if schedule_type == "nth-day":
         _, month, occurrence, day_of_week, start_offset, end_offset = signature
-        schedule = {
+        return {
             "schedule_type": "nth-day",
             "month": month,
             "occurrence": occurrence,
@@ -848,7 +871,16 @@ def _generate_overlap_ranges(
             "start_offset": start_offset,
             "end_offset": end_offset,
         }
-    else:
+
+    return None
+
+
+@lru_cache(maxsize=1024)
+def _generate_overlap_ranges(
+    signature: OverlapSignature,
+) -> tuple[tuple[date, date], ...]:
+    """Generate all date ranges needed for deterministic overlap checks."""
+    if not (schedule := _schedule_from_signature(signature)):
         return ()
 
     all_ranges: list[tuple[date, date]] = []
@@ -859,3 +891,24 @@ def _generate_overlap_ranges(
         all_ranges.extend(generate_schedule_dates(schedule, year))
 
     return tuple(all_ranges)
+
+
+@lru_cache(maxsize=1024)
+def _week_schedule_has_valid_ranges(signature: OverlapSignature) -> bool:
+    """Return whether a week schedule produces a valid range every year."""
+    if not (schedule := _schedule_from_signature(signature)):
+        return False
+
+    for year in range(
+        OVERLAP_VALIDATION_START_YEAR,
+        OVERLAP_VALIDATION_START_YEAR + OVERLAP_VALIDATION_YEARS,
+    ):
+        date_ranges = generate_schedule_dates(schedule, year)
+        if not date_ranges:
+            return False
+
+        start_date, end_date = date_ranges[0]
+        if start_date > end_date:
+            return False
+
+    return True

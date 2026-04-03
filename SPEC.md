@@ -87,6 +87,7 @@ Define a schedule using week occurrences within months with optional week type s
 - Week 4 (Last) means the last occurrence of that weekday in the month
 - Country-specific week start conventions (Sunday vs Monday) are automatically detected
 - Week type only applies to first week (occurrence 0), other weeks are always full
+- Invalid weekday/week combinations that do not produce a valid recurring date range are rejected during configuration
 
 **Examples**: 
 - First Monday of March to Last Friday of June (specific days)
@@ -367,6 +368,7 @@ Present menu with five options:
 - Offsets: Must be 0-30
 - For by_date: End date must be after start date (considering year wrapping)
 - For by_week and by_nth_day: End can be before start in same year
+- For by_week: The selected weeks and weekdays must produce a valid, non-reversed recurring date range
 
 ### Name Uniqueness
 - **Service names**: Must be unique across all scheduler services (case-insensitive)

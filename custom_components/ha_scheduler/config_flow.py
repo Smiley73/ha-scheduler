@@ -270,6 +270,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return errors
 
+    def _validate_week_schedule(self, data: dict[str, Any]) -> dict[str, str]:
+        """Validate that a week schedule produces a valid recurring range."""
+        if data.get("schedule_type") != "week":
+            return {}
+
+        from .schedule_generator import week_schedule_has_valid_ranges
+
+        if week_schedule_has_valid_ranges(data):
+            return {}
+
+        return {"base": "invalid_week_schedule"}
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -500,9 +512,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
+                errors.update(self._validate_week_schedule(data))
+
                 # Get current schedules and validate for conflicts
-                schedules = self._get_service_schedules()
-                errors.update(self._validate_schedule_conflicts(data, schedules))
+                if not errors:
+                    schedules = self._get_service_schedules()
+                    errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
