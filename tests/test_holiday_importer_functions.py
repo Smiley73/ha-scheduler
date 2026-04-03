@@ -1,10 +1,14 @@
 """Tests for holiday_importer helper functions."""
 
+import builtins
+import importlib
+import sys
 from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import custom_components.ha_scheduler.holiday_importer as holiday_importer
 from custom_components.ha_scheduler.holiday_importer import (
     _get_available_categories_sync,
     _get_holidays_for_country_sync,
@@ -15,6 +19,29 @@ from custom_components.ha_scheduler.holiday_importer import (
 )
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
+    """Test importing the module does not import holidays on the event loop."""
+    module_name = holiday_importer.__name__
+    original_module = sys.modules[module_name]
+    original_import = builtins.__import__
+
+    def guard_holidays_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: A002
+        if name == "holidays":
+            raise AssertionError("holidays imported during module load")
+        return original_import(name, globals, locals, fromlist, level)
+
+    sys.modules.pop(module_name, None)
+    monkeypatch.setattr(builtins, "__import__", guard_holidays_import)
+
+    try:
+        reloaded_module = importlib.import_module(module_name)
+    finally:
+        monkeypatch.setattr(builtins, "__import__", original_import)
+        sys.modules[module_name] = original_module
+
+    assert reloaded_module.HOLIDAYS_AVAILABLE is None
 
 
 class TestFormatDateLocalized:
