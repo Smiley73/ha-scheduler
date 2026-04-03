@@ -373,10 +373,11 @@ Present menu with five options:
      - **Overwrite existing**: Replace schedules with same name (default: false)
      - **Skip on overlap**: Skip holidays that would overlap with existing schedules, including overwrite replacements that would collide with other schedules (default: true)
      - **Include country name**: Add country code to schedule names (default: false)
+     - **Use holiday type**: Import selected holidays as `holiday` schedules instead of the detected Date, Week, or Nth-Day pattern (default: true)
    - Validation: At least one holiday must be selected
 
 4. **On Import**:
-   - Create schedules using smart pattern detection
+   - Create `holiday` schedules by default, unless the user disables that option and forces pattern-based import
    - Handle name conflicts based on overwrite setting
    - Handle date overlaps based on skip setting
    - Generate schedule names: "{Holiday Name} ({Country})" or "{Holiday Name}" based on flag

@@ -985,6 +985,7 @@ async def test_holiday_import_no_holidays_imported(
                 "skip_on_overlap": True,
                 "overwrite_existing": False,
                 "include_country_name": False,
+                "use_holiday_type": False,
             },
         )
 
@@ -1444,6 +1445,7 @@ async def test_import_holidays_overwrite_existing(
                 "skip_on_overlap": True,
                 "overwrite_existing": True,
                 "include_country_name": False,
+                "use_holiday_type": False,
             },
         )
 

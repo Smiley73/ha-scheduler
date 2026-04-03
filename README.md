@@ -83,6 +83,7 @@ The HA Scheduler integration includes a powerful holiday import feature that all
    - **Overwrite existing**: Replace schedules with the same name
    - **Skip on overlap**: Skip holidays that would conflict with existing schedules, including replacements when overwrite is enabled
    - **Include country name**: Add country code to schedule names (e.g., "Independence Day (USA)" vs "Independence Day")
+   - **Import as holiday-backed schedules**: Enabled by default. Store the selected holidays using the `holiday` schedule type instead of the detected Date, Week, or Nth-Day pattern
 
 #### Smart Pattern Detection
 
@@ -134,7 +135,7 @@ The import feature analyzes a rolling 7-year window (`current year ± 3`) to det
 
 1. **Data Collection**: Retrieves holiday dates for multiple years
 2. **Pattern Recognition**: Analyzes date consistency and variations
-3. **Schedule Type Selection**: Chooses the most appropriate schedule type, or falls back to the holiday-backed type for movable holidays
+3. **Schedule Type Selection**: Chooses the most appropriate schedule type, or falls back to the holiday-backed type for movable holidays. If you enable the import toggle for holiday-backed schedules, all selected holidays use the `holiday` schedule type instead.
 4. **Validation**: Ensures patterns work correctly across years
 
 For the holiday-backed type, the imported schedule keeps a reference to the named holiday and asks the Python `holidays` library for that holiday again each year. That means movable holidays stay accurate without being flattened into a single sample date like "April 7 every year."

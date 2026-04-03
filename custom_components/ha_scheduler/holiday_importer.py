@@ -317,7 +317,7 @@ def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool
     ).startswith("Variable date")
 
 
-def _build_holiday_schedule_pattern(
+def build_holiday_schedule_pattern(
     country_code: str, category: str, holiday_name: str
 ) -> dict[str, Any]:
     """Build a holiday-backed pattern for import flows."""
@@ -561,7 +561,7 @@ def _get_holidays_for_country_sync(
                         "description": f"Single occurrence: {format_date_localized(first_date)}",
                     }
             elif _should_use_holiday_schedule_pattern(pattern):
-                pattern = _build_holiday_schedule_pattern(
+                pattern = build_holiday_schedule_pattern(
                     country_code, category, holiday_name
                 )
 

@@ -1332,6 +1332,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             overwrite_existing = user_input.get("overwrite_existing", False)
             skip_on_overlap = user_input.get("skip_on_overlap", True)
             include_country_name = user_input.get("include_country_name", False)
+            use_holiday_type = user_input.get("use_holiday_type", True)
 
             if not selected_holidays:
                 return self.async_show_form(
@@ -1345,6 +1346,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 overwrite_existing,
                 skip_on_overlap,
                 include_country_name,
+                use_holiday_type,
             )
 
         return self.async_show_form(
@@ -1414,6 +1416,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     vol.Optional("overwrite_existing", default=False): bool,
                     vol.Optional("skip_on_overlap", default=True): bool,
                     vol.Optional("include_country_name", default=False): bool,
+                    vol.Optional("use_holiday_type", default=True): bool,
                 }
             )
 
@@ -1433,11 +1436,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         overwrite_existing: bool,
         skip_on_overlap: bool,
         include_country_name: bool = False,
+        use_holiday_type: bool = True,
     ) -> ConfigFlowResult:
         """Import the selected holidays as schedules."""
         try:
             from .holiday_importer import (
                 async_prime_holiday_cache,
+                build_holiday_schedule_pattern,
                 get_holidays_for_country,
             )
             from .schedule_generator import HOLIDAY_OVERLAP_HORIZON, check_overlap
@@ -1473,6 +1478,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 holiday_info = all_holidays[holiday_name]
                 pattern = holiday_info.get("pattern")
+
+                if use_holiday_type:
+                    holiday_category = str(
+                        holiday_info.get("category")
+                        or (categories[0] if categories else "public")
+                    )
+                    pattern = build_holiday_schedule_pattern(
+                        str(country), holiday_category, holiday_name
+                    )
 
                 if not pattern:
                     errors.append(f"Could not determine pattern for '{holiday_name}'")
