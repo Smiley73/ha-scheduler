@@ -255,15 +255,15 @@ class TestHolidayImportDefaults:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
         mock_holidays = {
-            "Karfreitag": {
-                "name": "Karfreitag",
+            "Good Friday": {
+                "name": "Good Friday",
                 "category": "public",
                 "dates": [date(2026, 4, 3)],
                 "pattern": {
                     "schedule_type": "holiday",
                     "country_code": "DE",
                     "category": "public",
-                    "holiday_name": "Karfreitag",
+                    "holiday_name": "Good Friday",
                     "name_lookup": "iexact",
                     "start_offset": 0,
                     "end_offset": 0,
@@ -301,7 +301,7 @@ class TestHolidayImportDefaults:
             result = await hass.config_entries.options.async_configure(
                 result["flow_id"],
                 {
-                    "holidays": ["Karfreitag"],
+                    "holidays": ["Good Friday"],
                     "overwrite_existing": False,
                     "skip_on_overlap": True,
                     "include_country_name": False,
@@ -315,11 +315,11 @@ class TestHolidayImportDefaults:
 
         assert len(schedules) == 1
         schedule = list(schedules.values())[0]
-        assert schedule["name"] == "Karfreitag"
+        assert schedule["name"] == "Good Friday"
         assert schedule["schedule_type"] == "holiday"
         assert schedule["country_code"] == "DE"
         assert schedule["category"] == "public"
-        assert schedule["holiday_name"] == "Karfreitag"
+        assert schedule["holiday_name"] == "Good Friday"
 
     async def test_holiday_import_use_holiday_type_for_fixed_date(
         self, hass: HomeAssistant, mock_config_entry

@@ -335,7 +335,7 @@ class TestGetHolidaysForCountrySync:
                 2029: date(2029, 3, 30),
             }
 
-            return {movable_dates[year]: "Karfreitag"}
+            return {movable_dates[year]: "Good Friday"}
 
         with patch(
             "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
@@ -343,11 +343,11 @@ class TestGetHolidaysForCountrySync:
             with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
                 result = _get_holidays_for_country_sync("DE", ["public"])
 
-        pattern = result["Karfreitag"]["pattern"]
+        pattern = result["Good Friday"]["pattern"]
         assert pattern["schedule_type"] == "holiday"
         assert pattern["country_code"] == "DE"
         assert pattern["category"] == "public"
-        assert pattern["holiday_name"] == "Karfreitag"
+        assert pattern["holiday_name"] == "Good Friday"
         assert pattern["name_lookup"] == "iexact"
 
 
@@ -362,14 +362,14 @@ class TestHolidayScheduleResolution:
                 "schedule_type": "holiday",
                 "country_code": "DE",
                 "category": "public",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "name_lookup": "iexact",
             },
             {
                 "schedule_type": "holiday",
                 "country_code": "DE",
                 "category": "public",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "name_lookup": "iexact",
             },
             {
@@ -388,10 +388,10 @@ class TestHolidayScheduleResolution:
 
         assert mock_get_named_dates.call_count == 2
         mock_get_named_dates.assert_any_call(
-            "DE", "public", "Karfreitag", "iexact", 2026
+            "DE", "public", "Good Friday", "iexact", 2026
         )
         mock_get_named_dates.assert_any_call(
-            "DE", "public", "Karfreitag", "iexact", 2027
+            "DE", "public", "Good Friday", "iexact", 2027
         )
 
     def test_get_named_holiday_dates_uses_named_lookup(self):
@@ -404,12 +404,12 @@ class TestHolidayScheduleResolution:
             return_value=mock_country_holidays,
         ):
             result = _get_named_holiday_dates_sync(
-                "DE", "public", "Karfreitag", "iexact", 2026
+                "DE", "public", "Good Friday", "iexact", 2026
             )
 
         assert result == (date(2026, 4, 3),)
         mock_country_holidays.get_named.assert_called_once_with(
-            "Karfreitag", lookup="iexact"
+            "Good Friday", lookup="iexact"
         )
 
     def test_generate_holiday_schedule_dates_merges_contiguous_dates(self):
@@ -442,7 +442,7 @@ class TestHolidayScheduleResolution:
             "schedule_type": "holiday",
             "country_code": "DE",
             "category": "public",
-            "holiday_name": "Karfreitag",
+            "holiday_name": "Good Friday",
             "name_lookup": "iexact",
             "start_offset": 1,
             "end_offset": 2,
