@@ -174,6 +174,17 @@ def _build_schedule_info(
                 "end_offset": schedule_data.get("end_offset"),
             }
         )
+    elif schedule_data.get("schedule_type") == "holiday":
+        schedule_info.update(
+            {
+                "country_code": schedule_data.get("country_code"),
+                "category": schedule_data.get("category"),
+                "holiday_name": schedule_data.get("holiday_name"),
+                "name_lookup": schedule_data.get("name_lookup"),
+                "start_offset": schedule_data.get("start_offset"),
+                "end_offset": schedule_data.get("end_offset"),
+            }
+        )
 
     # Include configuration if present (redact sensitive keys)
     if "configuration" in schedule_data:
