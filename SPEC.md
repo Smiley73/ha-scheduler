@@ -122,9 +122,12 @@ Define a schedule anchored to a named holiday from the Python `holidays` provide
 - Days after (number: 0-30) - end offset
 
 **Behavior**:
-- Resolves the provider holiday date each year instead of pinning to a representative Gregorian date
+- Stores the selected `country_code`, `category`, and `holiday_name` as the rule definition
+- Resolves the actual holiday date from the Python `holidays` library for each target year instead of pinning to a representative Gregorian date
+- Applies `start_offset` / `end_offset` after the yearly holiday lookup
 - Supports single-day and contiguous multi-day holiday names
 - Uses the same offset semantics as nth-day schedules
+- Does not reduce the holiday to a fixed `month/day` rule behind the scenes
 
 **Example**: Good Friday in Germany, 1 day before to 2 days after
 
@@ -165,7 +168,7 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 
 **Holiday-Backed Movable Holidays** (e.g., Good Friday, Easter Monday):
 - Holidays that cannot be safely represented as Date, Week, or Nth-Day rules
-- Creates "Holiday" type schedules with provider-backed yearly resolution
+- Creates "Holiday" type schedules that store the holiday identity and resolve dates from the Python `holidays` library year by year
 - Pattern description: "Holiday-backed (resolved each year)"
 
 **Multi-Day Week Holidays** (e.g., Spring Break, Holiday Weeks):

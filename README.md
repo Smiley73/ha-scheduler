@@ -106,7 +106,8 @@ The holiday import feature automatically analyzes multiple years of holiday data
 
 - **Holiday-Backed Movable Holidays** (e.g., Good Friday, Easter Monday)
   - Creates the "Holiday" type when a holiday cannot be safely reduced to Date, Week, or Nth-Day rules
-  - Resolves the actual holiday date from the holidays provider each year
+  - Stores the selected country, category, and holiday name instead of converting the holiday into one fixed Gregorian date
+  - Looks up the actual holiday date from the Python `holidays` library for each year that needs to be evaluated
   - Pattern: `Holiday-backed (resolved each year)`
 
 #### Supported Countries and Categories
@@ -135,6 +136,8 @@ The import feature analyzes a rolling 7-year window (`current year ± 3`) to det
 2. **Pattern Recognition**: Analyzes date consistency and variations
 3. **Schedule Type Selection**: Chooses the most appropriate schedule type, or falls back to the holiday-backed type for movable holidays
 4. **Validation**: Ensures patterns work correctly across years
+
+For the holiday-backed type, the imported schedule keeps a reference to the named holiday and asks the Python `holidays` library for that holiday again each year. That means movable holidays stay accurate without being flattened into a single sample date like "April 7 every year."
 
 #### Conflict Management
 
@@ -273,9 +276,12 @@ The HA Scheduler integration supports four types of schedules to cover different
 - End Offset: Days after the holiday to stay active (0-30)
 
 **Behavior:**
-- Resolves the actual holiday date from the Python `holidays` provider each year
+- Stores the selected country, category, and holiday name as the schedule definition
+- Looks up the actual holiday date from the Python `holidays` library each year when dates are generated
+- Applies the configured day offsets after that yearly lookup
 - Supports single-day and contiguous multi-day holiday names
 - Keeps movable holidays like Good Friday accurate without pinning them to one representative Gregorian date
+- Does not convert the holiday into one fixed month/day rule behind the scenes
 
 **Examples:**
 - Good Friday in Germany

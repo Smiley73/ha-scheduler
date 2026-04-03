@@ -100,7 +100,7 @@
       },
       "configure_holiday": {
         "title": "Configure holiday schedule",
-        "description": "Create a schedule based on a named holiday.\n\nNote: To clear the configuration field, enter a single space character.",
+        "description": "Create a schedule based on a named holiday. The selected holiday is looked up from the Python `holidays` library each year, and then the day offsets are applied.\n\nNote: To clear the configuration field, enter a single space character.",
         "data": {
           "name": "Schedule name",
           "holiday_name": "Holiday",
