@@ -305,6 +305,55 @@ async def test_calendar_current_event_selection(hass: HomeAssistant) -> None:
         assert current_event.summary == "Current Schedule"
 
 
+async def test_calendar_upcoming_event_selection_when_idle(
+    hass: HomeAssistant,
+) -> None:
+    """Test calendar selects the next upcoming schedule when idle."""
+    from unittest.mock import patch
+
+    schedules = {
+        "future": {
+            "name": "Future Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "future",
+        }
+    }
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Upcoming Event Scheduler",
+        data={},
+        options={
+            "services": {
+                "default": {
+                    "name": "Upcoming Event Scheduler",
+                    "schedules": schedules,
+                    "configuration": {},
+                }
+            }
+        },
+        version=2,
+        minor_version=1,
+    )
+    entry.add_to_hass(hass)
+
+    calendar = _create_calendar_from_entry(entry)
+
+    with patch("homeassistant.util.dt.now") as mock_now:
+        mock_now.return_value.date.return_value = date(2024, 1, 15)
+
+        current_event = calendar.event
+
+        assert current_event is not None
+        assert current_event.summary == "Future Schedule"
+        assert current_event.start == date(2024, 6, 1)
+        assert current_event.end == date(2024, 9, 1)
+
+
 async def test_calendar_overlapping_schedules(hass: HomeAssistant) -> None:
     """Test calendar with overlapping schedules."""
     schedules = {

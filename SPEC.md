@@ -485,7 +485,7 @@ Present menu with five options:
 - Each event has unique UID: `{schedule_uid}_{year}`
 - All events are all-day events
 - End date is exclusive (add 1 day for calendar display)
-- **Current event detection** (`event` property): scans `±CALENDAR_YEAR_LOOKAROUND` years from today using the `CALENDAR_YEAR_LOOKAROUND` constant (7-year window total)
+- **Active/upcoming event selection** (`event` property): scans `±CALENDAR_YEAR_LOOKAROUND` years from today using the `CALENDAR_YEAR_LOOKAROUND` constant (7-year window total), returns the active event when one is in progress, and otherwise returns the next upcoming event
 
 ### Event Properties
 - **summary**: Schedule name
@@ -496,9 +496,9 @@ Present menu with five options:
 
 ### Entity Attributes
 - `default_configuration`: The service's default YAML configuration dict
-- `configuration`: When a schedule is active, contains the configuration dict for that schedule
-- `name`: Current active schedule name (or None if no active schedule)
-- `schedule_uid`: Current active schedule UID (or None if no active schedule)
+- `configuration`: When an event is active or upcoming, contains the configuration dict for that schedule
+- `name`: Active schedule name, or the next upcoming schedule name when the calendar is idle
+- `schedule_uid`: Active schedule UID, or the next upcoming schedule UID when the calendar is idle
 
 ### Device Integration
 - All calendars are grouped under a device representing the scheduler service
@@ -517,7 +517,7 @@ Present menu with five options:
 - **Current Version**: 2 (service-based architecture)
 - **Previous Version**: 1 (helper-based architecture)
 - **Config Flow Version**: 2.1
-- **Manifest Version**: 0.4.1
+- **Manifest Version**: 0.4.2
 
 ### Migration Process
 The integration automatically detects and migrates older config entries:

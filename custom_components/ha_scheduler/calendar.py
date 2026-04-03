@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import homeassistant.util.dt as dt_util
@@ -99,7 +99,48 @@ class SchedulerCalendar(CalendarEntity):
         services = self._entry.options.get("services", {})
         service_data = services.get(self._service_id, {})
         schedules_dict = service_data.get("schedules", {})
-        return list(schedules_dict.values())
+        return [
+            schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
+            for schedule_id, schedule in schedules_dict.items()
+        ]
+
+    def _get_current_or_upcoming_event(
+        self,
+    ) -> tuple[CalendarEvent, dict[str, Any]] | None:
+        """Return the active event, or the next upcoming event when idle."""
+        today = dt_util.now().date()
+        current_year = today.year
+        active_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
+        future_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
+
+        for schedule in self._get_schedules():
+            # Check surrounding years to catch schedules that wrap across year boundaries
+            for year in range(
+                current_year - CALENDAR_YEAR_LOOKAROUND,
+                current_year + CALENDAR_YEAR_LOOKAROUND + 1,
+            ):
+                date_ranges = generate_schedule_dates(schedule, year)
+
+                for schedule_start, schedule_end in date_ranges:
+                    event = CalendarEvent(
+                        start=schedule_start,
+                        end=schedule_end + timedelta(days=1),
+                        summary=schedule["name"],
+                        uid=f"{schedule['uid']}_{year}",
+                        description="",
+                    )
+                    if schedule_start <= today <= schedule_end:
+                        active_events.append((event.start, event, schedule))
+                    elif schedule_start > today:
+                        future_events.append((event.start, event, schedule))
+
+        candidates = active_events or future_events
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: item[0])
+        _, event, schedule = candidates[0]
+        return (event, schedule)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -108,24 +149,19 @@ class SchedulerCalendar(CalendarEntity):
         service_data = services.get(self._service_id, {})
         default_config = service_data.get("configuration", {})
 
-        # Add current event configuration if available
-        current_event = self.event
-        if current_event:
-            # Extract configuration from the current event
-            schedules = self._get_schedules()
+        # Surface the schedule configuration for the active event, or the
+        # next upcoming event when the calendar is currently idle.
+        if next_event := self._get_current_or_upcoming_event():
+            _, schedule = next_event
+            schedule_config = schedule.get("configuration", default_config)
+            return {
+                "configuration": schedule_config,
+                "name": schedule["name"],
+                "schedule_uid": schedule["uid"],
+                "default_configuration": default_config,
+            }
 
-            # Find the schedule that matches the current event
-            for schedule in schedules:
-                if current_event.summary == schedule["name"]:
-                    schedule_config = schedule.get("configuration", default_config)
-                    return {
-                        "configuration": schedule_config,
-                        "name": schedule["name"],
-                        "schedule_uid": schedule["uid"],
-                        "default_configuration": default_config,
-                    }
-
-        # No active event, return default configuration
+        # No event available, return only the default configuration.
         return {
             "configuration": default_config,
             "name": None,
@@ -135,38 +171,10 @@ class SchedulerCalendar(CalendarEntity):
 
     @property
     def event(self) -> CalendarEvent | None:
-        """Return the next upcoming event."""
-        today = dt_util.now().date()
-        schedules = self._get_schedules()
-        current_year = today.year
-
-        all_events = []
-        for schedule in schedules:
-            # Check surrounding years to catch schedules that wrap across year boundaries
-            for year in range(
-                current_year - CALENDAR_YEAR_LOOKAROUND,
-                current_year + CALENDAR_YEAR_LOOKAROUND + 1,
-            ):
-                date_ranges = generate_schedule_dates(schedule, year)
-
-                for schedule_start, schedule_end in date_ranges:
-                    if schedule_start <= today <= schedule_end:
-                        all_events.append(
-                            (
-                                schedule_start,
-                                CalendarEvent(
-                                    start=schedule_start,
-                                    end=schedule_end + timedelta(days=1),
-                                    summary=schedule["name"],
-                                    uid=f"{schedule['uid']}_{year}",
-                                    description="",
-                                ),
-                            )
-                        )
-
-        if all_events:
-            all_events.sort(key=lambda x: x[0])
-            return all_events[0][1]
+        """Return the active event, or the next upcoming event when idle."""
+        if next_event := self._get_current_or_upcoming_event():
+            event, _ = next_event
+            return event
 
         return None
 
