@@ -5,11 +5,18 @@ from __future__ import annotations
 import calendar
 import logging
 from datetime import date, timedelta
+from functools import lru_cache
 from typing import Any
 
 # Babel imports moved inside functions to avoid blocking I/O during module import
 
 _LOGGER = logging.getLogger(__name__)
+
+# The Gregorian calendar repeats every 400 years, including leap-year rules.
+# Checking one full cycle makes overlap validation deterministic and ensures we
+# catch collisions that may not occur in the next few years.
+OVERLAP_VALIDATION_START_YEAR = 2000
+OVERLAP_VALIDATION_YEARS = 400
 
 # Fallback mapping for countries where Babel doesn't have locale data
 # or where the locale data differs from common practice
@@ -33,6 +40,8 @@ COUNTRY_FIRST_WEEKDAY_FALLBACK = {
     "VN": 6,  # Vietnam
     # Add more as needed for countries not well-covered by Babel
 }
+
+type OverlapSignature = tuple[int | str | None, ...]
 
 
 def _get_fallback_weekday(
@@ -706,8 +715,8 @@ def check_overlap(
     """Check if a schedule overlaps with existing schedules.
 
     Note: For by-week and by-nth-day schedules, the actual dates vary each year
-    (e.g., "first Monday of January" is different in 2024 vs 2025).
-    We check multiple years to ensure no overlaps occur in any year.
+    (e.g., "first Monday of January" is different in 2024 vs 2025). We check a
+    full Gregorian calendar cycle to ensure overlap detection is deterministic.
 
     Returns:
         Tuple of (has_overlap, conflicting_schedule_name)
@@ -716,13 +725,7 @@ def check_overlap(
     if "schedule_type" not in schedule:
         return (False, None)
 
-    current_year = date.today().year
-    new_dates = []
-
-    # Check multiple years to catch varying date patterns
-    # For by-week/by-nth-day, dates shift each year
-    for year in range(current_year, current_year + 3):
-        new_dates.extend(generate_schedule_dates(schedule, year))
+    new_dates = _generate_overlap_ranges(_get_overlap_signature(schedule))
 
     if not new_dates:
         return (False, None)
@@ -732,9 +735,7 @@ def check_overlap(
         if exclude_uid and existing.get("uid") == exclude_uid:
             continue
 
-        existing_dates = []
-        for year in range(current_year, current_year + 3):
-            existing_dates.extend(generate_schedule_dates(existing, year))
+        existing_dates = _generate_overlap_ranges(_get_overlap_signature(existing))
 
         # Check for overlaps across all generated date ranges
         for new_start, new_end in new_dates:
@@ -743,3 +744,118 @@ def check_overlap(
                     return (True, existing.get("name", "Unknown"))
 
     return (False, None)
+
+
+def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
+    """Return the date-relevant schedule fields as a stable cache key."""
+    schedule_type = schedule.get("schedule_type")
+
+    if schedule_type == "date":
+        return (
+            "date",
+            schedule.get("start_month"),
+            schedule.get("start_day"),
+            schedule.get("end_month"),
+            schedule.get("end_day"),
+        )
+
+    if schedule_type == "week":
+        country_code = schedule.get("country_code")
+        normalized_country = (
+            country_code.upper() if isinstance(country_code, str) else None
+        )
+        return (
+            "week",
+            schedule.get("start_month"),
+            schedule.get("start_week"),
+            schedule.get("start_day_of_week"),
+            schedule.get("end_month"),
+            schedule.get("end_week"),
+            schedule.get("end_day_of_week"),
+            schedule.get("start_week_type", "partial"),
+            schedule.get("end_week_type", "partial"),
+            normalized_country,
+        )
+
+    if schedule_type == "nth-day":
+        return (
+            "nth-day",
+            schedule.get("month"),
+            schedule.get("occurrence"),
+            schedule.get("day_of_week"),
+            schedule.get("start_offset", 0),
+            schedule.get("end_offset", 0),
+        )
+
+    return (schedule_type,)
+
+
+@lru_cache(maxsize=1024)
+def _generate_overlap_ranges(
+    signature: OverlapSignature,
+) -> tuple[tuple[date, date], ...]:
+    """Generate all date ranges needed for deterministic overlap checks."""
+    if not signature:
+        return ()
+
+    schedule_type = signature[0]
+    schedule: dict[str, Any]
+
+    if schedule_type == "date":
+        _, start_month, start_day, end_month, end_day = signature
+        schedule = {
+            "schedule_type": "date",
+            "start_month": start_month,
+            "start_day": start_day,
+            "end_month": end_month,
+            "end_day": end_day,
+        }
+    elif schedule_type == "week":
+        (
+            _,
+            start_month,
+            start_week,
+            start_day_of_week,
+            end_month,
+            end_week,
+            end_day_of_week,
+            start_week_type,
+            end_week_type,
+            country_code,
+        ) = signature
+        schedule = {
+            "schedule_type": "week",
+            "start_month": start_month,
+            "start_week": start_week,
+            "end_month": end_month,
+            "end_week": end_week,
+            "start_week_type": start_week_type,
+            "end_week_type": end_week_type,
+        }
+        if start_day_of_week is not None:
+            schedule["start_day_of_week"] = start_day_of_week
+        if end_day_of_week is not None:
+            schedule["end_day_of_week"] = end_day_of_week
+        if country_code is not None:
+            schedule["country_code"] = country_code
+    elif schedule_type == "nth-day":
+        _, month, occurrence, day_of_week, start_offset, end_offset = signature
+        schedule = {
+            "schedule_type": "nth-day",
+            "month": month,
+            "occurrence": occurrence,
+            "day_of_week": day_of_week,
+            "start_offset": start_offset,
+            "end_offset": end_offset,
+        }
+    else:
+        return ()
+
+    all_ranges: list[tuple[date, date]] = []
+    for year in range(
+        OVERLAP_VALIDATION_START_YEAR,
+        OVERLAP_VALIDATION_START_YEAR + OVERLAP_VALIDATION_YEARS,
+    ):
+        all_ranges.extend(generate_schedule_dates(schedule, year))
+
+    return tuple(all_ranges)

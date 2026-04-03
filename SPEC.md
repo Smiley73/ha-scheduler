@@ -1,7 +1,7 @@
 # Home Assistant Scheduler Integration - Specification
 
 **Domain**: `ha_scheduler`
-**Version**: 0.4.1
+**Version**: 0.4.2
 **Quality Scale**: Gold
 **Integration Type**: Service
 **Status**: Implemented and functional
@@ -287,7 +287,7 @@ Present menu with five options:
 3. **On Submit**:
    - Generate unique UID using `str(uuid.uuid4())`
    - Validate schedule name is unique within this service (case-insensitive)
-   - Check for overlaps with existing schedules
+   - Check for overlaps with existing schedules across the full 400-year Gregorian recurrence cycle
    - Add to `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all existing schedules
 
@@ -378,7 +378,7 @@ Present menu with five options:
 
 ### Overlap Detection
 - Check if new/edited schedule overlaps with existing schedules
-- Check across 3 years (current year + 2 more)
+- Check across one full Gregorian calendar cycle (400 years) to avoid time-dependent false negatives
 - Return tuple: `(has_overlap: bool, conflicting_schedule_name: str | None)`
 - Error: "This schedule overlaps with '{conflicting_schedule}'"
 - When editing: Exclude current schedule from overlap check
@@ -899,7 +899,7 @@ The system automatically detects and handles different week start conventions:
 
 **`check_overlap(new_schedule: dict, existing_schedules: list[dict], exclude_uid: str | None = None) -> tuple[bool, str | None]`**
 - Check if new_schedule overlaps with any existing schedules
-- Check across 3 years (current + 2 more)
+- Check across one full 400-year Gregorian cycle so recurring patterns are validated deterministically
 - Exclude schedule with exclude_uid from check (for editing)
 - Return (has_overlap, conflicting_schedule_name)
 
