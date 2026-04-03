@@ -615,6 +615,7 @@ class TestHolidayImportOptions:
                     "overwrite_existing": True,
                     "skip_on_overlap": True,
                     "include_country_name": False,
+                    "use_holiday_type": False,
                 },
             )
 

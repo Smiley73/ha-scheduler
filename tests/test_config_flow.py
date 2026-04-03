@@ -1520,6 +1520,7 @@ async def test_import_holidays_overwrite_existing_with_normalized_name_match(
                 "skip_on_overlap": True,
                 "overwrite_existing": True,
                 "include_country_name": False,
+                "use_holiday_type": False,
             },
         )
 
@@ -1679,6 +1680,7 @@ async def test_import_holidays_overwrite_existing_skips_other_overlap(
                 "skip_on_overlap": True,
                 "overwrite_existing": True,
                 "include_country_name": False,
+                "use_holiday_type": False,
             },
         )
 
@@ -1766,6 +1768,7 @@ async def test_import_holidays_overwrite_existing_allows_other_overlap(
                 "skip_on_overlap": False,
                 "overwrite_existing": True,
                 "include_country_name": False,
+                "use_holiday_type": False,
             },
         )
 
@@ -1864,6 +1867,7 @@ async def test_import_holidays_partial_success_after_skipped_overwrite(
                 "skip_on_overlap": True,
                 "overwrite_existing": True,
                 "include_country_name": False,
+                "use_holiday_type": False,
             },
         )
 

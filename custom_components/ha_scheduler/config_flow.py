@@ -581,7 +581,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 schedules = self._get_service_schedules()
                 # Get current schedules and validate for conflicts
                 if not errors:
-                    errors.update(await self._validate_schedule_conflicts(data, schedules))
+                    errors.update(
+                        await self._validate_schedule_conflicts(data, schedules)
+                    )
 
                 if not errors:
                     new_schedules = dict(schedules)
