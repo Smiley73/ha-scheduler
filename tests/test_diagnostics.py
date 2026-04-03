@@ -1,5 +1,7 @@
 """Test diagnostics for Scheduler integration."""
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from homeassistant.core import HomeAssistant
 
@@ -127,6 +129,70 @@ async def test_diagnostics_with_nth_day_schedule(
     assert schedule["month"] == 3
     assert schedule["occurrence"] == 2
     assert schedule["day_of_week"] == 1
+
+
+async def test_diagnostics_with_holiday_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test diagnostics with a holiday-backed schedule."""
+    schedule_data = {
+        "schedule-holiday": {
+            "name": "Good Friday",
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 1,
+            "end_offset": 2,
+            "uid": "schedule-holiday",
+        }
+    }
+    entry = create_service_entry(schedules=schedule_data)
+    entry.add_to_hass(hass)
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert diagnostics["summary"]["total_schedules"] == 1
+    default_service = diagnostics["services"]["default"]
+    schedule = default_service["schedules"]["items"][0]
+    assert schedule["name"] == "Good Friday"
+    assert schedule["type"] == "holiday"
+    assert schedule["country_code"] == "DE"
+    assert schedule["category"] == "public"
+    assert schedule["holiday_name"] == "Karfreitag"
+    assert schedule["name_lookup"] == "iexact"
+    assert schedule["start_offset"] == 1
+    assert schedule["end_offset"] == 2
+
+
+async def test_diagnostics_prime_holiday_cache(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test diagnostics primes holiday caches before generating holiday dates."""
+    schedule_data = {
+        "schedule-holiday": {
+            "name": "Good Friday",
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+            "uid": "schedule-holiday",
+        }
+    }
+    entry = create_service_entry(schedules=schedule_data)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.ha_scheduler.diagnostics.async_prime_holiday_cache",
+        new=AsyncMock(),
+    ) as mock_prime_holiday_cache:
+        await async_get_config_entry_diagnostics(hass, entry)
+
+    mock_prime_holiday_cache.assert_awaited_once()
 
 
 async def test_diagnostics_with_configuration(

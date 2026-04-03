@@ -84,6 +84,34 @@
           "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
         }
       },
+      "configure_holiday_country": {
+        "title": "Select holiday country",
+        "description": "Choose the country whose holidays you want to use for this schedule.",
+        "data": {
+          "country_code": "Country"
+        }
+      },
+      "configure_holiday_category": {
+        "title": "Select holiday category",
+        "description": "Choose which holiday category to use for this schedule.",
+        "data": {
+          "category": "Holiday category"
+        }
+      },
+      "configure_holiday": {
+        "title": "Configure holiday schedule",
+        "description": "Create a schedule based on a named holiday. The selected holiday is looked up from the Python `holidays` library each year, and then the day offsets are applied.\n\nNote: To clear the configuration field, enter a single space character.",
+        "data": {
+          "name": "Schedule name",
+          "holiday_name": "Holiday",
+          "start_offset": "Days before",
+          "end_offset": "Days after",
+          "configuration": "Configuration (YAML)"
+        },
+        "data_description": {
+          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
+        }
+      },
       "edit_schedule": {
         "title": "Edit schedule",
         "description": "Select a schedule to edit",
@@ -128,17 +156,19 @@
       },
       "import_holidays_select": {
         "title": "Select holidays to import",
-        "description": "Choose specific holidays to import as schedules. Each holiday shows its detected pattern type.",
+        "description": "Choose specific holidays to import as schedules. Each holiday shows its detected pattern type, and you can optionally import all selected holidays as holiday-backed schedules.",
         "data": {
           "holidays": "Holidays to import",
           "overwrite_existing": "Overwrite existing schedules with same name",
           "skip_on_overlap": "Skip holidays that overlap with existing schedules",
-          "include_country_name": "Include country name in schedule names"
+          "include_country_name": "Include country name in schedule names",
+          "use_holiday_type": "Import as holiday-backed schedules"
         },
         "data_description": {
           "overwrite_existing": "If enabled, existing schedules with the same name will be replaced.",
           "skip_on_overlap": "If enabled, holidays that would overlap with existing schedules will be skipped.",
-          "include_country_name": "If enabled, the country code will be added to schedule names (e.g., 'Independence Day (US)'). If disabled, only the holiday name will be used (e.g., 'Independence Day')."
+          "include_country_name": "If enabled, the country code will be added to schedule names (e.g., 'Independence Day (US)'). If disabled, only the holiday name will be used (e.g., 'Independence Day').",
+          "use_holiday_type": "If enabled, every selected holiday will be imported using the Holiday schedule type, which asks the Python `holidays` library for the actual holiday date each year instead of storing the detected Date, Week, or Nth-Day pattern."
         }
       }
     },
@@ -152,6 +182,8 @@
       "invalid_week_schedule": "This week-based schedule does not create a valid recurring date range. Adjust the week type or weekday selection.",
       "schedule_overlap": "This schedule overlaps with an existing schedule.",
       "schedule_overlap_with_name": "This schedule overlaps with {conflicting_schedule}.",
+      "invalid_holiday_selection": "The selected holiday is no longer available. Please choose it again.",
+      "no_holidays_available": "No holidays are available for the selected country and category.",
       "no_countries_available": "No countries available for holiday import",
       "import_error": "Failed to load holiday data",
       "no_holidays_imported": "No holidays were imported. All selected holidays were already present or would overlap with existing schedules.",
@@ -171,7 +203,8 @@
       "options": {
         "date": "By Date",
         "week": "By Week of Month",
-        "nth-day": "By Nth Day of Month"
+        "nth-day": "By Nth Day of Month",
+        "holiday": "By Holiday"
       }
     },
     "month": {

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from datetime import date, timedelta
 from functools import lru_cache
 from types import ModuleType
-from typing import Any
+from typing import Any, Iterable
 
 from .const import (
     CALENDAR_YEAR_LOOKAROUND,
@@ -103,30 +104,242 @@ HOLIDAYS_AVAILABLE: bool | None = None
 
 
 @lru_cache(maxsize=1)
-def _import_holidays_module() -> ModuleType | None:
+def _get_holidays_module() -> ModuleType | None:
     """Import and cache the holidays module."""
     try:
-        import holidays as holidays_module
+        return importlib.import_module("holidays")
     except ImportError:
-        _LOGGER.warning(
-            "holidays library not available - holiday import feature disabled"
+        return None
+
+
+def _holidays_available() -> bool:
+    """Return whether the holidays library is available."""
+    global HOLIDAYS_AVAILABLE
+
+    if HOLIDAYS_AVAILABLE is None:
+        HOLIDAYS_AVAILABLE = _get_holidays_module() is not None
+        if not HOLIDAYS_AVAILABLE:
+            _LOGGER.warning(
+                "holidays library not available - holiday import feature disabled"
+            )
+
+    return HOLIDAYS_AVAILABLE
+
+
+def _clear_holiday_caches() -> None:
+    """Clear cached holiday metadata for tests."""
+    global HOLIDAYS_AVAILABLE
+
+    HOLIDAYS_AVAILABLE = None
+    _get_holidays_module.cache_clear()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
+
+
+def _build_holiday_cache_requests(
+    schedules: Iterable[dict[str, Any]], years: Iterable[int]
+) -> tuple[tuple[str, str | None, str, str, int], ...]:
+    """Build unique holiday lookup requests for the supplied schedules."""
+    unique_years = tuple(sorted({int(year) for year in years}))
+    if not unique_years:
+        return ()
+
+    requests: set[tuple[str, str | None, str, str, int]] = set()
+
+    for schedule in schedules:
+        if schedule.get("schedule_type") != "holiday":
+            continue
+
+        try:
+            country_code = str(schedule["country_code"]).upper()
+            holiday_name = str(schedule["holiday_name"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        category_value = schedule.get("category")
+        category = str(category_value) if category_value is not None else None
+        lookup = str(schedule.get("name_lookup", "iexact"))
+
+        for year in unique_years:
+            requests.add((country_code, category, holiday_name, lookup, year))
+
+    return tuple(
+        sorted(
+            requests,
+            key=lambda item: (item[0], item[1] or "", item[2], item[3], item[4]),
         )
+    )
+
+
+def _prime_holiday_cache_sync(
+    requests: tuple[tuple[str, str | None, str, str, int], ...],
+) -> None:
+    """Warm the holiday lookup cache for a set of named holiday requests."""
+    for country_code, category, holiday_name, lookup, year in requests:
+        _get_named_holiday_dates_sync(
+            country_code, category, holiday_name, lookup, year
+        )
+
+
+async def async_prime_holiday_cache(
+    schedules: Iterable[dict[str, Any]], years: Iterable[int]
+) -> None:
+    """Warm holiday lookup caches off the event loop for the supplied schedules."""
+    requests = _build_holiday_cache_requests(schedules, years)
+    if not requests:
+        return
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _prime_holiday_cache_sync, requests)
+
+
+@lru_cache(maxsize=1024)
+def _get_country_holidays_sync(
+    country_code: str, category: str | None, year: int
+) -> Any | None:
+    """Return the holiday provider object for one country/category/year."""
+    if not _holidays_available():
         return None
 
-    return holidays_module
-
-
-def _get_holidays_module() -> ModuleType | None:
-    """Return the holidays module when available."""
-    if HOLIDAYS_AVAILABLE is False:
+    holidays_module = _get_holidays_module()
+    if holidays_module is None:
         return None
 
-    return _import_holidays_module()
+    if category and category != "public":
+        return holidays_module.country_holidays(
+            country_code, categories=category, years=year
+        )
+
+    return holidays_module.country_holidays(country_code, years=year)
+
+
+@lru_cache(maxsize=4096)
+def _get_named_holiday_dates_sync(
+    country_code: str,
+    category: str | None,
+    holiday_name: str,
+    lookup: str,
+    year: int,
+) -> tuple[date, ...]:
+    """Resolve dates for a named holiday in one year."""
+    country_holidays = _get_country_holidays_sync(country_code, category, year)
+    if country_holidays is None:
+        return ()
+
+    try:
+        if hasattr(country_holidays, "get_named"):
+            named_dates = country_holidays.get_named(holiday_name, lookup=lookup)
+        else:
+            named_dates = [
+                holiday_date
+                for holiday_date, current_name in country_holidays.items()
+                if str(current_name).casefold() == holiday_name.casefold()
+            ]
+    except Exception as err:
+        _LOGGER.debug(
+            "Could not resolve holiday %s for %s/%s in %s: %s",
+            holiday_name,
+            country_code,
+            category or "public",
+            year,
+            err,
+        )
+        return ()
+
+    return tuple(sorted(set(named_dates)))
+
+
+def _merge_contiguous_dates(
+    holiday_dates: tuple[date, ...] | list[date],
+) -> list[tuple[date, date]]:
+    """Collapse consecutive holiday dates into date ranges."""
+    ordered_dates = sorted(set(holiday_dates))
+    if not ordered_dates:
+        return []
+
+    ranges: list[tuple[date, date]] = []
+    range_start = ordered_dates[0]
+    range_end = ordered_dates[0]
+
+    for holiday_date in ordered_dates[1:]:
+        if holiday_date == range_end + timedelta(days=1):
+            range_end = holiday_date
+            continue
+
+        ranges.append((range_start, range_end))
+        range_start = holiday_date
+        range_end = holiday_date
+
+    ranges.append((range_start, range_end))
+    return ranges
+
+
+def generate_holiday_schedule_dates(
+    schedule: dict[str, Any], year: int
+) -> list[tuple[date, date]]:
+    """Generate date ranges for a holiday-backed schedule."""
+    required_fields = ["country_code", "holiday_name"]
+    if not all(schedule.get(field) for field in required_fields):
+        return []
+
+    try:
+        country_code = str(schedule["country_code"]).upper()
+        category = str(schedule.get("category", "public"))
+        holiday_name = str(schedule["holiday_name"])
+        lookup = str(schedule.get("name_lookup", "iexact"))
+        start_offset = int(schedule.get("start_offset", 0))
+        end_offset = int(schedule.get("end_offset", 0))
+    except (TypeError, ValueError):
+        return []
+
+    holiday_dates = _get_named_holiday_dates_sync(
+        country_code, category, holiday_name, lookup, year
+    )
+    if not holiday_dates:
+        return []
+
+    return [
+        (
+            range_start - timedelta(days=start_offset),
+            range_end + timedelta(days=end_offset),
+        )
+        for range_start, range_end in _merge_contiguous_dates(holiday_dates)
+    ]
+
+
+def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool:
+    """Return whether a detected pattern should use the holiday schedule type."""
+    if pattern is None:
+        return False
+
+    return pattern.get("schedule_type") == "date" and str(
+        pattern.get("description", "")
+    ).startswith("Variable date")
+
+
+def build_holiday_schedule_pattern(
+    country_code: str, category: str, holiday_name: str
+) -> dict[str, Any]:
+    """Build a holiday-backed pattern for import flows."""
+    return {
+        "schedule_type": "holiday",
+        "country_code": country_code.upper(),
+        "category": category,
+        "holiday_name": holiday_name,
+        "name_lookup": "iexact",
+        "start_offset": 0,
+        "end_offset": 0,
+        "description": "Holiday-backed (resolved each year)",
+    }
 
 
 def _get_supported_countries_sync() -> dict[str, str]:
     """Get list of all supported countries dynamically (sync version)."""
-    if not (holidays_module := _get_holidays_module()):
+    if not _holidays_available():
+        return {}
+
+    holidays_module = _get_holidays_module()
+    if holidays_module is None:
         return {}
 
     try:
@@ -185,7 +398,11 @@ async def get_supported_countries() -> dict[str, str]:
 
 def _get_available_categories_sync(country_code: str) -> dict[str, str]:
     """Get available holiday categories for a specific country (sync version)."""
-    if not (holidays_module := _get_holidays_module()):
+    if not _holidays_available():
+        return {"public": "Public Holidays"}
+
+    holidays_module = _get_holidays_module()
+    if holidays_module is None:
         return {"public": "Public Holidays"}
 
     try:
@@ -254,7 +471,7 @@ def _get_holidays_for_country_sync(
     country_code: str, categories: list[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Get all holidays for a country with their patterns (sync version)."""
-    if not (holidays_module := _get_holidays_module()):
+    if not _holidays_available():
         return {}
 
     try:
@@ -281,16 +498,11 @@ def _get_holidays_for_country_sync(
                 # Some countries might not support all categories
                 for year in years:
                     try:
-                        if category == "public":
-                            # Default category - no category parameter needed
-                            year_holidays = holidays_module.country_holidays(
-                                country_code, years=year
-                            )
-                        else:
-                            # Specific category
-                            year_holidays = holidays_module.country_holidays(
-                                country_code, categories=category, years=year
-                            )
+                        year_holidays = _get_country_holidays_sync(
+                            country_code, category, year
+                        )
+                        if year_holidays is None:
+                            continue
 
                         for holiday_date, holiday_name in year_holidays.items():
                             if holiday_name not in all_holidays:
@@ -348,6 +560,10 @@ def _get_holidays_for_country_sync(
                         "end_day": first_date.day,
                         "description": f"Single occurrence: {format_date_localized(first_date)}",
                     }
+            elif _should_use_holiday_schedule_pattern(pattern):
+                pattern = build_holiday_schedule_pattern(
+                    country_code, category, holiday_name
+                )
 
             holiday_data["pattern"] = pattern
 

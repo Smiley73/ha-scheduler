@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 # catch collisions that may not occur in the next few years.
 OVERLAP_VALIDATION_START_YEAR = 2000
 OVERLAP_VALIDATION_YEARS = 400
+HOLIDAY_OVERLAP_HORIZON = 10
 
 # Fallback mapping for countries where Babel doesn't have locale data
 # or where the locale data differs from common practice
@@ -145,6 +146,8 @@ def generate_schedule_dates(
         return _generate_by_week(schedule, year)
     if schedule_type == "nth-day":
         return _generate_by_nth_day(schedule, year)
+    if schedule_type == "holiday":
+        return _generate_by_holiday(schedule, year)
 
     return []
 
@@ -477,6 +480,18 @@ def _generate_by_nth_day(
         return []
 
 
+def _generate_by_holiday(
+    schedule: dict[str, Any], year: int
+) -> list[tuple[date, date]]:
+    """Generate dates for a holiday-backed schedule."""
+    try:
+        from .holiday_importer import generate_holiday_schedule_dates
+    except ImportError:
+        return []
+
+    return generate_holiday_schedule_dates(schedule, year)
+
+
 def _get_week_start(
     year: int,
     month: int,
@@ -738,9 +753,9 @@ def check_overlap(
 ) -> tuple[bool, str | None]:
     """Check if a schedule overlaps with existing schedules.
 
-    Note: For by-week and by-nth-day schedules, the actual dates vary each year
-    (e.g., "first Monday of January" is different in 2024 vs 2025). We check a
-    full Gregorian calendar cycle to ensure overlap detection is deterministic.
+    Gregorian schedules are validated across a full 400-year cycle to keep
+    overlap checks deterministic. Holiday-backed schedules use a bounded,
+    provider-backed horizon because their dates come from the holidays library.
 
     Returns:
         Tuple of (has_overlap, conflicting_schedule_name)
@@ -749,17 +764,37 @@ def check_overlap(
     if "schedule_type" not in schedule:
         return (False, None)
 
-    new_dates = _generate_overlap_ranges(_get_overlap_signature(schedule))
+    new_signature = _get_overlap_signature(schedule)
+    cached_new_dates: tuple[tuple[date, date], ...] | None = None
 
-    if not new_dates:
-        return (False, None)
+    if _uses_deterministic_overlap_cycle(new_signature):
+        cached_new_dates = _generate_overlap_ranges(new_signature)
+        if not cached_new_dates:
+            return (False, None)
 
     # Check against existing schedules
     for existing in existing_schedules:
         if exclude_uid and existing.get("uid") == exclude_uid:
             continue
 
-        existing_dates = _generate_overlap_ranges(_get_overlap_signature(existing))
+        existing_signature = _get_overlap_signature(existing)
+
+        if _uses_deterministic_overlap_cycle(
+            new_signature
+        ) and _uses_deterministic_overlap_cycle(existing_signature):
+            new_dates = cached_new_dates or ()
+            existing_dates = _generate_overlap_ranges(existing_signature)
+            if not existing_dates:
+                continue
+        else:
+            overlap_years = _get_overlap_years(schedule, existing)
+            new_dates = tuple(_generate_dates_for_years(schedule, overlap_years))
+            if not new_dates:
+                continue
+
+            existing_dates = tuple(_generate_dates_for_years(existing, overlap_years))
+            if not existing_dates:
+                continue
 
         # Check for overlaps across all generated date ranges
         for new_start, new_end in new_dates:
@@ -807,6 +842,23 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
             schedule.get("month"),
             schedule.get("occurrence"),
             schedule.get("day_of_week"),
+            schedule.get("start_offset", 0),
+            schedule.get("end_offset", 0),
+        )
+
+    if schedule_type == "holiday":
+        country_code = schedule.get("country_code")
+        normalized_country = (
+            country_code.upper() if isinstance(country_code, str) else None
+        )
+        category = schedule.get("category")
+        holiday_name = schedule.get("holiday_name")
+        return (
+            "holiday",
+            normalized_country,
+            str(category) if category is not None else None,
+            str(holiday_name) if holiday_name is not None else None,
+            str(schedule.get("name_lookup", "iexact")),
             schedule.get("start_offset", 0),
             schedule.get("end_offset", 0),
         )
@@ -872,6 +924,28 @@ def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | No
             "end_offset": end_offset,
         }
 
+    if schedule_type == "holiday":
+        (
+            _,
+            country_code,
+            category,
+            holiday_name,
+            lookup,
+            start_offset,
+            end_offset,
+        ) = signature
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": country_code,
+            "holiday_name": holiday_name,
+            "name_lookup": lookup,
+            "start_offset": start_offset,
+            "end_offset": end_offset,
+        }
+        if category is not None:
+            schedule["category"] = category
+        return schedule
+
     return None
 
 
@@ -912,3 +986,41 @@ def _week_schedule_has_valid_ranges(signature: OverlapSignature) -> bool:
             return False
 
     return True
+
+
+def _uses_deterministic_overlap_cycle(signature: OverlapSignature) -> bool:
+    """Return whether a schedule signature can use the 400-year cycle cache."""
+    if not signature:
+        return False
+
+    return signature[0] in {"date", "week", "nth-day"}
+
+
+def _get_overlap_years(
+    schedule: dict[str, Any], existing_schedule: dict[str, Any]
+) -> range:
+    """Return the bounded year range used for holiday-backed overlap checks."""
+    current_year = date.today().year
+
+    if (
+        schedule.get("schedule_type") == "holiday"
+        or existing_schedule.get("schedule_type") == "holiday"
+    ):
+        return range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1)
+
+    return range(
+        OVERLAP_VALIDATION_START_YEAR,
+        OVERLAP_VALIDATION_START_YEAR + OVERLAP_VALIDATION_YEARS,
+    )
+
+
+def _generate_dates_for_years(
+    schedule: dict[str, Any], years: range
+) -> list[tuple[date, date]]:
+    """Generate schedule dates for each year in a range."""
+    generated_dates: list[tuple[date, date]] = []
+
+    for year in years:
+        generated_dates.extend(generate_schedule_dates(schedule, year))
+
+    return generated_dates

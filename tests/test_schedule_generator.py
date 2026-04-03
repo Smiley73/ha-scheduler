@@ -1,8 +1,10 @@
 """Test the schedule generator."""
 
 from datetime import date
+from unittest.mock import patch
 
 from custom_components.ha_scheduler.schedule_generator import (
+    HOLIDAY_OVERLAP_HORIZON,
     check_overlap,
     generate_schedule_dates,
 )
@@ -91,6 +93,40 @@ def test_generate_by_nth_day_last_occurrence() -> None:
     assert len(dates) == 1
     # Last Friday of December 2024 is December 27
     assert dates[0] == (date(2024, 12, 27), date(2024, 12, 27))
+
+
+def test_generate_by_holiday() -> None:
+    """Test generating dates for a holiday-backed schedule."""
+    schedule = {
+        "schedule_type": "holiday",
+        "country_code": "DE",
+        "category": "public",
+        "holiday_name": "Karfreitag",
+        "name_lookup": "iexact",
+        "start_offset": 0,
+        "end_offset": 0,
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    assert dates[0] == (date(2026, 4, 3), date(2026, 4, 3))
+
+
+def test_generate_by_holiday_with_offsets() -> None:
+    """Test holiday offsets around the resolved holiday date."""
+    schedule = {
+        "schedule_type": "holiday",
+        "country_code": "DE",
+        "category": "public",
+        "holiday_name": "Karfreitag",
+        "name_lookup": "iexact",
+        "start_offset": 1,
+        "end_offset": 2,
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    assert dates[0] == (date(2026, 4, 2), date(2026, 4, 5))
 
 
 def test_check_overlap_no_overlap() -> None:
@@ -213,3 +249,73 @@ def test_check_overlap_detects_future_gregorian_cycle_collision() -> None:
     has_overlap, name = check_overlap(schedule1, [schedule2])
     assert has_overlap
     assert name == "First Monday of January"
+
+
+def test_check_overlap_holiday_uses_extended_horizon() -> None:
+    """Test holiday overlap checks look farther ahead than the default horizon."""
+    current_year = date.today().year
+    overlap_year = current_year + HOLIDAY_OVERLAP_HORIZON - 1
+
+    holiday_schedule = {
+        "schedule_type": "holiday",
+        "uid": "holiday-schedule",
+    }
+    existing_schedule = {
+        "schedule_type": "date",
+        "uid": "existing-schedule",
+        "name": "Future conflict",
+    }
+
+    def _mock_generate_dates(
+        schedule: dict[str, str], year: int
+    ) -> list[tuple[date, date]]:
+        if (
+            schedule.get("uid") in {"holiday-schedule", "existing-schedule"}
+            and year == overlap_year
+        ):
+            return [(date(year, 4, 1), date(year, 4, 1))]
+        return []
+
+    with patch(
+        "custom_components.ha_scheduler.schedule_generator.generate_schedule_dates",
+        side_effect=_mock_generate_dates,
+    ):
+        has_overlap, name = check_overlap(holiday_schedule, [existing_schedule])
+
+    assert has_overlap
+    assert name == "Future conflict"
+
+
+def test_check_overlap_holiday_remains_bounded() -> None:
+    """Test holiday overlap checks do not look beyond the configured horizon."""
+    current_year = date.today().year
+    overlap_year = current_year + HOLIDAY_OVERLAP_HORIZON + 1
+
+    holiday_schedule = {
+        "schedule_type": "holiday",
+        "uid": "holiday-schedule",
+    }
+    existing_schedule = {
+        "schedule_type": "date",
+        "uid": "existing-schedule",
+        "name": "Late overlap",
+    }
+
+    def _mock_generate_dates(
+        schedule: dict[str, str], year: int
+    ) -> list[tuple[date, date]]:
+        if (
+            schedule.get("uid") in {"holiday-schedule", "existing-schedule"}
+            and year == overlap_year
+        ):
+            return [(date(year, 5, 1), date(year, 5, 1))]
+        return []
+
+    with patch(
+        "custom_components.ha_scheduler.schedule_generator.generate_schedule_dates",
+        side_effect=_mock_generate_dates,
+    ):
+        has_overlap, name = check_overlap(holiday_schedule, [existing_schedule])
+
+    assert not has_overlap
+    assert name is None

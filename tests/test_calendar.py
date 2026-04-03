@@ -1,6 +1,7 @@
 """Test the Scheduler calendar."""
 
 from datetime import date, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -126,6 +127,83 @@ async def test_calendar_with_nth_day_schedule(
     assert events[0].start == date(2024, 3, 10)
     # March 12 + 3 days = March 15, +1 day for all-day = March 16
     assert events[0].end == date(2024, 3, 16)
+
+
+async def test_calendar_with_holiday_schedule(
+    hass: HomeAssistant, create_service_entry, freezer
+) -> None:
+    """Test calendar entity with a holiday-backed schedule."""
+    freezer.move_to("2026-04-03 12:00:00")
+
+    schedules = {
+        "test-schedule-1": {
+            "name": "Good Friday",
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+            "uid": "test-schedule-1",
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    current_event = calendar.event
+    assert current_event is not None
+    assert current_event.summary == "Good Friday"
+    assert current_event.start == date(2026, 4, 3)
+    assert current_event.end == date(2026, 4, 4)
+
+    attrs = calendar.extra_state_attributes
+    assert attrs["name"] == "Good Friday"
+    assert attrs["schedule_uid"] == "test-schedule-1"
+
+    start = datetime(2026, 4, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    end = datetime(2026, 4, 5, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+
+    events = await calendar.async_get_events(hass, start, end)
+
+    assert len(events) == 1
+    assert events[0].summary == "Good Friday"
+    assert events[0].start == date(2026, 4, 3)
+    assert events[0].end == date(2026, 4, 4)
+
+
+async def test_calendar_setup_primes_holiday_cache(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test calendar setup primes holiday caches off the event loop."""
+    schedules = {
+        "test-schedule-1": {
+            "name": "Good Friday",
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+            "uid": "test-schedule-1",
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.ha_scheduler.calendar.async_prime_holiday_cache",
+        new=AsyncMock(),
+    ) as mock_prime_holiday_cache:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    mock_prime_holiday_cache.assert_awaited()
 
 
 async def test_calendar_with_configuration(

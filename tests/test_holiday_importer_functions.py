@@ -10,11 +10,15 @@ import pytest
 
 import custom_components.ha_scheduler.holiday_importer as holiday_importer
 from custom_components.ha_scheduler.holiday_importer import (
+    _clear_holiday_caches,
     _get_available_categories_sync,
     _get_holidays_for_country_sync,
+    _get_named_holiday_dates_sync,
     _get_supported_countries_sync,
+    async_prime_holiday_cache,
     calculate_occurrence,
     format_date_localized,
+    generate_holiday_schedule_dates,
     get_localized_country_name,
 )
 
@@ -42,6 +46,14 @@ def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
         sys.modules[module_name] = original_module
 
     assert reloaded_module.HOLIDAYS_AVAILABLE is None
+
+
+@pytest.fixture(autouse=True)
+def clear_holiday_caches():
+    """Reset holiday resolver caches between tests."""
+    _clear_holiday_caches()
+    yield
+    _clear_holiday_caches()
 
 
 class TestFormatDateLocalized:
@@ -305,6 +317,144 @@ class TestGetHolidaysForCountrySync:
                 result = _get_holidays_for_country_sync("US")
                 # Should return empty dict, not crash
                 assert result == {}
+
+    def test_get_holidays_variable_dates_use_holiday_schedule(self):
+        """Test variable movable holidays use the holiday-backed schedule type."""
+
+        def mock_holiday_factory(country, **kwargs):
+            years_arg = kwargs.get("years", 2026)
+            year = years_arg[0] if isinstance(years_arg, (list, tuple)) else years_arg
+
+            movable_dates = {
+                2023: date(2023, 4, 7),
+                2024: date(2024, 3, 29),
+                2025: date(2025, 4, 18),
+                2026: date(2026, 4, 3),
+                2027: date(2027, 3, 26),
+                2028: date(2028, 4, 14),
+                2029: date(2029, 3, 30),
+            }
+
+            return {movable_dates[year]: "Karfreitag"}
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+        ):
+            with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
+                result = _get_holidays_for_country_sync("DE", ["public"])
+
+        pattern = result["Karfreitag"]["pattern"]
+        assert pattern["schedule_type"] == "holiday"
+        assert pattern["country_code"] == "DE"
+        assert pattern["category"] == "public"
+        assert pattern["holiday_name"] == "Karfreitag"
+        assert pattern["name_lookup"] == "iexact"
+
+
+class TestHolidayScheduleResolution:
+    """Test holiday-backed schedule resolution."""
+
+    @pytest.mark.asyncio
+    async def test_async_prime_holiday_cache_warms_unique_holiday_requests(self):
+        """Test holiday cache priming only warms unique holiday schedule years."""
+        schedules = [
+            {
+                "schedule_type": "holiday",
+                "country_code": "DE",
+                "category": "public",
+                "holiday_name": "Karfreitag",
+                "name_lookup": "iexact",
+            },
+            {
+                "schedule_type": "holiday",
+                "country_code": "DE",
+                "category": "public",
+                "holiday_name": "Karfreitag",
+                "name_lookup": "iexact",
+            },
+            {
+                "schedule_type": "date",
+                "start_month": 1,
+                "start_day": 1,
+                "end_month": 1,
+                "end_day": 1,
+            },
+        ]
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync"
+        ) as mock_get_named_dates:
+            await async_prime_holiday_cache(schedules, [2026, 2026, 2027])
+
+        assert mock_get_named_dates.call_count == 2
+        mock_get_named_dates.assert_any_call(
+            "DE", "public", "Karfreitag", "iexact", 2026
+        )
+        mock_get_named_dates.assert_any_call(
+            "DE", "public", "Karfreitag", "iexact", 2027
+        )
+
+    def test_get_named_holiday_dates_uses_named_lookup(self):
+        """Test resolving a holiday by name through the provider."""
+        mock_country_holidays = MagicMock()
+        mock_country_holidays.get_named.return_value = [date(2026, 4, 3)]
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
+            return_value=mock_country_holidays,
+        ):
+            result = _get_named_holiday_dates_sync(
+                "DE", "public", "Karfreitag", "iexact", 2026
+            )
+
+        assert result == (date(2026, 4, 3),)
+        mock_country_holidays.get_named.assert_called_once_with(
+            "Karfreitag", lookup="iexact"
+        )
+
+    def test_generate_holiday_schedule_dates_merges_contiguous_dates(self):
+        """Test contiguous holiday dates collapse into a single range."""
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": "TR",
+            "category": "public",
+            "holiday_name": "Ramazan Bayrami",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+        }
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+            return_value=(
+                date(2026, 3, 20),
+                date(2026, 3, 21),
+                date(2026, 3, 22),
+            ),
+        ):
+            result = generate_holiday_schedule_dates(schedule, 2026)
+
+        assert result == [(date(2026, 3, 20), date(2026, 3, 22))]
+
+    def test_generate_holiday_schedule_dates_applies_offsets(self):
+        """Test holiday offsets extend the resolved date range."""
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 1,
+            "end_offset": 2,
+        }
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+            return_value=(date(2026, 4, 3),),
+        ):
+            result = generate_holiday_schedule_dates(schedule, 2026)
+
+        assert result == [(date(2026, 4, 2), date(2026, 4, 5))]
 
 
 class TestCalculateOccurrenceEdgeCases:
