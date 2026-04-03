@@ -1201,18 +1201,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 # Check for existing schedule with same name
                 existing_schedule_id = None
-                for sid, existing_schedule in schedules.items():
+                for sid, existing_schedule in new_schedules.items():
                     if existing_schedule["name"].lower() == schedule_name.lower():
                         existing_schedule_id = sid
                         break
 
+                excluded_uid = None
                 if existing_schedule_id:
                     if overwrite_existing:
-                        # Overwrite existing schedule
+                        # Validate the replacement against the rest of the schedules
+                        # before committing the overwrite.
                         schedule["uid"] = existing_schedule_id
-                        new_schedules[existing_schedule_id] = schedule
-                        overwritten_count += 1
-                        continue
+                        excluded_uid = existing_schedule_id
                     else:
                         # Skip existing
                         skipped_count += 1
@@ -1221,12 +1221,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         )
                         continue
 
-                # Check for overlaps with other schedules
-                existing_schedules_list = [
-                    s for sid, s in new_schedules.items() if sid != schedule["uid"]
-                ]
                 has_overlap, conflicting_name = check_overlap(
-                    schedule, existing_schedules_list
+                    schedule,
+                    list(new_schedules.values()),
+                    exclude_uid=excluded_uid,
                 )
 
                 if has_overlap and skip_on_overlap:
@@ -1234,6 +1232,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors.append(
                         f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
                     )
+                    continue
+
+                if existing_schedule_id and overwrite_existing:
+                    new_schedules[existing_schedule_id] = schedule
+                    overwritten_count += 1
                     continue
 
                 # Add the schedule (importing despite overlap when skip_on_overlap is False)

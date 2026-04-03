@@ -196,7 +196,7 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 
 #### Conflict Resolution
 - **Name Conflicts**: Option to overwrite existing schedules with same name
-- **Date Overlaps**: Option to skip holidays that would overlap with existing schedules
+- **Date Overlaps**: Option to skip holidays that would overlap with existing schedules, including overwrite replacements that would collide with other schedules
 - **Country Name Flag**: Option to include/exclude country code in schedule names
 - **Detailed Feedback**: Shows exactly what was imported, skipped, or overwritten
 
@@ -338,7 +338,7 @@ Present menu with five options:
    - Each holiday shows detected pattern (e.g., "Fixed date: July 04" or "Third Monday of January")
    - Import options:
      - **Overwrite existing**: Replace schedules with same name (default: false)
-     - **Skip on overlap**: Skip holidays that would overlap with existing schedules (default: true)
+     - **Skip on overlap**: Skip holidays that would overlap with existing schedules, including overwrite replacements that would collide with other schedules (default: true)
      - **Include country name**: Add country code to schedule names (default: false)
    - Validation: At least one holiday must be selected
 

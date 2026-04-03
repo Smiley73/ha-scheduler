@@ -80,7 +80,7 @@ The HA Scheduler integration includes a powerful holiday import feature that all
 6. **Step 3**: Choose specific holidays and configure import options:
    - **Holidays to import**: Select from the list with automatically detected pattern descriptions
    - **Overwrite existing**: Replace schedules with the same name
-   - **Skip on overlap**: Skip holidays that would conflict with existing schedules
+   - **Skip on overlap**: Skip holidays that would conflict with existing schedules, including replacements when overwrite is enabled
    - **Include country name**: Add country code to schedule names (e.g., "Independence Day (USA)" vs "Independence Day")
 
 #### Smart Pattern Detection
