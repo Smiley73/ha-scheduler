@@ -141,7 +141,7 @@ async def test_diagnostics_with_holiday_schedule(
             "schedule_type": "holiday",
             "country_code": "DE",
             "category": "public",
-            "holiday_name": "Karfreitag",
+            "holiday_name": "Good Friday",
             "name_lookup": "iexact",
             "start_offset": 1,
             "end_offset": 2,
@@ -160,7 +160,7 @@ async def test_diagnostics_with_holiday_schedule(
     assert schedule["type"] == "holiday"
     assert schedule["country_code"] == "DE"
     assert schedule["category"] == "public"
-    assert schedule["holiday_name"] == "Karfreitag"
+    assert schedule["holiday_name"] == "Good Friday"
     assert schedule["name_lookup"] == "iexact"
     assert schedule["start_offset"] == 1
     assert schedule["end_offset"] == 2
@@ -176,7 +176,7 @@ async def test_diagnostics_prime_holiday_cache(
             "schedule_type": "holiday",
             "country_code": "DE",
             "category": "public",
-            "holiday_name": "Karfreitag",
+            "holiday_name": "Good Friday",
             "name_lookup": "iexact",
             "start_offset": 0,
             "end_offset": 0,

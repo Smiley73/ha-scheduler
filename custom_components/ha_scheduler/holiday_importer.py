@@ -246,6 +246,43 @@ def _get_named_holiday_dates_sync(
         )
         return ()
 
+    if not named_dates:
+        # The holidays library may return names in a different language than the
+        # stored holiday_name (e.g. English by default vs. the country's native
+        # language). Retry with each supported language until a match is found.
+        holidays_module = _get_holidays_module()
+        supported_languages: tuple[str, ...] = getattr(
+            country_holidays.__class__, "supported_languages", ()
+        )
+        default_language: str | None = getattr(
+            country_holidays.__class__, "default_language", None
+        )
+        # Try default_language first, then the rest.
+        languages_to_try = list(supported_languages)
+        if default_language and default_language in languages_to_try:
+            languages_to_try.remove(default_language)
+            languages_to_try.insert(0, default_language)
+
+        for lang in languages_to_try:
+            try:
+                kwargs: dict[str, Any] = {"years": year, "language": lang}
+                if category and category != "public":
+                    kwargs["categories"] = category
+                lang_holidays = holidays_module.country_holidays(country_code, **kwargs)
+                if hasattr(lang_holidays, "get_named"):
+                    lang_dates = lang_holidays.get_named(holiday_name, lookup=lookup)
+                else:
+                    lang_dates = [
+                        holiday_date
+                        for holiday_date, current_name in lang_holidays.items()
+                        if str(current_name).casefold() == holiday_name.casefold()
+                    ]
+                if lang_dates:
+                    named_dates = lang_dates
+                    break
+            except Exception:
+                continue
+
     return tuple(sorted(set(named_dates)))
 
 

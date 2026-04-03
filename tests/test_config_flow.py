@@ -235,7 +235,7 @@ async def test_options_flow_add_holiday_schedule(
     await hass.async_block_till_done()
 
     mock_holidays = {
-        "Karfreitag": {
+        "Good Friday": {
             "pattern": {"description": "Movable holiday"},
             "dates": [date(2026, 4, 3)],
         }
@@ -286,7 +286,7 @@ async def test_options_flow_add_holiday_schedule(
             result["flow_id"],
             {
                 "name": "Good Friday",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "start_offset": 1,
                 "end_offset": 2,
                 "configuration": "",
@@ -303,7 +303,7 @@ async def test_options_flow_add_holiday_schedule(
     assert schedule["schedule_type"] == "holiday"
     assert schedule["country_code"] == "DE"
     assert schedule["category"] == "public"
-    assert schedule["holiday_name"] == "Karfreitag"
+    assert schedule["holiday_name"] == "Good Friday"
     assert schedule["name_lookup"] == "iexact"
     assert schedule["start_offset"] == 1
     assert schedule["end_offset"] == 2
@@ -320,7 +320,7 @@ async def test_options_flow_edit_holiday_schedule(
             "schedule_type": "holiday",
             "country_code": "DE",
             "category": "public",
-            "holiday_name": "Karfreitag",
+            "holiday_name": "Good Friday",
             "name_lookup": "iexact",
             "start_offset": 0,
             "end_offset": 0,
@@ -332,7 +332,7 @@ async def test_options_flow_edit_holiday_schedule(
     await hass.async_block_till_done()
 
     mock_holidays = {
-        "Karfreitag": {
+        "Good Friday": {
             "pattern": {"description": "Movable holiday"},
             "dates": [date(2026, 4, 3)],
         }
@@ -379,7 +379,7 @@ async def test_options_flow_edit_holiday_schedule(
             result["flow_id"],
             {
                 "name": "Good Friday Weekend",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "start_offset": 1,
                 "end_offset": 1,
                 "configuration": "",
@@ -404,7 +404,7 @@ async def test_options_flow_holiday_schedule_invalid_selection(
     await hass.async_block_till_done()
 
     mock_holidays = {
-        "Karfreitag": {
+        "Good Friday": {
             "pattern": {"description": "Movable holiday"},
             "dates": [date(2026, 4, 3)],
         }
@@ -451,7 +451,7 @@ async def test_options_flow_holiday_schedule_invalid_selection(
             result["flow_id"],
             {
                 "name": "Good Friday",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "start_offset": 0,
                 "end_offset": 0,
                 "configuration": "",
@@ -484,7 +484,7 @@ async def test_options_flow_holiday_schedule_duplicate_name(
     await hass.async_block_till_done()
 
     mock_holidays = {
-        "Karfreitag": {
+        "Good Friday": {
             "pattern": {"description": "Movable holiday"},
             "dates": [date(2026, 4, 3)],
         }
@@ -525,7 +525,7 @@ async def test_options_flow_holiday_schedule_duplicate_name(
             result["flow_id"],
             {
                 "name": "Good Friday",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "start_offset": 0,
                 "end_offset": 0,
                 "configuration": "",
@@ -556,7 +556,7 @@ async def test_options_flow_holiday_schedule_future_overlap(
     current_year = date.today().year
     overlap_year = current_year + 9
     mock_holidays = {
-        "Karfreitag": {
+        "Good Friday": {
             "pattern": {"description": "Movable holiday"},
             "dates": [date(2026, 4, 3)],
         }
@@ -609,7 +609,7 @@ async def test_options_flow_holiday_schedule_future_overlap(
             result["flow_id"],
             {
                 "name": "Good Friday",
-                "holiday_name": "Karfreitag",
+                "holiday_name": "Good Friday",
                 "start_offset": 0,
                 "end_offset": 0,
                 "configuration": "",
