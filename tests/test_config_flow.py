@@ -1495,6 +1495,60 @@ async def test_import_holidays_no_holidays_selected(
     assert result["errors"] == {"holidays": "no_holidays_selected"}
 
 
+async def test_import_holidays_stale_selection_not_found(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test import holidays handles a stale selection that is no longer available."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Holiday A": {
+            "pattern": {
+                "schedule_type": "date",
+                "start_month": 12,
+                "start_day": 25,
+                "end_month": 12,
+                "end_day": 25,
+                "description": "Holiday A",
+            },
+            "dates": [date(2026, 12, 25)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        flow_id = result["flow_id"]
+        result = await hass.config_entries.options.async_configure(
+            flow_id, {"next_step_id": "import_holidays"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            flow_id, {"country": "US"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            flow_id, {"categories": ["public"]}
+        )
+
+        flow = hass.config_entries.options._progress[flow_id]
+        result = await flow._import_selected_holidays(
+            ["Missing Holiday"],
+            overwrite_existing=False,
+            skip_on_overlap=True,
+            include_country_name=False,
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "no_holidays_imported"
+    assert get_schedules_from_entry(entry) == {}
+
+
 async def test_options_flow_add_date_schedule_with_configuration(
     hass: HomeAssistant, create_service_entry
 ) -> None:
