@@ -398,6 +398,78 @@ class TestHolidayImportOptions:
             assert independence_schedule is not None
             assert independence_schedule["start_day"] == 5  # Should be updated
 
+    async def test_holiday_import_overwrite_existing_with_legacy_schedule_uid_fallback(
+        self, hass: HomeAssistant, mock_existing_schedules_config_entry
+    ):
+        """Test overwrite works for legacy schedules without embedded uid fields."""
+        mock_existing_schedules_config_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(
+            mock_existing_schedules_config_entry.entry_id
+        )
+
+        mock_holidays = {
+            "Independence Day": {
+                "name": "Independence Day",
+                "category": "public",
+                "dates": [],
+                "pattern": {
+                    "schedule_type": "date",
+                    "start_month": 7,
+                    "start_day": 5,
+                    "end_month": 7,
+                    "end_day": 5,
+                    "description": "Fixed date: July 05",
+                },
+            },
+        }
+
+        with (
+            patch(
+                "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+                return_value={"US": "United States"},
+            ),
+            patch(
+                "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+                return_value={"public": "Public Holidays"},
+            ),
+            patch(
+                "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+                return_value=mock_holidays,
+            ),
+        ):
+            result = await hass.config_entries.options.async_init(
+                mock_existing_schedules_config_entry.entry_id
+            )
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], {"next_step_id": "import_holidays"}
+            )
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], {"country": "US"}
+            )
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], {"categories": ["public"]}
+            )
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"],
+                {
+                    "holidays": ["Independence Day"],
+                    "overwrite_existing": True,
+                    "skip_on_overlap": True,
+                    "include_country_name": False,
+                },
+            )
+
+            assert result["type"] == FlowResultType.CREATE_ENTRY
+
+            updated_entry = hass.config_entries.async_get_entry(
+                mock_existing_schedules_config_entry.entry_id
+            )
+            schedules = updated_entry.options["services"]["default"]["schedules"]
+
+            independence_schedule = schedules["independence_day"]
+            assert independence_schedule["start_day"] == 5
+            assert independence_schedule["uid"] == "independence_day"
+
     async def test_holiday_import_skip_existing_name(
         self, hass: HomeAssistant, mock_existing_schedules_config_entry
     ):

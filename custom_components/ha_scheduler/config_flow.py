@@ -1171,6 +1171,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             schedules = self._get_service_schedules()
             new_schedules = dict(schedules)
 
+            def get_schedules_with_uids() -> list[dict[str, Any]]:
+                """Return current schedules with a fallback uid for legacy entries."""
+                return [
+                    schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
+                    for schedule_id, schedule in new_schedules.items()
+                ]
+
             imported_count = 0
             skipped_count = 0
             overwritten_count = 0
@@ -1223,7 +1230,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 has_overlap, conflicting_name = check_overlap(
                     schedule,
-                    list(new_schedules.values()),
+                    get_schedules_with_uids(),
                     exclude_uid=excluded_uid,
                 )
 
