@@ -532,6 +532,93 @@ async def test_options_flow_holiday_schedule_duplicate_name(
     assert result["errors"] == {"name": "duplicate_name"}
 
 
+async def test_options_flow_holiday_schedule_future_overlap(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test holiday schedules honor the extended overlap horizon."""
+    schedules = {
+        "existing-id": {
+            "uid": "existing-id",
+            "name": "Future Conflict",
+            "schedule_type": "date",
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    current_year = date.today().year
+    overlap_year = current_year + 9
+    mock_holidays = {
+        "Karfreitag": {
+            "pattern": {"description": "Movable holiday"},
+            "dates": [date(2026, 4, 3)],
+        }
+    }
+
+    def _mock_generate_dates(schedule: dict[str, str], year: int):
+        if (
+            schedule.get("name") in {"Good Friday", "Future Conflict"}
+            and year == overlap_year
+        ):
+            return [(date(year, 4, 1), date(year, 4, 1))]
+        return []
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"DE": "Germany"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+        patch(
+            "custom_components.ha_scheduler.schedule_generator.generate_schedule_dates",
+            side_effect=_mock_generate_dates,
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "add_schedule"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"schedule_type": "holiday"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"country_code": "DE"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"category": "public"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "name": "Good Friday",
+                "holiday_name": "Karfreitag",
+                "start_offset": 0,
+                "end_offset": 0,
+                "configuration": "",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "configure_holiday"
+    assert result["errors"] == {"base": "schedule_overlap_with_name"}
+    assert (
+        result["description_placeholders"]["conflicting_schedule"] == "Future Conflict"
+    )
+
+
 async def test_options_flow_default_configuration(
     hass: HomeAssistant, create_service_entry
 ) -> None:
