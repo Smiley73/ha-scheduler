@@ -30,7 +30,7 @@ This integration provides a service-based calendar scheduling system where:
 - Users can create scheduler services (each is a separate config entry)
 - Each service contains one or more calendars (currently one calendar per service)
 - Each calendar can have multiple schedules that are all-day events recurring annually
-- Three scheduling patterns are supported: by date, by week of month, and by nth day of month
+- Four scheduling patterns are supported: by date, by week of month, by nth day of month, and by holiday
 - Each schedule can have optional YAML configuration attached
 - Migration system automatically upgrades from helper-based (v1) to service-based (v2) architecture
 
@@ -111,6 +111,23 @@ Define a schedule centered on a specific weekday occurrence with offset days.
 
 **Example**: Second Tuesday of March, 2 days before to 3 days after
 
+#### 4. By Holiday Schedule
+Define a schedule anchored to a named holiday from the Python `holidays` provider.
+
+**User Input**:
+- Country (dropdown, stored as ISO 3166-1 alpha-2 code)
+- Category (dropdown, stored as provider category code)
+- Holiday name (dropdown, stored exactly as selected)
+- Days before (number: 0-30) - start offset
+- Days after (number: 0-30) - end offset
+
+**Behavior**:
+- Resolves the provider holiday date each year instead of pinning to a representative Gregorian date
+- Supports single-day and contiguous multi-day holiday names
+- Uses the same offset semantics as nth-day schedules
+
+**Example**: Good Friday in Germany, 1 day before to 2 days after
+
 ### Holiday Import System
 
 #### Smart Holiday Detection
@@ -146,6 +163,11 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 - Pattern description: "Third Monday of January", "Fourth Thursday of November"
 - **Occurrence Calculation**: Uses `calculate_occurrence()` to determine if holiday is 1st, 2nd, 3rd, 4th, or last occurrence of weekday
 
+**Holiday-Backed Movable Holidays** (e.g., Good Friday, Easter Monday):
+- Holidays that cannot be safely represented as Date, Week, or Nth-Day rules
+- Creates "Holiday" type schedules with provider-backed yearly resolution
+- Pattern description: "Holiday-backed (resolved each year)"
+
 **Multi-Day Week Holidays** (e.g., Spring Break, Holiday Weeks):
 - Holidays spanning multiple consecutive days in the same week or across weeks
 - Creates "Week" type schedules with appropriate week types
@@ -170,7 +192,7 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 - **Fixed Date Detection**: Checks if all dates have same month/day across years
 - **Variable Date Analysis**: For non-fixed dates, analyzes weekday patterns and occurrences
 - **Week Pattern Fallback**: Calls `_analyze_week_pattern()` for complex multi-day holidays
-- **Graceful Fallbacks**: Creates date-based schedule for unrecognizable patterns
+- **Holiday Fallbacks**: Import flow converts unrecognizable movable-date patterns into holiday-backed schedules
 
 **`_analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None`**
 - Specialized function for detecting week-based holiday patterns
@@ -197,6 +219,8 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 #### Conflict Resolution
 - **Name Conflicts**: Option to overwrite existing schedules with same name
 - **Date Overlaps**: Option to skip holidays that would overlap with existing schedules, including overwrite replacements that would collide with other schedules
+- **Holiday overlap horizon**: Any overlap check involving a holiday-backed schedule validates an extended provider-backed future window (`current_year..current_year+10`)
+- **Holiday overlap horizon**: Any overlap check involving a holiday-backed schedule validates an extended provider-backed future window (`current_year..current_year+10`)
 - **Country Name Flag**: Option to include/exclude country code in schedule names
 - **Detailed Feedback**: Shows exactly what was imported, skipped, or overwritten
 
@@ -271,9 +295,9 @@ Present menu with five options:
 
 ### Add Schedule Flow
 1. **Step 1**: Select schedule type
-   - Radio/dropdown: By Date, By Week of Month, By Nth Day of Month
+   - Radio/dropdown: By Date, By Week of Month, By Nth Day of Month, By Holiday
    
-2. **Step 2**: Single-page form with all parameters
+2. **Step 2**: Single-page form with all parameters for Date, Week, and Nth-Day schedules
    - Schedule name (text input, required)
    - All schedule-specific parameters (dates/weeks/occurrences)
    - **Week Type Integration**: For week schedules, week selectors show:
@@ -291,6 +315,12 @@ Present menu with five options:
    - Check for overlaps with existing schedules across the full 400-year Gregorian recurrence cycle
    - Add to `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all existing schedules
+
+4. **Holiday schedule path**:
+   - **Step 2a**: Select holiday country
+   - **Step 2b**: Select holiday category
+   - **Step 2c**: Select named holiday, offsets, and optional YAML configuration
+   - Validate that the selected holiday still exists when the final form is submitted
 
 ### Edit Schedule Flow
 1. **Step 1**: Select schedule from dropdown (shows schedule names)
@@ -380,7 +410,8 @@ Present menu with five options:
 
 ### Overlap Detection
 - Check if new/edited schedule overlaps with existing schedules
-- Check across one full Gregorian calendar cycle (400 years) to avoid time-dependent false negatives
+- Check across one full Gregorian calendar cycle (400 years) for Date, Week, and Nth-Day schedules to avoid time-dependent false negatives
+- Any comparison involving a Holiday schedule checks an extended provider-backed horizon (`current_year..current_year+10`)
 - Return tuple: `(has_overlap: bool, conflicting_schedule_name: str | None)`
 - Error: "This schedule overlaps with '{conflicting_schedule}'"
 - When editing: Exclude current schedule from overlap check
@@ -396,7 +427,7 @@ Present menu with five options:
 - **Holiday Selection**: At least one holiday must be selected for import
 - **Name Conflicts**: Handled based on "overwrite existing" flag setting
 - **Date Overlaps**: Handled based on "skip on overlap" flag setting
-- **Pattern Analysis**: Holidays with insufficient data get fallback patterns
+- **Pattern Analysis**: Movable holidays that do not fit Date, Week, or Nth-Day rules import as Holiday schedules
 - **Error Handling**: Graceful handling when holidays library unavailable
 - **Async Operations**: All holiday data fetching uses `run_in_executor` for non-blocking operations
 

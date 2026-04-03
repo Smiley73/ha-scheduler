@@ -52,8 +52,9 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 1. Go to Settings -> Devices & Services
 2. Find the "HA Scheduler" integration and click "Configure"
 3. Select "Add Schedule"
-4. Enter a name and choose a schedule type (Date, Week, or Nth-Day)
+4. Enter a name and choose a schedule type (Date, Week, Nth-Day, or Holiday)
 5. Configure the schedule parameters based on the type selected
+   - Holiday schedules walk you through country and category selection before you choose the holiday itself
 6. (Optional) Add YAML configuration for custom attributes
 
 ### Managing Schedules
@@ -103,7 +104,10 @@ The holiday import feature automatically analyzes multiple years of holiday data
   - Automatically calculates the correct occurrence and weekday
   - Pattern: `Fourth Thursday of November`
 
-- **Fallback Handling**: For holidays with unpredictable patterns, creates single-date schedules using a representative year
+- **Holiday-Backed Movable Holidays** (e.g., Good Friday, Easter Monday)
+  - Creates the "Holiday" type when a holiday cannot be safely reduced to Date, Week, or Nth-Day rules
+  - Resolves the actual holiday date from the holidays provider each year
+  - Pattern: `Holiday-backed (resolved each year)`
 
 #### Supported Countries and Categories
 
@@ -125,11 +129,11 @@ The holiday import feature automatically analyzes multiple years of holiday data
 
 #### Pattern Analysis Process
 
-The import feature analyzes 3 years of holiday data (2023-2025) to detect patterns:
+The import feature analyzes a rolling 7-year window (`current year ± 3`) to detect patterns:
 
 1. **Data Collection**: Retrieves holiday dates for multiple years
 2. **Pattern Recognition**: Analyzes date consistency and variations
-3. **Schedule Type Selection**: Chooses the most appropriate schedule type
+3. **Schedule Type Selection**: Chooses the most appropriate schedule type, or falls back to the holiday-backed type for movable holidays
 4. **Validation**: Ensures patterns work correctly across years
 
 #### Conflict Management
@@ -138,6 +142,7 @@ The import feature includes comprehensive conflict detection:
 
 - **Name Conflicts**: Option to overwrite existing schedules with identical names
 - **Date Overlaps**: Option to skip holidays that would conflict with existing schedule periods
+- **Holiday horizon**: Overlap checks involving holiday-backed schedules validate against an extended provider-backed future window
 - **Clear Feedback**: Detailed reporting of what was imported, skipped, or overwritten
 - **Preview Mode**: See what would be imported before making changes
 
@@ -153,14 +158,15 @@ The import feature includes comprehensive conflict detection:
 **Import UK Bank Holidays:**
 1. Select "United Kingdom" → "Bank" → Choose holidays like:
    - Christmas Day → `Fixed date: December 25`
-   - Easter Monday → `Variable date pattern`
+   - Easter Monday → `Holiday-backed (resolved each year)`
    - Spring Bank Holiday → `Last Monday of May`
    - Summer Bank Holiday → `Last Monday of August`
 
 **Import German Public Holidays:**
 1. Select "Germany" → "Public" → Choose holidays like:
    - German Unity Day → `Fixed date: October 03`
-   - Easter Monday → `Variable date pattern`
+   - Good Friday → `Holiday-backed (resolved each year)`
+   - Easter Monday → `Holiday-backed (resolved each year)`
    - Christmas Day → `Fixed date: December 25`
 
 **Import Canadian Holidays:**
@@ -172,7 +178,7 @@ The import feature includes comprehensive conflict detection:
 ## Features
 
 - Easy configuration through the UI
-- Three flexible schedule types: date-based, week-based, and nth-day
+- Four flexible schedule types: date-based, week-based, nth-day, and holiday-backed
 - **Enhanced week-based schedules** with optional day restrictions, country-specific week starts, and partial/full week types
 - **Holiday import feature** supporting 100+ countries with automatic pattern detection
 - Calendar entity showing all active schedules as events
@@ -182,7 +188,7 @@ The import feature includes comprehensive conflict detection:
 
 ## Schedule Types
 
-The HA Scheduler integration supports three types of schedules to cover different use cases:
+The HA Scheduler integration supports four types of schedules to cover different use cases:
 
 ### 1. Date-Based Schedules
 
@@ -254,6 +260,27 @@ The HA Scheduler integration supports three types of schedules to cover differen
 - Tax deadline prep (around April 15): Calculate 3rd Monday of April with appropriate offsets
 
 **Perfect for:** US holidays, recurring events based on "nth weekday of month" patterns, and creating date ranges around specific days.
+
+### 4. Holiday Schedules
+
+**Use for:** Named holidays that cannot be safely expressed as fixed dates, week-of-month rules, or nth-day rules.
+
+**Configuration:**
+- Country: Holiday source country
+- Category: Holiday category for that country
+- Holiday: Named holiday from the provider
+- Start Offset: Days before the holiday to activate (0-30)
+- End Offset: Days after the holiday to stay active (0-30)
+
+**Behavior:**
+- Resolves the actual holiday date from the Python `holidays` provider each year
+- Supports single-day and contiguous multi-day holiday names
+- Keeps movable holidays like Good Friday accurate without pinning them to one representative Gregorian date
+
+**Examples:**
+- Good Friday in Germany
+- Easter Monday in the United Kingdom
+- Other provider-backed movable holidays that shift year to year
 
 ### Calendar Integration
 
