@@ -15,6 +15,7 @@ from custom_components.ha_scheduler.holiday_importer import (
     _get_holidays_for_country_sync,
     _get_named_holiday_dates_sync,
     _get_supported_countries_sync,
+    async_prime_holiday_cache,
     calculate_occurrence,
     format_date_localized,
     generate_holiday_schedule_dates,
@@ -352,6 +353,46 @@ class TestGetHolidaysForCountrySync:
 
 class TestHolidayScheduleResolution:
     """Test holiday-backed schedule resolution."""
+
+    @pytest.mark.asyncio
+    async def test_async_prime_holiday_cache_warms_unique_holiday_requests(self):
+        """Test holiday cache priming only warms unique holiday schedule years."""
+        schedules = [
+            {
+                "schedule_type": "holiday",
+                "country_code": "DE",
+                "category": "public",
+                "holiday_name": "Karfreitag",
+                "name_lookup": "iexact",
+            },
+            {
+                "schedule_type": "holiday",
+                "country_code": "DE",
+                "category": "public",
+                "holiday_name": "Karfreitag",
+                "name_lookup": "iexact",
+            },
+            {
+                "schedule_type": "date",
+                "start_month": 1,
+                "start_day": 1,
+                "end_month": 1,
+                "end_day": 1,
+            },
+        ]
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync"
+        ) as mock_get_named_dates:
+            await async_prime_holiday_cache(schedules, [2026, 2026, 2027])
+
+        assert mock_get_named_dates.call_count == 2
+        mock_get_named_dates.assert_any_call(
+            "DE", "public", "Karfreitag", "iexact", 2026
+        )
+        mock_get_named_dates.assert_any_call(
+            "DE", "public", "Karfreitag", "iexact", 2027
+        )
 
     def test_get_named_holiday_dates_uses_named_lookup(self):
         """Test resolving a holiday by name through the provider."""

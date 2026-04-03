@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import date
 from typing import Any
 
 import voluptuous as vol
@@ -287,17 +288,24 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             placeholders.update(yaml_placeholders)
         return placeholders or None
 
-    def _validate_schedule_conflicts(
+    async def _validate_schedule_conflicts(
         self, data: dict[str, Any], schedules: dict[str, Any]
     ) -> dict[str, str]:
         """Check for duplicate names and date overlaps against existing schedules.
 
         Returns an errors dict (empty when there are no conflicts).
         """
-        from .schedule_generator import check_overlap
+        from .holiday_importer import async_prime_holiday_cache
+        from .schedule_generator import HOLIDAY_OVERLAP_HORIZON, check_overlap
 
         errors: dict[str, str] = {}
         self._overlap_conflicting_name = None
+
+        current_year = date.today().year
+        await async_prime_holiday_cache(
+            [data, *schedules.values()],
+            range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
+        )
 
         # Check for duplicate schedule names
         schedule_name = data["name"].strip().lower()
@@ -421,7 +429,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-                errors.update(self._validate_schedule_conflicts(data, schedules))
+                errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     # Save schedule
@@ -570,10 +578,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 errors.update(self._validate_week_schedule(data))
 
+                schedules = self._get_service_schedules()
                 # Get current schedules and validate for conflicts
                 if not errors:
-                    schedules = self._get_service_schedules()
-                    errors.update(self._validate_schedule_conflicts(data, schedules))
+                    errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -705,7 +713,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 # Get current schedules and validate for conflicts
                 schedules = self._get_service_schedules()
-                errors.update(self._validate_schedule_conflicts(data, schedules))
+                errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -937,7 +945,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 schedules = self._get_service_schedules()
                 if not errors:
-                    errors.update(self._validate_schedule_conflicts(data, schedules))
+                    errors.update(
+                        await self._validate_schedule_conflicts(data, schedules)
+                    )
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -1426,8 +1436,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         """Import the selected holidays as schedules."""
         try:
-            from .holiday_importer import get_holidays_for_country
-            from .schedule_generator import check_overlap
+            from .holiday_importer import (
+                async_prime_holiday_cache,
+                get_holidays_for_country,
+            )
+            from .schedule_generator import HOLIDAY_OVERLAP_HORIZON, check_overlap
 
             country = self._holiday_data.get("country")
             categories = self._holiday_data.get("categories", ["public"])
@@ -1503,9 +1516,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         )
                         continue
 
+                existing_schedules_list = get_schedules_with_uids()
+                current_year = date.today().year
+                await async_prime_holiday_cache(
+                    [schedule, *existing_schedules_list],
+                    range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
+                )
                 has_overlap, conflicting_name = check_overlap(
                     schedule,
-                    get_schedules_with_uids(),
+                    existing_schedules_list,
                     exclude_uid=excluded_uid,
                 )
 

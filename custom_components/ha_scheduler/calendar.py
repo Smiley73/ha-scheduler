@@ -13,6 +13,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN
+from .holiday_importer import async_prime_holiday_cache
 from .schedule_generator import generate_schedule_dates
 
 PARALLEL_UPDATES = 0
@@ -27,15 +28,18 @@ async def async_setup_entry(
     # Handle both new service-based structure and legacy structure
     services = entry.options.get("services", {})
     calendars = []
+    all_schedules: list[dict[str, Any]] = []
 
     if services:
         # New service-based structure
         for service_id, service_data in services.items():
+            all_schedules.extend(service_data.get("schedules", {}).values())
             calendars.append(SchedulerCalendar(entry, service_id, service_data))
     else:
         # Legacy structure - create a default service
         legacy_schedules = entry.options.get("schedules", {})
         legacy_config = entry.options.get("configuration", {})
+        all_schedules.extend(legacy_schedules.values())
 
         default_service_data = {
             "name": entry.title,
@@ -43,6 +47,15 @@ async def async_setup_entry(
             "configuration": legacy_config,
         }
         calendars.append(SchedulerCalendar(entry, "default", default_service_data))
+
+    current_year = dt_util.now().date().year
+    await async_prime_holiday_cache(
+        all_schedules,
+        range(
+            current_year - CALENDAR_YEAR_LOOKAROUND,
+            current_year + CALENDAR_YEAR_LOOKAROUND + 1,
+        ),
+    )
 
     async_add_entities(calendars, True)
 
@@ -92,6 +105,14 @@ class SchedulerCalendar(CalendarEntity):
         self, hass: HomeAssistant, entry: ConfigEntry
     ) -> None:
         """Handle options update."""
+        current_year = dt_util.now().date().year
+        await async_prime_holiday_cache(
+            self._get_schedules(),
+            range(
+                current_year - CALENDAR_YEAR_LOOKAROUND,
+                current_year + CALENDAR_YEAR_LOOKAROUND + 1,
+            ),
+        )
         self.async_write_ha_state()
 
     def _get_schedules(self) -> list[dict[str, Any]]:
@@ -190,6 +211,8 @@ class SchedulerCalendar(CalendarEntity):
 
         start_year = start_day.year
         end_year = end_day.year
+
+        await async_prime_holiday_cache(schedules, range(start_year - 1, end_year + 1))
 
         for schedule in schedules:
             # Include previous year to catch year-wrapping schedules

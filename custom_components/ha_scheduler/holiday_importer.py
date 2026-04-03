@@ -8,7 +8,7 @@ import logging
 from datetime import date, timedelta
 from functools import lru_cache
 from types import ModuleType
-from typing import Any
+from typing import Any, Iterable
 
 from .const import (
     CALENDAR_YEAR_LOOKAROUND,
@@ -134,6 +134,63 @@ def _clear_holiday_caches() -> None:
     _get_holidays_module.cache_clear()
     _get_country_holidays_sync.cache_clear()
     _get_named_holiday_dates_sync.cache_clear()
+
+
+def _build_holiday_cache_requests(
+    schedules: Iterable[dict[str, Any]], years: Iterable[int]
+) -> tuple[tuple[str, str | None, str, str, int], ...]:
+    """Build unique holiday lookup requests for the supplied schedules."""
+    unique_years = tuple(sorted({int(year) for year in years}))
+    if not unique_years:
+        return ()
+
+    requests: set[tuple[str, str | None, str, str, int]] = set()
+
+    for schedule in schedules:
+        if schedule.get("schedule_type") != "holiday":
+            continue
+
+        try:
+            country_code = str(schedule["country_code"]).upper()
+            holiday_name = str(schedule["holiday_name"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        category_value = schedule.get("category")
+        category = str(category_value) if category_value is not None else None
+        lookup = str(schedule.get("name_lookup", "iexact"))
+
+        for year in unique_years:
+            requests.add((country_code, category, holiday_name, lookup, year))
+
+    return tuple(
+        sorted(
+            requests,
+            key=lambda item: (item[0], item[1] or "", item[2], item[3], item[4]),
+        )
+    )
+
+
+def _prime_holiday_cache_sync(
+    requests: tuple[tuple[str, str | None, str, str, int], ...],
+) -> None:
+    """Warm the holiday lookup cache for a set of named holiday requests."""
+    for country_code, category, holiday_name, lookup, year in requests:
+        _get_named_holiday_dates_sync(
+            country_code, category, holiday_name, lookup, year
+        )
+
+
+async def async_prime_holiday_cache(
+    schedules: Iterable[dict[str, Any]], years: Iterable[int]
+) -> None:
+    """Warm holiday lookup caches off the event loop for the supplied schedules."""
+    requests = _build_holiday_cache_requests(schedules, years)
+    if not requests:
+        return
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _prime_holiday_cache_sync, requests)
 
 
 @lru_cache(maxsize=1024)

@@ -11,6 +11,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from .const import DAY_NAMES
+from .holiday_importer import async_prime_holiday_cache
 from .schedule_generator import generate_schedule_dates
 
 # Keys that may contain sensitive user data in YAML configuration blobs
@@ -64,6 +65,16 @@ async def async_get_config_entry_diagnostics(
                 "configuration": legacy_config,
             }
         }
+
+    current_year = date.today().year
+    all_schedules = [
+        schedule
+        for service_data in services.values()
+        for schedule in service_data.get("schedules", {}).values()
+    ]
+    await async_prime_holiday_cache(
+        all_schedules, range(current_year, current_year + 3)
+    )
 
     # Collect diagnostics for all services
     services_diagnostics = {}

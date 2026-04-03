@@ -254,6 +254,10 @@ async def test_options_flow_add_holiday_schedule(
             "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
             new=AsyncMock(return_value=mock_holidays),
         ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.async_prime_holiday_cache",
+            new=AsyncMock(),
+        ) as mock_prime_holiday_cache,
     ):
         result = await hass.config_entries.options.async_init(entry.entry_id)
         result = await hass.config_entries.options.async_configure(
@@ -290,6 +294,7 @@ async def test_options_flow_add_holiday_schedule(
         )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
+    mock_prime_holiday_cache.assert_awaited_once()
 
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
