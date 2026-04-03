@@ -1200,6 +1200,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     schedule_name = f"{holiday_name} ({country})"
                 else:
                     schedule_name = holiday_name
+                schedule_name = schedule_name.strip()
+                normalized_schedule_name = schedule_name.lower()
                 schedule = {
                     "uid": str(uuid.uuid4()),
                     "name": schedule_name,
@@ -1209,7 +1211,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Check for existing schedule with same name
                 existing_schedule_id = None
                 for sid, existing_schedule in new_schedules.items():
-                    if existing_schedule["name"].lower() == schedule_name.lower():
+                    if (
+                        existing_schedule["name"].strip().lower()
+                        == normalized_schedule_name
+                    ):
                         existing_schedule_id = sid
                         break
 

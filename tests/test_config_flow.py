@@ -1054,6 +1054,156 @@ async def test_import_holidays_overwrite_existing(
     assert schedules["existing-id"]["start_month"] == 7
 
 
+async def test_import_holidays_overwrite_existing_with_normalized_name_match(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test importing holidays normalizes names when overwriting existing schedules."""
+    schedules = {
+        "existing-id": {
+            "uid": "existing-id",
+            "name": "  holiday a  ",
+            "schedule_type": "date",
+            "start_month": 5,
+            "start_day": 1,
+            "end_month": 5,
+            "end_day": 2,
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Holiday A": {
+            "pattern": {
+                "schedule_type": "date",
+                "start_month": 7,
+                "start_day": 4,
+                "end_month": 7,
+                "end_day": 4,
+                "description": "Holiday A",
+            },
+            "dates": [date(2026, 7, 4)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"US": "United States"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "import_holidays"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"country": "US"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"categories": ["public"]}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "holidays": ["Holiday A"],
+                "skip_on_overlap": True,
+                "overwrite_existing": True,
+                "include_country_name": False,
+            },
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    schedules = result["data"]["services"]["default"]["schedules"]
+    assert list(schedules.keys()) == ["existing-id"]
+    assert schedules["existing-id"]["name"] == "Holiday A"
+    assert schedules["existing-id"]["start_month"] == 7
+
+
+async def test_import_holidays_skips_existing_with_normalized_name_match(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test importing holidays normalizes names when detecting duplicates."""
+    schedules = {
+        "existing-id": {
+            "uid": "existing-id",
+            "name": "  holiday a  ",
+            "schedule_type": "date",
+            "start_month": 5,
+            "start_day": 1,
+            "end_month": 5,
+            "end_day": 2,
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Holiday A": {
+            "pattern": {
+                "schedule_type": "date",
+                "start_month": 7,
+                "start_day": 4,
+                "end_month": 7,
+                "end_day": 4,
+                "description": "Holiday A",
+            },
+            "dates": [date(2026, 7, 4)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"US": "United States"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "import_holidays"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"country": "US"}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"categories": ["public"]}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "holidays": ["Holiday A"],
+                "skip_on_overlap": True,
+                "overwrite_existing": False,
+                "include_country_name": False,
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "no_holidays_imported"
+    schedules = get_schedules_from_entry(entry)
+    assert list(schedules.keys()) == ["existing-id"]
+    assert schedules["existing-id"]["name"] == "  holiday a  "
+
+
 async def test_import_holidays_overwrite_existing_skips_other_overlap(
     hass: HomeAssistant, create_service_entry
 ) -> None:
