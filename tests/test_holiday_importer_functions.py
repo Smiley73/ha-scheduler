@@ -10,11 +10,14 @@ import pytest
 
 import custom_components.ha_scheduler.holiday_importer as holiday_importer
 from custom_components.ha_scheduler.holiday_importer import (
+    _clear_holiday_caches,
     _get_available_categories_sync,
     _get_holidays_for_country_sync,
+    _get_named_holiday_dates_sync,
     _get_supported_countries_sync,
     calculate_occurrence,
     format_date_localized,
+    generate_holiday_schedule_dates,
     get_localized_country_name,
 )
 
@@ -42,6 +45,14 @@ def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
         sys.modules[module_name] = original_module
 
     assert reloaded_module.HOLIDAYS_AVAILABLE is None
+
+
+@pytest.fixture(autouse=True)
+def clear_holiday_caches():
+    """Reset holiday resolver caches between tests."""
+    _clear_holiday_caches()
+    yield
+    _clear_holiday_caches()
 
 
 class TestFormatDateLocalized:
@@ -305,6 +316,72 @@ class TestGetHolidaysForCountrySync:
                 result = _get_holidays_for_country_sync("US")
                 # Should return empty dict, not crash
                 assert result == {}
+
+
+class TestHolidayScheduleResolution:
+    """Test holiday-backed schedule resolution."""
+
+    def test_get_named_holiday_dates_uses_named_lookup(self):
+        """Test resolving a holiday by name through the provider."""
+        mock_country_holidays = MagicMock()
+        mock_country_holidays.get_named.return_value = [date(2026, 4, 3)]
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
+            return_value=mock_country_holidays,
+        ):
+            result = _get_named_holiday_dates_sync(
+                "DE", "public", "Karfreitag", "iexact", 2026
+            )
+
+        assert result == (date(2026, 4, 3),)
+        mock_country_holidays.get_named.assert_called_once_with(
+            "Karfreitag", lookup="iexact"
+        )
+
+    def test_generate_holiday_schedule_dates_merges_contiguous_dates(self):
+        """Test contiguous holiday dates collapse into a single range."""
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": "TR",
+            "category": "public",
+            "holiday_name": "Ramazan Bayrami",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+        }
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+            return_value=(
+                date(2026, 3, 20),
+                date(2026, 3, 21),
+                date(2026, 3, 22),
+            ),
+        ):
+            result = generate_holiday_schedule_dates(schedule, 2026)
+
+        assert result == [(date(2026, 3, 20), date(2026, 3, 22))]
+
+    def test_generate_holiday_schedule_dates_applies_offsets(self):
+        """Test holiday offsets extend the resolved date range."""
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 1,
+            "end_offset": 2,
+        }
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+            return_value=(date(2026, 4, 3),),
+        ):
+            result = generate_holiday_schedule_dates(schedule, 2026)
+
+        assert result == [(date(2026, 4, 2), date(2026, 4, 5))]
 
 
 class TestCalculateOccurrenceEdgeCases:

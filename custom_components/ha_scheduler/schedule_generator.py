@@ -145,6 +145,8 @@ def generate_schedule_dates(
         return _generate_by_week(schedule, year)
     if schedule_type == "nth-day":
         return _generate_by_nth_day(schedule, year)
+    if schedule_type == "holiday":
+        return _generate_by_holiday(schedule, year)
 
     return []
 
@@ -475,6 +477,18 @@ def _generate_by_nth_day(
         return [(start_date, end_date)]
     except (ValueError, KeyError):
         return []
+
+
+def _generate_by_holiday(
+    schedule: dict[str, Any], year: int
+) -> list[tuple[date, date]]:
+    """Generate dates for a holiday-backed schedule."""
+    try:
+        from .holiday_importer import generate_holiday_schedule_dates
+    except ImportError:
+        return []
+
+    return generate_holiday_schedule_dates(schedule, year)
 
 
 def _get_week_start(

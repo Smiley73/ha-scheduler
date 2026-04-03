@@ -93,6 +93,40 @@ def test_generate_by_nth_day_last_occurrence() -> None:
     assert dates[0] == (date(2024, 12, 27), date(2024, 12, 27))
 
 
+def test_generate_by_holiday() -> None:
+    """Test generating dates for a holiday-backed schedule."""
+    schedule = {
+        "schedule_type": "holiday",
+        "country_code": "DE",
+        "category": "public",
+        "holiday_name": "Karfreitag",
+        "name_lookup": "iexact",
+        "start_offset": 0,
+        "end_offset": 0,
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    assert dates[0] == (date(2026, 4, 3), date(2026, 4, 3))
+
+
+def test_generate_by_holiday_with_offsets() -> None:
+    """Test holiday offsets around the resolved holiday date."""
+    schedule = {
+        "schedule_type": "holiday",
+        "country_code": "DE",
+        "category": "public",
+        "holiday_name": "Karfreitag",
+        "name_lookup": "iexact",
+        "start_offset": 1,
+        "end_offset": 2,
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    assert dates[0] == (date(2026, 4, 2), date(2026, 4, 5))
+
+
 def test_check_overlap_no_overlap() -> None:
     """Test overlap detection with no overlap."""
     schedule1 = {
