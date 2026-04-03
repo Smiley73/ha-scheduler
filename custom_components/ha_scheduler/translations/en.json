@@ -84,6 +84,34 @@
           "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
         }
       },
+      "configure_holiday_country": {
+        "title": "Select holiday country",
+        "description": "Choose the country whose holidays you want to use for this schedule.",
+        "data": {
+          "country_code": "Country"
+        }
+      },
+      "configure_holiday_category": {
+        "title": "Select holiday category",
+        "description": "Choose which holiday category to use for this schedule.",
+        "data": {
+          "category": "Holiday category"
+        }
+      },
+      "configure_holiday": {
+        "title": "Configure holiday schedule",
+        "description": "Create a schedule based on a named holiday.\n\nNote: To clear the configuration field, enter a single space character.",
+        "data": {
+          "name": "Schedule name",
+          "holiday_name": "Holiday",
+          "start_offset": "Days before",
+          "end_offset": "Days after",
+          "configuration": "Configuration (YAML)"
+        },
+        "data_description": {
+          "configuration": "Optional YAML configuration for this schedule. To clear, enter a single space."
+        }
+      },
       "edit_schedule": {
         "title": "Edit schedule",
         "description": "Select a schedule to edit",
@@ -152,6 +180,8 @@
       "invalid_week_schedule": "This week-based schedule does not create a valid recurring date range. Adjust the week type or weekday selection.",
       "schedule_overlap": "This schedule overlaps with an existing schedule.",
       "schedule_overlap_with_name": "This schedule overlaps with {conflicting_schedule}.",
+      "invalid_holiday_selection": "The selected holiday is no longer available. Please choose it again.",
+      "no_holidays_available": "No holidays are available for the selected country and category.",
       "no_countries_available": "No countries available for holiday import",
       "import_error": "Failed to load holiday data",
       "no_holidays_imported": "No holidays were imported. All selected holidays were already present or would overlap with existing schedules.",
@@ -171,7 +201,8 @@
       "options": {
         "date": "By Date",
         "week": "By Week of Month",
-        "nth-day": "By Nth Day of Month"
+        "nth-day": "By Nth Day of Month",
+        "holiday": "By Holiday"
       }
     },
     "month": {

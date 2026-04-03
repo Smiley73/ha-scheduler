@@ -225,6 +225,313 @@ async def test_options_flow_add_nth_day_schedule(
     assert schedule["end_offset"] == 3
 
 
+async def test_options_flow_add_holiday_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test adding a holiday-backed schedule via options flow."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Karfreitag": {
+            "pattern": {"description": "Movable holiday"},
+            "dates": [date(2026, 4, 3)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"DE": "Germany"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "add_schedule"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"schedule_type": "holiday"},
+        )
+        assert result["step_id"] == "configure_holiday_country"
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"country_code": "DE"},
+        )
+        assert result["step_id"] == "configure_holiday_category"
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"category": "public"},
+        )
+        assert result["step_id"] == "configure_holiday"
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "name": "Good Friday",
+                "holiday_name": "Karfreitag",
+                "start_offset": 1,
+                "end_offset": 2,
+                "configuration": "",
+            },
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    schedules = get_schedules_from_entry(entry)
+    assert len(schedules) == 1
+    schedule = list(schedules.values())[0]
+    assert schedule["name"] == "Good Friday"
+    assert schedule["schedule_type"] == "holiday"
+    assert schedule["country_code"] == "DE"
+    assert schedule["category"] == "public"
+    assert schedule["holiday_name"] == "Karfreitag"
+    assert schedule["name_lookup"] == "iexact"
+    assert schedule["start_offset"] == 1
+    assert schedule["end_offset"] == 2
+
+
+async def test_options_flow_edit_holiday_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test editing a holiday-backed schedule via options flow."""
+    schedules = {
+        "holiday-id": {
+            "uid": "holiday-id",
+            "name": "Good Friday",
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Karfreitag",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Karfreitag": {
+            "pattern": {"description": "Movable holiday"},
+            "dates": [date(2026, 4, 3)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"DE": "Germany"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "edit_schedule"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"schedule_id": "holiday-id"},
+        )
+        assert result["step_id"] == "configure_holiday_country"
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"country_code": "DE"},
+        )
+        assert result["step_id"] == "configure_holiday_category"
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"category": "public"},
+        )
+        assert result["step_id"] == "configure_holiday"
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "name": "Good Friday Weekend",
+                "holiday_name": "Karfreitag",
+                "start_offset": 1,
+                "end_offset": 1,
+                "configuration": "",
+            },
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    services = result["data"]["services"]
+    updated_schedule = services["default"]["schedules"]["holiday-id"]
+    assert updated_schedule["name"] == "Good Friday Weekend"
+    assert updated_schedule["start_offset"] == 1
+    assert updated_schedule["end_offset"] == 1
+
+
+async def test_options_flow_holiday_schedule_invalid_selection(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test stale holiday selections are rejected when saving."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Karfreitag": {
+            "pattern": {"description": "Movable holiday"},
+            "dates": [date(2026, 4, 3)],
+        }
+    }
+    updated_holidays = {
+        "Ostermontag": {
+            "pattern": {"description": "Movable holiday"},
+            "dates": [date(2026, 4, 6)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"DE": "Germany"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(side_effect=[mock_holidays, updated_holidays]),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "add_schedule"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"schedule_type": "holiday"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"country_code": "DE"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"category": "public"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "name": "Good Friday",
+                "holiday_name": "Karfreitag",
+                "start_offset": 0,
+                "end_offset": 0,
+                "configuration": "",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "configure_holiday"
+    assert result["errors"] == {"holiday_name": "invalid_holiday_selection"}
+
+
+async def test_options_flow_holiday_schedule_duplicate_name(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test holiday schedules still enforce duplicate-name validation."""
+    schedules = {
+        "existing-id": {
+            "uid": "existing-id",
+            "name": "Good Friday",
+            "schedule_type": "date",
+            "start_month": 4,
+            "start_day": 3,
+            "end_month": 4,
+            "end_day": 3,
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    mock_holidays = {
+        "Karfreitag": {
+            "pattern": {"description": "Movable holiday"},
+            "dates": [date(2026, 4, 3)],
+        }
+    }
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
+            new=AsyncMock(return_value={"DE": "Germany"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_available_categories",
+            new=AsyncMock(return_value={"public": "Public Holidays"}),
+        ),
+        patch(
+            "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+            new=AsyncMock(return_value=mock_holidays),
+        ),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "add_schedule"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"schedule_type": "holiday"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"country_code": "DE"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"category": "public"},
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "name": "Good Friday",
+                "holiday_name": "Karfreitag",
+                "start_offset": 0,
+                "end_offset": 0,
+                "configuration": "",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "configure_holiday"
+    assert result["errors"] == {"name": "duplicate_name"}
+
+
 async def test_options_flow_default_configuration(
     hass: HomeAssistant, create_service_entry
 ) -> None:

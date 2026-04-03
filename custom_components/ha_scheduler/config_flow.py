@@ -53,6 +53,27 @@ def _get_occurrence_options() -> list[SelectOptionDict]:
     ]
 
 
+def _get_schedule_type_options() -> list[SelectOptionDict]:
+    """Get options for schedule type selection."""
+    return [
+        SelectOptionDict(value="date", label="By Date"),
+        SelectOptionDict(value="week", label="By Week of Month"),
+        SelectOptionDict(value="nth-day", label="By Nth Day of Month"),
+        SelectOptionDict(value="holiday", label="By Holiday"),
+    ]
+
+
+def _get_schedule_type_display(schedule_type: str) -> str:
+    """Return a display label for a schedule type."""
+    display_names = {
+        "date": "By Date",
+        "week": "By Week of Month",
+        "nth-day": "By Nth Day of Month",
+        "holiday": "By Holiday",
+    }
+    return display_names.get(schedule_type, schedule_type)
+
+
 def _validate_yaml_config(yaml_str: str) -> dict | None:
     """Validate YAML configuration string.
 
@@ -70,6 +91,34 @@ def _validate_yaml_config(yaml_str: str) -> dict | None:
         return parsed
     except yaml.YAMLError as err:
         raise ValueError(f"Invalid YAML: {err}") from err
+
+
+def _get_holiday_options(
+    holidays_data: dict[str, dict[str, Any]],
+) -> list[SelectOptionDict]:
+    """Build holiday selector options with pattern descriptions when available."""
+    holiday_options: list[SelectOptionDict] = []
+
+    for holiday_name, holiday_info in sorted(
+        holidays_data.items(), key=lambda item: item[0].lower()
+    ):
+        if holiday_info is None:
+            _LOGGER.warning("Holiday info is None for %s", holiday_name)
+            continue
+
+        pattern = holiday_info.get("pattern")
+        description = (
+            pattern.get("description", "Unknown pattern")
+            if pattern is not None
+            else "No pattern available"
+        )
+        holiday_options.append(
+            SelectOptionDict(
+                value=holiday_name, label=f"{holiday_name} ({description})"
+            )
+        )
+
+    return holiday_options
 
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -165,6 +214,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         else:
             # Legacy structure
             return entry.options.get("schedules", {})
+
+    def _get_default_holiday_country(self) -> str | None:
+        """Return the default country for holiday schedules."""
+        if country_code := self._schedule_data.get("country_code"):
+            return str(country_code)
+
+        try:
+            if hasattr(self.hass.config, "country") and self.hass.config.country:
+                return str(self.hass.config.country)
+        except AttributeError:
+            pass
+
+        return None
 
     def _update_service_schedules(self, schedules: dict[str, Any]) -> dict[str, Any]:
         """Update schedules for the current service and return updated options."""
@@ -309,6 +371,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_configure_date()
             if user_input["schedule_type"] == "week":
                 return await self.async_step_configure_week()
+            if user_input["schedule_type"] == "holiday":
+                return await self.async_step_configure_holiday_country()
             return await self.async_step_configure_nth_day()
 
         return self.async_show_form(
@@ -317,15 +381,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 {
                     vol.Required("schedule_type", default="date"): SelectSelector(
                         SelectSelectorConfig(
-                            options=[
-                                SelectOptionDict(value="date", label="By Date"),
-                                SelectOptionDict(
-                                    value="week", label="By Week of Month"
-                                ),
-                                SelectOptionDict(
-                                    value="nth-day", label="By Nth Day of Month"
-                                ),
-                            ],
+                            options=_get_schedule_type_options(),
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
@@ -724,6 +780,233 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             description_placeholders=self._get_error_placeholders(errors),
         )
 
+    async def async_step_configure_holiday_country(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select the country for a holiday-backed schedule."""
+        if user_input is not None:
+            selected_country = user_input["country_code"]
+            if self._schedule_data.get("country_code") != selected_country:
+                self._schedule_data.pop("category", None)
+                self._schedule_data.pop("holiday_name", None)
+            self._schedule_data["country_code"] = selected_country
+            return await self.async_step_configure_holiday_category()
+
+        try:
+            from .holiday_importer import get_supported_countries
+
+            countries = await get_supported_countries()
+        except Exception as err:
+            _LOGGER.error("Failed to load holiday countries: %s", err)
+            return self.async_abort(reason="import_error")
+
+        if not countries:
+            return self.async_abort(reason="no_countries_available")
+
+        default_country = self._get_default_holiday_country()
+        if default_country not in countries:
+            default_country = next(iter(countries))
+
+        country_options = [
+            SelectOptionDict(value=code, label=name)
+            for code, name in sorted(countries.items(), key=lambda item: item[1])
+        ]
+
+        return self.async_show_form(
+            step_id="configure_holiday_country",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "country_code", default=default_country
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=country_options,
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_configure_holiday_category(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select the holiday category for a holiday-backed schedule."""
+        country_code = self._schedule_data.get("country_code")
+        if not country_code:
+            return await self.async_step_configure_holiday_country()
+
+        if user_input is not None:
+            selected_category = user_input["category"]
+            if self._schedule_data.get("category") != selected_category:
+                self._schedule_data.pop("holiday_name", None)
+            self._schedule_data["category"] = selected_category
+            return await self.async_step_configure_holiday()
+
+        try:
+            from .holiday_importer import get_available_categories
+
+            categories = await get_available_categories(str(country_code))
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to load holiday categories for %s: %s", country_code, err
+            )
+            return self.async_abort(reason="import_error")
+
+        if not categories:
+            categories = {"public": "Public Holidays"}
+
+        default_category = str(self._schedule_data.get("category", "public"))
+        if default_category not in categories:
+            default_category = next(iter(categories))
+
+        category_options = [
+            SelectOptionDict(value=code, label=name)
+            for code, name in sorted(categories.items(), key=lambda item: item[1])
+        ]
+
+        return self.async_show_form(
+            step_id="configure_holiday_category",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("category", default=default_category): SelectSelector(
+                        SelectSelectorConfig(
+                            options=category_options,
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_configure_holiday(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure a holiday-backed schedule."""
+        self._yaml_error_details = None
+        errors: dict[str, str] = {}
+
+        country_code = self._schedule_data.get("country_code")
+        category = self._schedule_data.get("category")
+        if not country_code:
+            return await self.async_step_configure_holiday_country()
+        if not category:
+            return await self.async_step_configure_holiday_category()
+
+        holidays_data: dict[str, dict[str, Any]] = {}
+        try:
+            from .holiday_importer import get_holidays_for_country
+
+            holidays_data = await get_holidays_for_country(
+                str(country_code), [category]
+            )
+        except Exception as err:
+            _LOGGER.error(
+                "Failed to load holidays for %s/%s: %s", country_code, category, err
+            )
+            errors["base"] = "import_error"
+
+        holiday_options = _get_holiday_options(holidays_data)
+
+        if user_input is not None:
+            try:
+                holiday_name = user_input["holiday_name"]
+                if holiday_name not in holidays_data:
+                    errors["holiday_name"] = "invalid_holiday_selection"
+
+                data = {
+                    "name": user_input["name"],
+                    "schedule_type": "holiday",
+                    "country_code": str(country_code),
+                    "category": str(category),
+                    "holiday_name": holiday_name,
+                    "name_lookup": "iexact",
+                    "start_offset": int(user_input["start_offset"]),
+                    "end_offset": int(user_input["end_offset"]),
+                    "uid": self._schedule_id,
+                }
+
+                config_yaml = user_input.get("configuration") or ""
+                config_yaml = (
+                    config_yaml.strip() if isinstance(config_yaml, str) else ""
+                )
+                if config_yaml:
+                    config_dict = _validate_yaml_config(config_yaml)
+                    if config_dict:
+                        data["configuration"] = config_dict
+
+                schedules = self._get_service_schedules()
+                if not errors:
+                    errors.update(self._validate_schedule_conflicts(data, schedules))
+
+                if not errors:
+                    new_schedules = dict(schedules)
+                    new_schedules[self._schedule_id] = data
+                    updated_options = self._update_service_schedules(new_schedules)
+
+                    return self.async_create_entry(title="", data=updated_options)
+
+            except ValueError as err:
+                _LOGGER.warning("Validation error: %s", err)
+                details = str(err).strip()
+                self._yaml_error_details = details or None
+                errors["base"] = (
+                    "invalid_yaml_with_details" if details else "invalid_yaml"
+                )
+            except Exception:
+                _LOGGER.exception("Unexpected error")
+                errors["base"] = "unknown"
+
+        if not holiday_options and "base" not in errors:
+            errors["base"] = "no_holidays_available"
+
+        defaults = user_input if user_input and errors else self._schedule_data
+        config_value = defaults.get("configuration", "")
+        if isinstance(config_value, dict):
+            config_value = yaml.dump(
+                config_value, default_flow_style=False, sort_keys=False
+            ).strip()
+
+        available_holiday_names = {option["value"] for option in holiday_options}
+        default_holiday_name = defaults.get("holiday_name")
+        if default_holiday_name not in available_holiday_names:
+            default_holiday_name = (
+                holiday_options[0]["value"] if holiday_options else ""
+            )
+
+        schema_dict = {
+            vol.Required(
+                "name", default=defaults.get("name", "My Holiday Schedule")
+            ): str,
+            vol.Required("holiday_name", default=default_holiday_name): SelectSelector(
+                SelectSelectorConfig(
+                    options=holiday_options,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Required(
+                "start_offset", default=defaults.get("start_offset", 0)
+            ): NumberSelector(
+                NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
+            ),
+            vol.Required(
+                "end_offset", default=defaults.get("end_offset", 0)
+            ): NumberSelector(
+                NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
+            ),
+        }
+
+        schema_dict[vol.Optional("configuration", default=config_value)] = (
+            TemplateSelector()
+        )
+
+        return self.async_show_form(
+            step_id="configure_holiday",
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+            description_placeholders=self._get_error_placeholders(errors),
+        )
+
     async def async_step_edit_schedule(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -752,6 +1035,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return await self.async_step_configure_date()
             if schedule["schedule_type"] == "week":
                 return await self.async_step_configure_week()
+            if schedule["schedule_type"] == "holiday":
+                return await self.async_step_configure_holiday_country()
             return await self.async_step_configure_nth_day()
 
         schedule_options = [
@@ -796,7 +1081,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 description_placeholders={
                     "schedule_name": schedule["name"],
-                    "schedule_type": schedule["schedule_type"],
+                    "schedule_type": _get_schedule_type_display(
+                        schedule["schedule_type"]
+                    ),
                 },
             )
 
@@ -1100,24 +1387,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     }
                 )
 
-            # Create options with pattern descriptions
-            holiday_options = []
-            for holiday_name, holiday_info in sorted(holidays_data.items()):
-                if holiday_info is None:
-                    _LOGGER.warning("Holiday info is None for %s", holiday_name)
-                    continue
-
-                pattern = holiday_info.get("pattern")
-                if pattern is None:
-                    _LOGGER.warning("Pattern is None for %s", holiday_name)
-                    description = "No pattern available"
-                else:
-                    description = pattern.get("description", "Unknown pattern")
-
-                label = f"{holiday_name} ({description})"
-                holiday_options.append(
-                    SelectOptionDict(value=holiday_name, label=label)
-                )
+            holiday_options = _get_holiday_options(holidays_data)
 
             # Get all holiday names for default selection
             all_holiday_names = [option["value"] for option in holiday_options]
