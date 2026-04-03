@@ -9,5 +9,5 @@
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
   "quality_scale": "gold",
   "requirements": ["holidays>=0.91", "babel>=2.18.0"],
-  "version": "0.4.2"
+  "version": "0.5.0"
 }
