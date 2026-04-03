@@ -250,6 +250,32 @@ def generate_holiday_schedule_dates(
     ]
 
 
+def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool:
+    """Return whether a detected pattern should use the holiday schedule type."""
+    if pattern is None:
+        return False
+
+    return pattern.get("schedule_type") == "date" and str(
+        pattern.get("description", "")
+    ).startswith("Variable date")
+
+
+def _build_holiday_schedule_pattern(
+    country_code: str, category: str, holiday_name: str
+) -> dict[str, Any]:
+    """Build a holiday-backed pattern for import flows."""
+    return {
+        "schedule_type": "holiday",
+        "country_code": country_code.upper(),
+        "category": category,
+        "holiday_name": holiday_name,
+        "name_lookup": "iexact",
+        "start_offset": 0,
+        "end_offset": 0,
+        "description": "Holiday-backed (resolved each year)",
+    }
+
+
 def _get_supported_countries_sync() -> dict[str, str]:
     """Get list of all supported countries dynamically (sync version)."""
     if not _holidays_available():
@@ -477,6 +503,10 @@ def _get_holidays_for_country_sync(
                         "end_day": first_date.day,
                         "description": f"Single occurrence: {format_date_localized(first_date)}",
                     }
+            elif _should_use_holiday_schedule_pattern(pattern):
+                pattern = _build_holiday_schedule_pattern(
+                    country_code, category, holiday_name
+                )
 
             holiday_data["pattern"] = pattern
 

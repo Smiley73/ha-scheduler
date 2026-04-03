@@ -317,6 +317,38 @@ class TestGetHolidaysForCountrySync:
                 # Should return empty dict, not crash
                 assert result == {}
 
+    def test_get_holidays_variable_dates_use_holiday_schedule(self):
+        """Test variable movable holidays use the holiday-backed schedule type."""
+
+        def mock_holiday_factory(country, **kwargs):
+            years_arg = kwargs.get("years", 2026)
+            year = years_arg[0] if isinstance(years_arg, (list, tuple)) else years_arg
+
+            movable_dates = {
+                2023: date(2023, 4, 7),
+                2024: date(2024, 3, 29),
+                2025: date(2025, 4, 18),
+                2026: date(2026, 4, 3),
+                2027: date(2027, 3, 26),
+                2028: date(2028, 4, 14),
+                2029: date(2029, 3, 30),
+            }
+
+            return {movable_dates[year]: "Karfreitag"}
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+        ):
+            with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
+                result = _get_holidays_for_country_sync("DE", ["public"])
+
+        pattern = result["Karfreitag"]["pattern"]
+        assert pattern["schedule_type"] == "holiday"
+        assert pattern["country_code"] == "DE"
+        assert pattern["category"] == "public"
+        assert pattern["holiday_name"] == "Karfreitag"
+        assert pattern["name_lookup"] == "iexact"
+
 
 class TestHolidayScheduleResolution:
     """Test holiday-backed schedule resolution."""
