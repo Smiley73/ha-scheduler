@@ -186,3 +186,30 @@ def test_check_overlap_year_wrap() -> None:
     has_overlap, name = check_overlap(schedule1, [schedule2])
     assert has_overlap
     assert name == "Winter"
+
+
+def test_check_overlap_detects_future_gregorian_cycle_collision() -> None:
+    """Test overlap detection catches conflicts beyond the next 3 years."""
+    schedule1 = {
+        "schedule_type": "date",
+        "start_month": 1,
+        "start_day": 1,
+        "end_month": 1,
+        "end_day": 1,
+        "uid": "schedule1",
+    }
+
+    schedule2 = {
+        "schedule_type": "nth-day",
+        "month": 1,
+        "occurrence": 0,
+        "day_of_week": 0,
+        "start_offset": 0,
+        "end_offset": 0,
+        "uid": "schedule2",
+        "name": "First Monday of January",
+    }
+
+    has_overlap, name = check_overlap(schedule1, [schedule2])
+    assert has_overlap
+    assert name == "First Monday of January"

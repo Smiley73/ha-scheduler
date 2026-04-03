@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, timedelta
+from functools import lru_cache
+from types import ModuleType
 from typing import Any
 
 from .const import (
@@ -95,18 +97,36 @@ def get_localized_country_name(
     return fallback_name or country_code.replace("_", " ").title()
 
 
-try:
-    import holidays
+# Test override for holiday library availability. Runtime code leaves this as
+# None so the actual import is deferred until a sync helper runs in the executor.
+HOLIDAYS_AVAILABLE: bool | None = None
 
-    HOLIDAYS_AVAILABLE = True
-except ImportError:
-    HOLIDAYS_AVAILABLE = False
-    _LOGGER.warning("holidays library not available - holiday import feature disabled")
+
+@lru_cache(maxsize=1)
+def _import_holidays_module() -> ModuleType | None:
+    """Import and cache the holidays module."""
+    try:
+        import holidays as holidays_module
+    except ImportError:
+        _LOGGER.warning(
+            "holidays library not available - holiday import feature disabled"
+        )
+        return None
+
+    return holidays_module
+
+
+def _get_holidays_module() -> ModuleType | None:
+    """Return the holidays module when available."""
+    if HOLIDAYS_AVAILABLE is False:
+        return None
+
+    return _import_holidays_module()
 
 
 def _get_supported_countries_sync() -> dict[str, str]:
     """Get list of all supported countries dynamically (sync version)."""
-    if not HOLIDAYS_AVAILABLE:
+    if not (holidays_module := _get_holidays_module()):
         return {}
 
     try:
@@ -114,17 +134,19 @@ def _get_supported_countries_sync() -> dict[str, str]:
         country_dict = {}
 
         # holidays library provides country codes and names
-        for country_code in holidays.list_supported_countries():
+        for country_code in holidays_module.list_supported_countries():
             try:
                 # Get the country name from holidays library first
-                country_obj = holidays.country_holidays(country_code, years=2024)
+                country_obj = holidays_module.country_holidays(country_code, years=2024)
                 holidays_name = getattr(country_obj, "country", None)
 
                 # If holidays library doesn't have a proper name, try the class
                 if not holidays_name or holidays_name == country_code:
                     try:
                         # Access the entity loader and get the country class
-                        entity_loader = getattr(holidays.registry, "EntityLoader", None)
+                        entity_loader = getattr(
+                            holidays_module.registry, "EntityLoader", None
+                        )
                         if entity_loader and hasattr(entity_loader, "get"):
                             country_class = entity_loader.get(country_code)
                             if hasattr(country_class, "country"):
@@ -163,12 +185,12 @@ async def get_supported_countries() -> dict[str, str]:
 
 def _get_available_categories_sync(country_code: str) -> dict[str, str]:
     """Get available holiday categories for a specific country (sync version)."""
-    if not HOLIDAYS_AVAILABLE:
+    if not (holidays_module := _get_holidays_module()):
         return {"public": "Public Holidays"}
 
     try:
         # Get a sample year to inspect available categories
-        country_holidays = holidays.country_holidays(country_code, years=2024)
+        country_holidays = holidays_module.country_holidays(country_code, years=2024)
 
         # Different countries support different categories
         available_categories = {}
@@ -194,7 +216,7 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
             for category in test_categories:
                 try:
                     # Test if this category exists by trying to create holidays with it
-                    test_holidays = holidays.country_holidays(
+                    test_holidays = holidays_module.country_holidays(
                         country_code, categories=category, years=2024
                     )
                     if len(test_holidays) > 0:
@@ -232,7 +254,7 @@ def _get_holidays_for_country_sync(
     country_code: str, categories: list[str] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Get all holidays for a country with their patterns (sync version)."""
-    if not HOLIDAYS_AVAILABLE:
+    if not (holidays_module := _get_holidays_module()):
         return {}
 
     try:
@@ -261,12 +283,12 @@ def _get_holidays_for_country_sync(
                     try:
                         if category == "public":
                             # Default category - no category parameter needed
-                            year_holidays = holidays.country_holidays(
+                            year_holidays = holidays_module.country_holidays(
                                 country_code, years=year
                             )
                         else:
                             # Specific category
-                            year_holidays = holidays.country_holidays(
+                            year_holidays = holidays_module.country_holidays(
                                 country_code, categories=category, years=year
                             )
 

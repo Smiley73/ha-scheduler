@@ -240,3 +240,67 @@ async def test_add_schedule_with_overlap_error(hass: HomeAssistant) -> None:
     else:
         schedules = updated_entry.options.get("schedules", {})
     assert len(schedules) == 1
+
+
+async def test_add_schedule_with_future_cycle_overlap_error(
+    hass: HomeAssistant,
+) -> None:
+    """Test that long-horizon recurring overlaps are rejected."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Scheduler",
+        data={},
+        options={"schedules": {}},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Add second Monday of January.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_type": "nth-day"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Second Monday of January",
+            "month": "1",
+            "occurrence": "1",
+            "day_of_week": "0",
+            "start_offset": 0,
+            "end_offset": 0,
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    # Jan 8 does not overlap in the next 3 years, but it does later in the
+    # Gregorian cycle and should still be rejected.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_type": "date"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "January 8",
+            "start_month": "1",
+            "start_day": 8,
+            "end_month": "1",
+            "end_day": 8,
+            "configuration": "",
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "schedule_overlap_with_name"
+    assert result["description_placeholders"]["conflicting_schedule"] == (
+        "Second Monday of January"
+    )

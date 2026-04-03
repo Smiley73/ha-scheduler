@@ -270,6 +270,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return errors
 
+    def _validate_week_schedule(self, data: dict[str, Any]) -> dict[str, str]:
+        """Validate that a week schedule produces a valid recurring range."""
+        if data.get("schedule_type") != "week":
+            return {}
+
+        from .schedule_generator import week_schedule_has_valid_ranges
+
+        if week_schedule_has_valid_ranges(data):
+            return {}
+
+        return {"base": "invalid_week_schedule"}
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -500,9 +512,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict:
                         data["configuration"] = config_dict
 
+                errors.update(self._validate_week_schedule(data))
+
                 # Get current schedules and validate for conflicts
-                schedules = self._get_service_schedules()
-                errors.update(self._validate_schedule_conflicts(data, schedules))
+                if not errors:
+                    schedules = self._get_service_schedules()
+                    errors.update(self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
                     new_schedules = dict(schedules)
@@ -1156,6 +1171,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             schedules = self._get_service_schedules()
             new_schedules = dict(schedules)
 
+            def get_schedules_with_uids() -> list[dict[str, Any]]:
+                """Return current schedules with a fallback uid for legacy entries."""
+                return [
+                    schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
+                    for schedule_id, schedule in new_schedules.items()
+                ]
+
             imported_count = 0
             skipped_count = 0
             overwritten_count = 0
@@ -1178,6 +1200,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     schedule_name = f"{holiday_name} ({country})"
                 else:
                     schedule_name = holiday_name
+                schedule_name = schedule_name.strip()
+                normalized_schedule_name = schedule_name.lower()
                 schedule = {
                     "uid": str(uuid.uuid4()),
                     "name": schedule_name,
@@ -1186,18 +1210,21 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 # Check for existing schedule with same name
                 existing_schedule_id = None
-                for sid, existing_schedule in schedules.items():
-                    if existing_schedule["name"].lower() == schedule_name.lower():
+                for sid, existing_schedule in new_schedules.items():
+                    if (
+                        existing_schedule["name"].strip().lower()
+                        == normalized_schedule_name
+                    ):
                         existing_schedule_id = sid
                         break
 
+                excluded_uid = None
                 if existing_schedule_id:
                     if overwrite_existing:
-                        # Overwrite existing schedule
+                        # Validate the replacement against the rest of the schedules
+                        # before committing the overwrite.
                         schedule["uid"] = existing_schedule_id
-                        new_schedules[existing_schedule_id] = schedule
-                        overwritten_count += 1
-                        continue
+                        excluded_uid = existing_schedule_id
                     else:
                         # Skip existing
                         skipped_count += 1
@@ -1206,12 +1233,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         )
                         continue
 
-                # Check for overlaps with other schedules
-                existing_schedules_list = [
-                    s for sid, s in new_schedules.items() if sid != schedule["uid"]
-                ]
                 has_overlap, conflicting_name = check_overlap(
-                    schedule, existing_schedules_list
+                    schedule,
+                    get_schedules_with_uids(),
+                    exclude_uid=excluded_uid,
                 )
 
                 if has_overlap and skip_on_overlap:
@@ -1219,6 +1244,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors.append(
                         f"Holiday '{holiday_name}' overlaps with '{conflicting_name}' (skipped)"
                     )
+                    continue
+
+                if existing_schedule_id and overwrite_existing:
+                    new_schedules[existing_schedule_id] = schedule
+                    overwritten_count += 1
                     continue
 
                 # Add the schedule (importing despite overlap when skip_on_overlap is False)

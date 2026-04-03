@@ -1,7 +1,7 @@
 # Home Assistant Scheduler Integration - Specification
 
 **Domain**: `ha_scheduler`
-**Version**: 0.4.1
+**Version**: 0.4.2
 **Quality Scale**: Gold
 **Integration Type**: Service
 **Status**: Implemented and functional
@@ -87,6 +87,7 @@ Define a schedule using week occurrences within months with optional week type s
 - Week 4 (Last) means the last occurrence of that weekday in the month
 - Country-specific week start conventions (Sunday vs Monday) are automatically detected
 - Week type only applies to first week (occurrence 0), other weeks are always full
+- Invalid weekday/week combinations that do not produce a valid recurring date range are rejected during configuration
 
 **Examples**: 
 - First Monday of March to Last Friday of June (specific days)
@@ -195,7 +196,7 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 
 #### Conflict Resolution
 - **Name Conflicts**: Option to overwrite existing schedules with same name
-- **Date Overlaps**: Option to skip holidays that would overlap with existing schedules
+- **Date Overlaps**: Option to skip holidays that would overlap with existing schedules, including overwrite replacements that would collide with other schedules
 - **Country Name Flag**: Option to include/exclude country code in schedule names
 - **Detailed Feedback**: Shows exactly what was imported, skipped, or overwritten
 
@@ -287,7 +288,7 @@ Present menu with five options:
 3. **On Submit**:
    - Generate unique UID using `str(uuid.uuid4())`
    - Validate schedule name is unique within this service (case-insensitive)
-   - Check for overlaps with existing schedules
+   - Check for overlaps with existing schedules across the full 400-year Gregorian recurrence cycle
    - Add to `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all existing schedules
 
@@ -337,7 +338,7 @@ Present menu with five options:
    - Each holiday shows detected pattern (e.g., "Fixed date: July 04" or "Third Monday of January")
    - Import options:
      - **Overwrite existing**: Replace schedules with same name (default: false)
-     - **Skip on overlap**: Skip holidays that would overlap with existing schedules (default: true)
+     - **Skip on overlap**: Skip holidays that would overlap with existing schedules, including overwrite replacements that would collide with other schedules (default: true)
      - **Include country name**: Add country code to schedule names (default: false)
    - Validation: At least one holiday must be selected
 
@@ -367,6 +368,7 @@ Present menu with five options:
 - Offsets: Must be 0-30
 - For by_date: End date must be after start date (considering year wrapping)
 - For by_week and by_nth_day: End can be before start in same year
+- For by_week: The selected weeks and weekdays must produce a valid, non-reversed recurring date range
 
 ### Name Uniqueness
 - **Service names**: Must be unique across all scheduler services (case-insensitive)
@@ -378,7 +380,7 @@ Present menu with five options:
 
 ### Overlap Detection
 - Check if new/edited schedule overlaps with existing schedules
-- Check across 3 years (current year + 2 more)
+- Check across one full Gregorian calendar cycle (400 years) to avoid time-dependent false negatives
 - Return tuple: `(has_overlap: bool, conflicting_schedule_name: str | None)`
 - Error: "This schedule overlaps with '{conflicting_schedule}'"
 - When editing: Exclude current schedule from overlap check
@@ -485,7 +487,7 @@ Present menu with five options:
 - Each event has unique UID: `{schedule_uid}_{year}`
 - All events are all-day events
 - End date is exclusive (add 1 day for calendar display)
-- **Current event detection** (`event` property): scans `±CALENDAR_YEAR_LOOKAROUND` years from today using the `CALENDAR_YEAR_LOOKAROUND` constant (7-year window total)
+- **Active/upcoming event selection** (`event` property): scans `±CALENDAR_YEAR_LOOKAROUND` years from today using the `CALENDAR_YEAR_LOOKAROUND` constant (7-year window total), returns the active event when one is in progress, and otherwise returns the next upcoming event
 
 ### Event Properties
 - **summary**: Schedule name
@@ -496,9 +498,9 @@ Present menu with five options:
 
 ### Entity Attributes
 - `default_configuration`: The service's default YAML configuration dict
-- `configuration`: When a schedule is active, contains the configuration dict for that schedule
-- `name`: Current active schedule name (or None if no active schedule)
-- `schedule_uid`: Current active schedule UID (or None if no active schedule)
+- `configuration`: When an event is active or upcoming, contains the configuration dict for that schedule
+- `name`: Active schedule name, or the next upcoming schedule name when the calendar is idle
+- `schedule_uid`: Active schedule UID, or the next upcoming schedule UID when the calendar is idle
 
 ### Device Integration
 - All calendars are grouped under a device representing the scheduler service
@@ -517,7 +519,7 @@ Present menu with five options:
 - **Current Version**: 2 (service-based architecture)
 - **Previous Version**: 1 (helper-based architecture)
 - **Config Flow Version**: 2.1
-- **Manifest Version**: 0.4.1
+- **Manifest Version**: 0.4.2
 
 ### Migration Process
 The integration automatically detects and migrates older config entries:
@@ -899,7 +901,7 @@ The system automatically detects and handles different week start conventions:
 
 **`check_overlap(new_schedule: dict, existing_schedules: list[dict], exclude_uid: str | None = None) -> tuple[bool, str | None]`**
 - Check if new_schedule overlaps with any existing schedules
-- Check across 3 years (current + 2 more)
+- Check across one full 400-year Gregorian cycle so recurring patterns are validated deterministically
 - Exclude schedule with exclude_uid from check (for editing)
 - Return (has_overlap, conflicting_schedule_name)
 

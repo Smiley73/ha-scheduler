@@ -80,7 +80,7 @@ The HA Scheduler integration includes a powerful holiday import feature that all
 6. **Step 3**: Choose specific holidays and configure import options:
    - **Holidays to import**: Select from the list with automatically detected pattern descriptions
    - **Overwrite existing**: Replace schedules with the same name
-   - **Skip on overlap**: Skip holidays that would conflict with existing schedules
+   - **Skip on overlap**: Skip holidays that would conflict with existing schedules, including replacements when overwrite is enabled
    - **Include country name**: Add country code to schedule names (e.g., "Independence Day (USA)" vs "Independence Day")
 
 #### Smart Pattern Detection
@@ -234,6 +234,8 @@ The HA Scheduler integration supports three types of schedules to cover differen
 
 **Note:** All days between the start and end dates are active, not just the specified days of the week.
 
+**Validation:** Week-based schedules that do not produce a valid recurring range are rejected during configuration. For example, choosing a start day later than the end day within the same week, or selecting a weekday that does not exist in the chosen partial week pattern, will not be saved.
+
 ### 3. Nth-Day Schedules
 
 **Use for:** Schedules around specific occurrences of weekdays in a month, like "Thanksgiving" or "second Tuesday of March."
@@ -259,7 +261,7 @@ The HA Scheduler integration creates a calendar entity (`calendar.<scheduler_nam
 
 **Calendar Features:**
 - Automatically updates when schedules are added, modified, or deleted
-- Shows the current active event (if any) in the calendar entity state
+- Exposes the active event, or the next upcoming event when the calendar is idle
 - Configuration data available through dedicated entity attributes
 - Events span the full duration of each schedule period
 - Supports year-wrapping schedules (e.g., November to February)
@@ -267,15 +269,16 @@ The HA Scheduler integration creates a calendar entity (`calendar.<scheduler_nam
 **Using the Calendar:**
 - View in the Calendar dashboard
 - Use `calendar.get_events` service to query upcoming schedules
-- Access the current event via `calendar.<scheduler_name>.event`
+- Access the active or next upcoming event via `calendar.<scheduler_name>.event`
 - If a schedule is active `calendar.<scheduler_name>` will have the state `on`
 - Access configuration via `state_attr('calendar.<scheduler_name>', 'configuration')`
+- If there is no active or upcoming event, `calendar.<scheduler_name>.event` is `None`, the calendar state stays `off`, `name` and `schedule_uid` are `None`, and `configuration` falls back to the default configuration
 
 ## Advanced Configuration
 
 ### Schedule-Specific Configuration
 
-Each schedule can have optional YAML configuration that provides custom attributes for that schedule. This configuration is exposed through the calendar entity attributes when the schedule is active.
+Each schedule can have optional YAML configuration that provides custom attributes for that schedule. This configuration is exposed through the calendar entity attributes for the active schedule, or for the next upcoming schedule when the calendar is idle.
 
 **Example: Christmas Lighting Schedule**
 
@@ -302,13 +305,15 @@ brightness: 75
 
 ### Accessing Configuration in Automations
 
-The configuration is available through dedicated attributes on the calendar entity when a schedule is active. This provides clean, direct access to schedule-specific settings in your automations.
+The configuration is available through dedicated attributes on the calendar entity for the active schedule, or for the next upcoming schedule when the calendar is idle. This provides clean, direct access to schedule-specific settings in your automations.
 
 **Available Calendar Attributes:**
-- `configuration`: Current active schedule's configuration (or default if none active)
-- `name`: Name of the currently active schedule
-- `schedule_uid`: Unique identifier of the active schedule
+- `configuration`: Active schedule's configuration, or the next upcoming schedule's configuration (falls back to the default configuration if no schedule-specific config exists)
+- `name`: Name of the currently active schedule, or the next upcoming schedule
+- `schedule_uid`: Unique identifier of the active schedule, or the next upcoming schedule
 - `default_configuration`: Default configuration from integration settings
+
+If there is no active or upcoming schedule, `configuration` falls back to `default_configuration`, and `name` / `schedule_uid` are `None`.
 
 **Check if a schedule is currently active:**
 
@@ -319,11 +324,11 @@ value_template: "{{ state_attr('calendar.my_scheduler', 'name') != None }}"
 
 **Access configuration directly from the calendar entity:**
 
-When a schedule is active, the `configuration` attribute contains the schedule's configuration dict (or the default configuration if the schedule doesn't have its own):
+When a schedule is active, or when there is a next upcoming schedule, the `configuration` attribute contains that schedule's configuration dict (or the default configuration if the schedule doesn't have its own):
 
 ```yaml
 variables:
-  # Get configuration from the active schedule
+  # Get configuration from the active or next upcoming schedule
   config: "{{ state_attr('calendar.my_scheduler', 'configuration') | default({}) }}"
   color: "{{ config.color | default('white') }}"
   brightness: "{{ config.brightness | default(50) }}"

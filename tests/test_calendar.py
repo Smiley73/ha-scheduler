@@ -338,7 +338,7 @@ async def test_calendar_no_schedules(hass: HomeAssistant, create_service_entry) 
 async def test_calendar_entity_attributes_no_active_event(
     hass: HomeAssistant, create_service_entry, freezer
 ) -> None:
-    """Test calendar entity attributes when no event is active."""
+    """Test calendar entity attributes when the next event is upcoming."""
     # Set date to January 1, 2024 (outside any schedule)
     freezer.move_to("2024-01-01 12:00:00")
 
@@ -373,14 +373,17 @@ async def test_calendar_entity_attributes_no_active_event(
 
     assert calendar_entity is not None
 
-    # Check that no event is currently active
+    # Check that the next event is surfaced even while idle.
     current_event = calendar_entity.event
-    assert current_event is None
+    assert current_event is not None
+    assert current_event.summary == "Summer Schedule"
+    assert current_event.start == date(2024, 6, 1)
+    assert current_event.end == date(2024, 9, 1)
 
-    # Check extra state attributes when no event is active
+    # Check extra state attributes follow the next upcoming schedule.
     attrs = calendar_entity.extra_state_attributes
-    assert attrs["name"] is None
-    assert attrs["schedule_uid"] is None
+    assert attrs["name"] == "Summer Schedule"
+    assert attrs["schedule_uid"] == "summer-schedule"
     assert attrs["configuration"]["summary"] == "Default Event"
     assert attrs["default_configuration"]["summary"] == "Default Event"
 

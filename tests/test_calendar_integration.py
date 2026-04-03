@@ -80,8 +80,10 @@ async def test_calendar_updates_when_schedule_added(hass: HomeAssistant) -> None
     assert events[0].summary == "Summer Schedule"
 
 
-async def test_calendar_shows_current_event(hass: HomeAssistant) -> None:
-    """Test that calendar shows current event property."""
+async def test_calendar_shows_current_or_upcoming_event(
+    hass: HomeAssistant,
+) -> None:
+    """Test that calendar exposes the active or next upcoming event."""
     # Create entry with a schedule that includes today
     from datetime import date
 
@@ -129,12 +131,7 @@ async def test_calendar_shows_current_event(hass: HomeAssistant) -> None:
 
     assert calendar is not None
 
-    # Check current event
+    # Check the active or next upcoming event.
     current_event = calendar.event
-    if today.day <= 28:
-        # We're within the schedule
-        assert current_event is not None
-        assert current_event.summary == "Current Schedule"
-    else:
-        # We're outside the schedule
-        assert current_event is None
+    assert current_event is not None
+    assert current_event.summary == "Current Schedule"

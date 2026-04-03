@@ -149,6 +149,7 @@
       "invalid_yaml_with_details": "Invalid YAML configuration: {details}.",
       "duplicate_name": "A schedule with this name already exists. Please choose a different name.",
       "duplicate_scheduler_name": "A scheduler with this name already exists. Please choose a different name.",
+      "invalid_week_schedule": "This week-based schedule does not create a valid recurring date range. Adjust the week type or weekday selection.",
       "schedule_overlap": "This schedule overlaps with an existing schedule.",
       "schedule_overlap_with_name": "This schedule overlaps with {conflicting_schedule}.",
       "no_countries_available": "No countries available for holiday import",
