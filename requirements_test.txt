@@ -1,7 +1,7 @@
 pytest>=9.0.0
 pytest-homeassistant-custom-component>=0.13.316
 pytest-cov>=7.0.0
-ruff>=0.15.2
+ruff>=0.15.12
 pre-commit>=4.5.1
 babel>=2.18.0
 holidays>=0.93
