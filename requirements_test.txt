@@ -8,4 +8,4 @@ holidays>=0.93
 # Fix for pycares/aiodns compatibility issue
 # Note: Versions must match homeassistant requirements
 pycares>=4.11.0
-aiodns>=3.5.0
+aiodns>=3.6.1
