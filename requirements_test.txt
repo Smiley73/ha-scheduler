@@ -4,7 +4,7 @@ pytest-cov>=7.0.0
 ruff>=0.15.2
 pre-commit>=4.5.1
 babel>=2.18.0
-holidays>=0.93
+holidays>=0.95
 # Fix for pycares/aiodns compatibility issue
 # Note: Versions must match homeassistant requirements
 pycares>=4.11.0
