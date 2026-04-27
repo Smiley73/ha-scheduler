@@ -1,5 +1,5 @@
 pytest>=9.0.0
-pytest-homeassistant-custom-component>=0.13.316
+pytest-homeassistant-custom-component>=0.13.325
 pytest-cov>=7.0.0
 ruff>=0.15.2
 pre-commit>=4.5.1
