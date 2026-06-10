@@ -1,7 +1,7 @@
 # Home Assistant Scheduler Integration - Specification
 
 **Domain**: `ha_scheduler`
-**Version**: 0.4.2
+**Version**: 0.5.0
 **Quality Scale**: Gold
 **Integration Type**: Service
 **Status**: Implemented and functional
@@ -270,7 +270,7 @@ All holiday import functions follow async patterns:
 - Overrides the default configuration when present
 - Shown on the same form as schedule parameters
 - Stored in schedule dict as `configuration` key
-- Exposed in CalendarEvent.description field as a dict (not string)
+- Exposed via the calendar entity's `extra_state_attributes` (`configuration`) for the active/upcoming schedule; `CalendarEvent.description` is intentionally left empty
 - Optional - if not provided, uses default configuration
 
 **Configuration Field Requirements**:
@@ -528,7 +528,7 @@ Present menu with five options:
 - **summary**: Schedule name
 - **start**: Start date (date object, not datetime)
 - **end**: End date + 1 day (for all-day event display)
-- **description**: Configuration dict (not string) - schedule-specific or default
+- **description**: Intentionally left empty; configuration is exposed via the entity's `extra_state_attributes` instead (see Entity Attributes below)
 - **uid**: `{schedule_uid}_{year}`
 
 ### Entity Attributes
@@ -554,7 +554,7 @@ Present menu with five options:
 - **Current Version**: 2 (service-based architecture)
 - **Previous Version**: 1 (helper-based architecture)
 - **Config Flow Version**: 2.1
-- **Manifest Version**: 0.4.2
+- **Manifest Version**: 0.5.0
 
 ### Migration Process
 The integration automatically detects and migrates older config entries:
@@ -672,17 +672,17 @@ Integration metadata and dependencies:
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
   "quality_scale": "gold",
-  "requirements": ["holidays>=0.34", "babel>=2.0.0"],
-  "version": "0.4.1"
+  "requirements": ["holidays>=0.93", "babel>=2.18.0"],
+  "version": "0.5.0"
 }
 ```
 
 **Key Requirements**:
 - **Integration Type**: `service` (not helper)
 - **Quality Scale**: `gold` level compliance
-- **Dependencies**: `holidays>=0.34` for holiday import functionality, `babel>=2.0.0` for localization
+- **Dependencies**: `holidays>=0.93` for holiday import functionality, `babel>=2.18.0` for localization
 - **Config Flow**: UI-based configuration required
-- **Version**: 0.4.1 includes holiday import feature with improved code quality
+- **Version**: 0.5.0 includes holiday import feature with improved code quality
 
 ### const.py
 Define constants:
@@ -1023,7 +1023,7 @@ The system automatically detects and handles different week start conventions:
 
 **Data Storage Patterns**:
 - Configuration stored as dict in schedule data structure
-- Exposed in CalendarEvent.description as dict (not string)
+- Exposed via the calendar entity's `extra_state_attributes` (`configuration`, `default_configuration`, `name`, `schedule_uid`); `CalendarEvent.description` is intentionally left empty
 - Default configuration stored in service-level options
 - Schedule-specific configuration overrides default when present
 
@@ -1131,7 +1131,7 @@ Include `data_description` for configuration fields:
 - All-day events only (no time components)
 - Proper error handling with translated messages
 - Migration system for backward compatibility
-- External dependencies: `holidays>=0.34` for holiday import functionality
+- External dependencies: `holidays>=0.93` for holiday import functionality
 
 ### Code Quality
 - Use constants from const.py for month/day/occurrence names
