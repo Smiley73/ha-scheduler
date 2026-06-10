@@ -17,7 +17,7 @@ from .const import (
     SCHEDULE_TYPE_NTH_DAY,
     SCHEDULE_TYPE_WEEK,
 )
-from .holiday_importer import async_prime_holiday_cache
+from .holiday_importer import async_prime_holiday_cache, get_holidays_library_version
 from .schedule_generator import generate_schedule_dates
 
 # Keys that may contain sensitive user data in YAML configuration blobs
@@ -116,6 +116,11 @@ async def async_get_config_entry_diagnostics(
             "title": entry.title,
             "entry_id": entry.entry_id,
             "scheduler_name": entry.data.get("scheduler_name", entry.title),
+        },
+        "environment": {
+            "holidays_version": await hass.async_add_executor_job(
+                get_holidays_library_version
+            ),
         },
         "services": services_diagnostics,
         "summary": {

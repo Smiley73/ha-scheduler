@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -17,6 +18,8 @@ from .holiday_importer import async_prime_holiday_cache
 from .schedule_generator import generate_schedule_dates
 
 PARALLEL_UPDATES = 0
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -130,11 +133,22 @@ class SchedulerCalendar(CalendarEntity):
             return
         self.async_write_ha_state()
 
+    def _get_service_data(self) -> dict[str, Any]:
+        """Return live service data, handling both new and legacy layouts."""
+        services = self._entry.options.get("services", {})
+        if services:
+            return services.get(self._service_id, {})
+
+        # Legacy (pre-services) entries store schedules at the options root.
+        return {
+            "name": self._entry.title,
+            "schedules": self._entry.options.get("schedules", {}),
+            "configuration": self._entry.options.get("configuration", {}),
+        }
+
     def _get_schedules(self) -> list[dict[str, Any]]:
         """Get schedules from config entry options for this service."""
-        services = self._entry.options.get("services", {})
-        service_data = services.get(self._service_id, {})
-        schedules_dict = service_data.get("schedules", {})
+        schedules_dict = self._get_service_data().get("schedules", {})
         return [
             schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
             for schedule_id, schedule in schedules_dict.items()
@@ -150,27 +164,34 @@ class SchedulerCalendar(CalendarEntity):
         future_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
 
         for schedule in self._get_schedules():
-            # Check surrounding years to catch schedules that wrap across year boundaries
-            for year in range(
-                current_year - CALENDAR_YEAR_LOOKAROUND,
-                current_year + CALENDAR_YEAR_LOOKAROUND + 1,
-            ):
-                date_ranges = generate_schedule_dates(schedule, year)
+            try:
+                # Check surrounding years to catch schedules that wrap across year boundaries
+                for year in range(
+                    current_year - CALENDAR_YEAR_LOOKAROUND,
+                    current_year + CALENDAR_YEAR_LOOKAROUND + 1,
+                ):
+                    date_ranges = generate_schedule_dates(schedule, year)
 
-                for schedule_start, schedule_end in date_ranges:
-                    # All-day events use date objects; CalendarEvent.end is
-                    # exclusive, so add one day to include the end date.
-                    event = CalendarEvent(
-                        start=schedule_start,
-                        end=schedule_end + timedelta(days=1),
-                        summary=schedule["name"],
-                        uid=f"{schedule['uid']}_{year}",
-                        description="",
-                    )
-                    if schedule_start <= today <= schedule_end:
-                        active_events.append((event.start, event, schedule))
-                    elif schedule_start > today:
-                        future_events.append((event.start, event, schedule))
+                    for schedule_start, schedule_end in date_ranges:
+                        # All-day events use date objects; CalendarEvent.end is
+                        # exclusive, so add one day to include the end date.
+                        event = CalendarEvent(
+                            start=schedule_start,
+                            end=schedule_end + timedelta(days=1),
+                            summary=schedule["name"],
+                            uid=f"{schedule['uid']}_{year}",
+                            description="",
+                        )
+                        if schedule_start <= today <= schedule_end:
+                            active_events.append((event.start, event, schedule))
+                        elif schedule_start > today:
+                            future_events.append((event.start, event, schedule))
+            except Exception:  # noqa: BLE001 - one bad schedule must not hide the others
+                _LOGGER.warning(
+                    "Skipping schedule %r while determining the current event",
+                    schedule.get("name", schedule.get("uid")),
+                    exc_info=True,
+                )
 
         candidates = active_events or future_events
         if not candidates:
@@ -183,9 +204,7 @@ class SchedulerCalendar(CalendarEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
-        services = self._entry.options.get("services", {})
-        service_data = services.get(self._service_id, {})
-        default_config = service_data.get("configuration", {})
+        default_config = self._get_service_data().get("configuration", {})
 
         # Surface the schedule configuration for the active event, or the
         # next upcoming event when the calendar is currently idle.
@@ -232,23 +251,30 @@ class SchedulerCalendar(CalendarEntity):
         await async_prime_holiday_cache(schedules, range(start_year - 1, end_year + 1))
 
         for schedule in schedules:
-            # Include previous year to catch year-wrapping schedules
-            for year in range(start_year - 1, end_year + 1):
-                date_ranges = generate_schedule_dates(schedule, year)
+            try:
+                # Include previous year to catch year-wrapping schedules
+                for year in range(start_year - 1, end_year + 1):
+                    date_ranges = generate_schedule_dates(schedule, year)
 
-                for schedule_start, schedule_end in date_ranges:
-                    # Only include if it overlaps with requested range
-                    if schedule_start <= end_day and schedule_end >= start_day:
-                        # All-day events use date objects; CalendarEvent.end is
-                        # exclusive, so add one day to include the end date.
-                        events.append(
-                            CalendarEvent(
-                                start=schedule_start,
-                                end=schedule_end + timedelta(days=1),
-                                summary=schedule["name"],
-                                uid=f"{schedule['uid']}_{year}",
-                                description="",
+                    for schedule_start, schedule_end in date_ranges:
+                        # Only include if it overlaps with requested range
+                        if schedule_start <= end_day and schedule_end >= start_day:
+                            # All-day events use date objects; CalendarEvent.end is
+                            # exclusive, so add one day to include the end date.
+                            events.append(
+                                CalendarEvent(
+                                    start=schedule_start,
+                                    end=schedule_end + timedelta(days=1),
+                                    summary=schedule["name"],
+                                    uid=f"{schedule['uid']}_{year}",
+                                    description="",
+                                )
                             )
-                        )
+            except Exception:  # noqa: BLE001 - one bad schedule must not hide the others
+                _LOGGER.warning(
+                    "Skipping schedule %r while listing calendar events",
+                    schedule.get("name", schedule.get("uid")),
+                    exc_info=True,
+                )
 
         return sorted(events, key=lambda x: x.start)
