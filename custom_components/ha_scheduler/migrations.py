@@ -11,6 +11,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Current version - increment when adding new migrations
 CURRENT_VERSION = 2
+CURRENT_MINOR_VERSION = 1
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -23,15 +24,15 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version,
         minor_version,
         CURRENT_VERSION,
-        1,
+        CURRENT_MINOR_VERSION,
     )
 
     # Migration from version 1 to 2 (helper to service transformation)
     if version == 1:
         if not await async_migrate_v1_to_v2(hass, entry):
             return False
-        version = 2
-        minor_version = 1
+        version = CURRENT_VERSION
+        minor_version = CURRENT_MINOR_VERSION
 
     # Update version numbers
     if version != entry.version or minor_version != entry.minor_version:
