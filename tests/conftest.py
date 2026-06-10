@@ -7,9 +7,26 @@ local helpers. Existing tests retain local helpers for backwards compatibility.
 from __future__ import annotations
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_scheduler.const import DOMAIN
+
+
+@pytest.fixture(autouse=True)
+async def unload_entries_after_test(hass):
+    """Unload all scheduler config entries after each test.
+
+    Home Assistant's calendar component schedules state-transition alarms via
+    async_track_point_in_time; they are only cancelled when the entities are
+    removed. Without an explicit unload these timers linger past the test and
+    trip the strict cleanup verification in pytest-homeassistant-custom-component.
+    """
+    yield
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.state is ConfigEntryState.LOADED:
+            await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
 
 
 @pytest.fixture

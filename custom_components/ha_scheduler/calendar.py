@@ -63,7 +63,8 @@ async def async_setup_entry(
 class SchedulerCalendar(CalendarEntity):
     """Representation of a Scheduler calendar."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
+    _removed = False
 
     def __init__(
         self, entry: ConfigEntry, service_id: str, service_data: dict[str, Any]
@@ -85,7 +86,11 @@ class SchedulerCalendar(CalendarEntity):
         else:
             self._attr_unique_id = f"{entry.entry_id}_{service_id}"
 
-        self._attr_name = service_name
+        # With has_entity_name, a None name means the entity takes the device
+        # name, preserving the historical "calendar.<scheduler title>" id for
+        # single-service setups. Distinctly named services compose with the
+        # device name ("<scheduler title> <service name>").
+        self._attr_name = None if service_name == entry.title else service_name
 
         # Set device info to group calendars under the scheduler service
         self._attr_device_info = DeviceInfo(
@@ -97,9 +102,14 @@ class SchedulerCalendar(CalendarEntity):
 
     async def async_added_to_hass(self) -> None:
         """Register update listener when entity is added to hass."""
-        self._entry.async_on_unload(
+        self.async_on_remove(
             self._entry.add_update_listener(self._async_update_listener)
         )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Flag removal so in-flight update listeners stop early."""
+        self._removed = True
+        await super().async_will_remove_from_hass()
 
     async def _async_update_listener(
         self, hass: HomeAssistant, entry: ConfigEntry
@@ -113,6 +123,11 @@ class SchedulerCalendar(CalendarEntity):
                 current_year + CALENDAR_YEAR_LOOKAROUND + 1,
             ),
         )
+        # The await above can outlive this entity: if the entity was removed
+        # meanwhile, writing state would re-arm the calendar component's
+        # event-transition timers with nothing left to cancel them.
+        if self._removed:
+            return
         self.async_write_ha_state()
 
     def _get_schedules(self) -> list[dict[str, Any]]:
