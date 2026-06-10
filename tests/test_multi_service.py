@@ -66,11 +66,15 @@ async def test_multi_service_creates_one_calendar_per_service(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    state_a = hass.states.get("calendar.service_a")
-    state_b = hass.states.get("calendar.service_b")
+    state_a = hass.states.get("calendar.multi_service_scheduler_service_a")
+    state_b = hass.states.get("calendar.multi_service_scheduler_service_b")
 
-    assert state_a is not None, "calendar.service_a entity not found"
-    assert state_b is not None, "calendar.service_b entity not found"
+    assert state_a is not None, (
+        "calendar.multi_service_scheduler_service_a entity not found"
+    )
+    assert state_b is not None, (
+        "calendar.multi_service_scheduler_service_b entity not found"
+    )
 
 
 async def test_multi_service_each_calendar_shows_own_schedules(
@@ -82,8 +86,12 @@ async def test_multi_service_each_calendar_shows_own_schedules(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    cal_a = hass.data["calendar"].get_entity("calendar.service_a")
-    cal_b = hass.data["calendar"].get_entity("calendar.service_b")
+    cal_a = hass.data["calendar"].get_entity(
+        "calendar.multi_service_scheduler_service_a"
+    )
+    cal_b = hass.data["calendar"].get_entity(
+        "calendar.multi_service_scheduler_service_b"
+    )
 
     assert cal_a is not None
     assert cal_b is not None
@@ -111,8 +119,12 @@ async def test_multi_service_default_has_entry_id_as_unique_id(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    cal_a = hass.data["calendar"].get_entity("calendar.service_a")
-    cal_b = hass.data["calendar"].get_entity("calendar.service_b")
+    cal_a = hass.data["calendar"].get_entity(
+        "calendar.multi_service_scheduler_service_a"
+    )
+    cal_b = hass.data["calendar"].get_entity(
+        "calendar.multi_service_scheduler_service_b"
+    )
 
     # Default service: unique_id == entry_id
     assert cal_a.unique_id == entry.entry_id
@@ -131,8 +143,12 @@ async def test_multi_service_default_configuration_is_per_service(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    cal_a = hass.data["calendar"].get_entity("calendar.service_a")
-    cal_b = hass.data["calendar"].get_entity("calendar.service_b")
+    cal_a = hass.data["calendar"].get_entity(
+        "calendar.multi_service_scheduler_service_a"
+    )
+    cal_b = hass.data["calendar"].get_entity(
+        "calendar.multi_service_scheduler_service_b"
+    )
 
     attrs_a = cal_a.extra_state_attributes
     attrs_b = cal_b.extra_state_attributes
