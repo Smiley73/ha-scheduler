@@ -60,7 +60,7 @@ class TestIntegrationScenarios:
         # Verify schedule preserved
         assert "schedules" in default_service
         assert len(default_service["schedules"]) == 1
-        migrated_schedule = list(default_service["schedules"].values())[0]
+        migrated_schedule = next(iter(default_service["schedules"].values()))
         assert migrated_schedule["name"] == "Old Schedule"
         assert migrated_schedule["start_month"] == 6
 

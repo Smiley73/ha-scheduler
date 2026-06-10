@@ -272,14 +272,12 @@ def _calculate_future_dates(
                 "overlaps": overlaps,
             }
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - diagnostics must never fail; error is recorded in output
             _LOGGER.warning(
                 "Failed to calculate schedule dates for year %s: %s", year, str(e)
             )
             warnings_list_err: list[str] = future_data["warnings"]
-            warnings_list_err.append(
-                f"Failed to compute dates for year {year}: {str(e)}"
-            )
+            warnings_list_err.append(f"Failed to compute dates for year {year}: {e!s}")
             years_dict_err: dict[str, Any] = future_data["years"]
             years_dict_err[year_key] = {
                 "error": str(e),
@@ -344,7 +342,7 @@ def _check_year_overlaps(
                         }
                     )
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - diagnostics must never fail; error is recorded in output
                 _LOGGER.warning(
                     "Failed to check overlap with schedule %s for year %s: %s",
                     other_id,
@@ -365,7 +363,7 @@ def _check_year_overlaps(
                 "conflict_count": 0,
             }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - diagnostics must never fail; error is recorded in output
         _LOGGER.warning("Failed to check overlaps for year %s: %s", year, str(e))
         return {
             "status": "error",

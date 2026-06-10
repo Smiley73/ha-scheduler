@@ -240,7 +240,7 @@ class TestHolidayImportDefaults:
             schedules = updated_entry.options["services"]["default"]["schedules"]
 
             assert len(schedules) == 1
-            schedule = list(schedules.values())[0]
+            schedule = next(iter(schedules.values()))
             assert schedule["name"] == "Independence Day"  # No "(US)" suffix
             assert schedule["schedule_type"] == "holiday"
             assert schedule["country_code"] == "US"
@@ -314,7 +314,7 @@ class TestHolidayImportDefaults:
         schedules = updated_entry.options["services"]["default"]["schedules"]
 
         assert len(schedules) == 1
-        schedule = list(schedules.values())[0]
+        schedule = next(iter(schedules.values()))
         assert schedule["name"] == "Good Friday"
         assert schedule["schedule_type"] == "holiday"
         assert schedule["country_code"] == "DE"
@@ -387,7 +387,7 @@ class TestHolidayImportDefaults:
         schedules = updated_entry.options["services"]["default"]["schedules"]
 
         assert len(schedules) == 1
-        schedule = list(schedules.values())[0]
+        schedule = next(iter(schedules.values()))
         assert schedule["name"] == "Independence Day"
         assert schedule["schedule_type"] == "holiday"
         assert schedule["country_code"] == "US"
@@ -468,7 +468,7 @@ class TestHolidayImportOptions:
             schedules = updated_entry.options["services"]["default"]["schedules"]
 
             assert len(schedules) == 1
-            schedule = list(schedules.values())[0]
+            schedule = next(iter(schedules.values()))
             assert schedule["name"] == "Independence Day (US)"
 
     async def test_holiday_import_overwrite_existing(
@@ -1325,7 +1325,7 @@ class TestHolidayImportErrorHandling:
         schedules = updated_entry.options["services"]["default"]["schedules"]
         assert len(schedules) == 1
 
-        schedule = list(schedules.values())[0]
+        schedule = next(iter(schedules.values()))
         assert schedule["name"] == "Invalid Holiday"
         assert schedule["schedule_type"] == "holiday"
         assert schedule["country_code"] == "US"

@@ -95,7 +95,7 @@ async def test_options_flow_add_date_schedule(
     # Verify schedule was added
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["name"] == "Summer Schedule"
     assert schedule["schedule_type"] == "date"
     assert schedule["start_month"] == 6
@@ -139,7 +139,7 @@ async def test_options_flow_add_week_schedule(
 
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["name"] == "Week Schedule"
     assert schedule["schedule_type"] == "week"
 
@@ -218,7 +218,7 @@ async def test_options_flow_add_nth_day_schedule(
 
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["name"] == "Nth Day Schedule"
     assert schedule["schedule_type"] == "nth-day"
     assert schedule["start_offset"] == 2
@@ -298,7 +298,7 @@ async def test_options_flow_add_holiday_schedule(
 
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["name"] == "Good Friday"
     assert schedule["schedule_type"] == "holiday"
     assert schedule["country_code"] == "DE"
@@ -2136,7 +2136,7 @@ async def test_options_flow_add_date_schedule_with_configuration(
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     schedules = get_schedules_from_entry(entry)
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["configuration"] == {"color": "red", "brightness": 75}
 
 
@@ -2235,7 +2235,7 @@ async def test_options_flow_list_configuration_accepted(
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     schedules = get_schedules_from_entry(entry)
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["configuration"] == ["one", "two"]
 
 
@@ -2309,7 +2309,7 @@ async def test_options_flow_explicit_empty_dict_configuration_stored(
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     schedules = get_schedules_from_entry(entry)
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert "configuration" in schedule
     assert schedule["configuration"] == {}
 
@@ -2348,7 +2348,7 @@ async def test_options_flow_add_week_schedule_whole_week_no_types(
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     schedules = get_schedules_from_entry(entry)
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["start_week"] == 1
     assert schedule["end_week"] == 4
     assert "start_week_type" not in schedule

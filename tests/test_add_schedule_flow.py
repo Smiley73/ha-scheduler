@@ -84,7 +84,7 @@ async def test_complete_add_date_schedule_flow(hass: HomeAssistant) -> None:
     print(f"Number of schedules: {len(schedules)}")
 
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["name"] == "Test Schedule"
     assert schedule["schedule_type"] == "date"
     assert schedule["start_month"] == 6

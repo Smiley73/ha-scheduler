@@ -652,8 +652,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "start_day_of_week", default=str(defaults.get("start_day_of_week", ""))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value="", label="Whole week")]
-                    + _get_day_of_week_options(),
+                    options=[
+                        SelectOptionDict(value="", label="Whole week"),
+                        *_get_day_of_week_options(),
+                    ],
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
@@ -673,8 +675,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "end_day_of_week", default=str(defaults.get("end_day_of_week", ""))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value="", label="Whole week")]
-                    + _get_day_of_week_options(),
+                    options=[
+                        SelectOptionDict(value="", label="Whole week"),
+                        *_get_day_of_week_options(),
+                    ],
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
@@ -813,8 +817,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             from .holiday_importer import get_supported_countries
 
             countries = await get_supported_countries()
-        except Exception as err:
-            _LOGGER.error("Failed to load holiday countries: %s", err)
+        except Exception:
+            _LOGGER.exception("Failed to load holiday countries")
             return self.async_abort(reason="import_error")
 
         if not countries:
@@ -864,10 +868,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             from .holiday_importer import get_available_categories
 
             categories = await get_available_categories(str(country_code))
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to load holiday categories for %s: %s", country_code, err
-            )
+        except Exception:
+            _LOGGER.exception("Failed to load holiday categories for %s", country_code)
             return self.async_abort(reason="import_error")
 
         if not categories:
@@ -917,9 +919,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             holidays_data = await get_holidays_for_country(
                 str(country_code), [category]
             )
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to load holidays for %s/%s: %s", country_code, category, err
+        except Exception:
+            _LOGGER.exception(
+                "Failed to load holidays for %s/%s", country_code, category
             )
             errors["base"] = "import_error"
 
@@ -1283,8 +1285,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     }
                 ),
             )
-        except Exception as e:
-            _LOGGER.error("Failed to load countries: %s", e)
+        except Exception:
+            _LOGGER.exception("Failed to load countries")
             return self.async_abort(reason="import_error")
 
     async def async_step_import_holidays_categories(
@@ -1328,8 +1330,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ),
                 description_placeholders={"country": self._holiday_data["country"]},
             )
-        except Exception as e:
-            _LOGGER.error("Failed to load categories: %s", e)
+        except Exception:
+            _LOGGER.exception("Failed to load categories")
             return self.async_abort(reason="import_error")
 
     async def async_step_import_holidays_select(
@@ -1429,8 +1431,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 }
             )
 
-        except Exception as e:
-            _LOGGER.error("Failed to get holidays: %s", e)
+        except Exception:
+            _LOGGER.exception("Failed to get holidays")
             return vol.Schema(
                 {
                     vol.Optional("holidays", default=[]): SelectSelector(

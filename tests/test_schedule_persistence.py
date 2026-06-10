@@ -54,7 +54,7 @@ async def test_single_schedule_persists(
     # Verify schedule is in config entry
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert schedule["name"] == "Test Schedule"
     assert schedule["schedule_type"] == "date"
 
@@ -151,7 +151,7 @@ async def test_schedule_with_configuration_persists(
     # Verify configuration is saved
     schedules = get_schedules_from_entry(entry)
     assert len(schedules) == 1
-    schedule = list(schedules.values())[0]
+    schedule = next(iter(schedules.values()))
     assert "configuration" in schedule
     assert schedule["configuration"]["summary"] == "Custom Event"
     assert schedule["configuration"]["description"] == "Test Description"
