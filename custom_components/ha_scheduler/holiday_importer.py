@@ -134,6 +134,14 @@ def _holidays_available() -> bool:
     return HOLIDAYS_AVAILABLE
 
 
+def get_holidays_library_version() -> str | None:
+    """Return the installed holidays library version, if available."""
+    holidays_module = _get_holidays_module()
+    if holidays_module is None:
+        return None
+    return getattr(holidays_module, "__version__", None)
+
+
 def _clear_holiday_caches() -> None:
     """Clear cached holiday metadata for tests."""
     global HOLIDAYS_AVAILABLE
@@ -184,9 +192,19 @@ def _prime_holiday_cache_sync(
 ) -> None:
     """Warm the holiday lookup cache for a set of named holiday requests."""
     for country_code, category, holiday_name, lookup, year in requests:
-        _get_named_holiday_dates_sync(
-            country_code, category, holiday_name, lookup, year
-        )
+        try:
+            _get_named_holiday_dates_sync(
+                country_code, category, holiday_name, lookup, year
+            )
+        except Exception as err:  # noqa: BLE001 - cache priming must never fail the caller
+            _LOGGER.warning(
+                "Could not prime holiday cache for %s/%s %r in %s: %s",
+                country_code,
+                category or "public",
+                holiday_name,
+                year,
+                err,
+            )
 
 
 async def async_prime_holiday_cache(
@@ -213,12 +231,26 @@ def _get_country_holidays_sync(
     if holidays_module is None:
         return None
 
-    if category and category != "public":
-        return holidays_module.country_holidays(
-            country_code, categories=category, years=year
-        )
+    # The holidays library raises NotImplementedError for unknown countries and
+    # ValueError for unsupported categories; both can occur for stored schedules
+    # once a different library version is installed. One bad schedule must not
+    # propagate and take down calendar setup or event listing for the rest.
+    try:
+        if category and category != "public":
+            return holidays_module.country_holidays(
+                country_code, categories=category, years=year
+            )
 
-    return holidays_module.country_holidays(country_code, years=year)
+        return holidays_module.country_holidays(country_code, years=year)
+    except Exception as err:  # noqa: BLE001 - graceful fallback around third-party library quirks
+        _LOGGER.warning(
+            "Holiday provider rejected country %s (category %s) for %s: %s",
+            country_code,
+            category or "public",
+            year,
+            err,
+        )
+        return None
 
 
 @lru_cache(maxsize=4096)
@@ -291,6 +323,35 @@ def _get_named_holiday_dates_sync(
             except Exception as err:  # noqa: BLE001 - graceful fallback around third-party library quirks
                 _LOGGER.debug("Language lookup failed for %s: %s", holiday_name, err)
                 continue
+
+    if not named_dates:
+        if lookup != "icontains":
+            # The library may have renamed the holiday since the schedule was
+            # stored (e.g. "Thanksgiving" became "Thanksgiving Day" in v0.93).
+            # Retry with a contains-style match before giving up.
+            fallback_dates = _get_named_holiday_dates_sync(
+                country_code, category, holiday_name, "icontains", year
+            )
+            if fallback_dates:
+                _LOGGER.info(
+                    "Holiday %r for %s/%s in %s only matched with a contains "
+                    "lookup; the installed holidays library may have renamed it",
+                    holiday_name,
+                    country_code,
+                    category or "public",
+                    year,
+                )
+            return fallback_dates
+
+        _LOGGER.warning(
+            "Holiday %r could not be resolved for %s/%s in %s; the stored name "
+            "may no longer exist in the installed holidays library",
+            holiday_name,
+            country_code,
+            category or "public",
+            year,
+        )
+        return ()
 
     return tuple(sorted(set(named_dates)))
 
