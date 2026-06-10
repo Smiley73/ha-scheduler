@@ -2143,7 +2143,11 @@ async def test_options_flow_add_date_schedule_with_configuration(
 async def test_options_flow_invalid_yaml_non_dict(
     hass: HomeAssistant, create_service_entry
 ) -> None:
-    """Test non-dict YAML is rejected for schedule configuration."""
+    """Test scalar YAML is rejected for schedule configuration.
+
+    Lists and dicts are valid YAML structures and are accepted; only simple
+    scalar values must be rejected.
+    """
     entry = create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
@@ -2166,19 +2170,19 @@ async def test_options_flow_invalid_yaml_non_dict(
             "start_day": 1,
             "end_month": "12",
             "end_day": 31,
-            "configuration": "- one\n- two",
+            "configuration": "just a string",
         },
     )
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "invalid_yaml_with_details"
-    assert "YAML dictionary" in result["description_placeholders"]["details"]
+    assert "YAML structure" in result["description_placeholders"]["details"]
 
 
 async def test_default_configuration_invalid_yaml_non_dict(
     hass: HomeAssistant, create_service_entry
 ) -> None:
-    """Test non-dict YAML is rejected for default configuration."""
+    """Test scalar YAML is rejected for default configuration."""
     entry = create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
@@ -2191,12 +2195,123 @@ async def test_default_configuration_invalid_yaml_non_dict(
     )
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        {"configuration": "- one\n- two"},
+        {"configuration": "just a string"},
     )
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "invalid_yaml_with_details"
-    assert "YAML dictionary" in result["description_placeholders"]["details"]
+    assert "YAML structure" in result["description_placeholders"]["details"]
+
+
+async def test_options_flow_list_configuration_accepted(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """A list-structured YAML configuration is accepted and stored."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_type": "date"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "List Config Schedule",
+            "start_month": "1",
+            "start_day": 1,
+            "end_month": "12",
+            "end_day": 31,
+            "configuration": "- one\n- two",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    schedules = get_schedules_from_entry(entry)
+    schedule = list(schedules.values())[0]
+    assert schedule["configuration"] == ["one", "two"]
+
+
+async def test_options_flow_list_configuration_round_trips_in_edit_form(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """A stored list configuration is rendered back as YAML in the edit form."""
+    schedules = {
+        "test-id": {
+            "uid": "test-id",
+            "name": "List Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "configuration": ["one", "two"],
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(
+        entry.entry_id, context={"show_advanced_options": False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"next_step_id": "edit_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_id": "test-id"},
+    )
+    assert result["step_id"] == "configure_date"
+
+    schema = result["data_schema"].schema
+    config_key = next(key for key in schema if str(key) == "configuration")
+    # The list must be rendered as YAML, not as a Python repr.
+    assert config_key.default() == "- one\n- two"
+
+
+async def test_options_flow_explicit_empty_dict_configuration_stored(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """An explicit empty dict configuration is stored, not silently dropped."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "add_schedule"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"schedule_type": "date"},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Empty Config Schedule",
+            "start_month": "1",
+            "start_day": 1,
+            "end_month": "12",
+            "end_day": 31,
+            "configuration": "{}",
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    schedules = get_schedules_from_entry(entry)
+    schedule = list(schedules.values())[0]
+    assert "configuration" in schedule
+    assert schedule["configuration"] == {}
 
 
 async def test_options_flow_add_week_schedule_whole_week_no_types(

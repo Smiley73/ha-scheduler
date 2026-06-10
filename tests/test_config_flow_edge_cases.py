@@ -5,9 +5,51 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ha_scheduler.config_flow import _validate_yaml_config
 from custom_components.ha_scheduler.const import DOMAIN
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+def test_validate_yaml_config_accepts_dict() -> None:
+    """A YAML mapping is parsed and returned as a dict."""
+    assert _validate_yaml_config("color: red\nbrightness: 75") == {
+        "color": "red",
+        "brightness": 75,
+    }
+
+
+def test_validate_yaml_config_accepts_list() -> None:
+    """A YAML sequence is a valid structure and returned as a list."""
+    assert _validate_yaml_config("- one\n- two") == ["one", "two"]
+
+
+def test_validate_yaml_config_accepts_empty_dict() -> None:
+    """An explicit empty mapping is preserved (not collapsed to None)."""
+    assert _validate_yaml_config("{}") == {}
+
+
+def test_validate_yaml_config_accepts_empty_list() -> None:
+    """An explicit empty sequence is preserved (not collapsed to None)."""
+    assert _validate_yaml_config("[]") == []
+
+
+def test_validate_yaml_config_blank_returns_none() -> None:
+    """Blank/whitespace input returns None rather than raising."""
+    assert _validate_yaml_config("") is None
+    assert _validate_yaml_config("   \n  ") is None
+
+
+def test_validate_yaml_config_rejects_scalar() -> None:
+    """A bare scalar value is rejected with a structure error."""
+    with pytest.raises(ValueError, match="YAML structure"):
+        _validate_yaml_config("just a string")
+
+
+def test_validate_yaml_config_rejects_invalid_yaml() -> None:
+    """Malformed YAML is reported as invalid."""
+    with pytest.raises(ValueError, match="Invalid YAML:"):
+        _validate_yaml_config("invalid: yaml: [")
 
 
 async def test_config_flow_duplicate_name(hass: HomeAssistant) -> None:
