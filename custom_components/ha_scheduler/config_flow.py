@@ -75,19 +75,21 @@ def _get_schedule_type_display(schedule_type: str) -> str:
     return display_names.get(schedule_type, schedule_type)
 
 
-def _validate_yaml_config(yaml_str: str) -> dict | None:
+def _validate_yaml_config(yaml_str: str) -> dict | list | None:
     """Validate YAML configuration string.
 
-    Returns parsed dict if valid, raises ValueError if invalid.
+    Returns the parsed structure (dict or list) if valid, ``None`` for an
+    empty string, and raises ``ValueError`` if invalid.
     """
     if not yaml_str or not yaml_str.strip():
         return None
 
     try:
         parsed = yaml.safe_load(yaml_str)
-        if not isinstance(parsed, dict):
+        if not isinstance(parsed, (dict, list)):
             raise ValueError(
-                "Configuration must be a YAML dictionary, not a simple value"
+                "Configuration must be a YAML structure (dict or list), "
+                "not a simple value"
             )
         return parsed
     except yaml.YAMLError as err:
@@ -424,7 +426,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 if config_yaml:
                     config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict:
+                    if config_dict is not None:
                         data["configuration"] = config_dict
 
                 # Get current schedules and validate for conflicts
@@ -454,7 +456,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         defaults = user_input if user_input and errors else self._schedule_data
         # Convert configuration dict back to YAML string for display
         config_value = defaults.get("configuration", "")
-        if isinstance(config_value, dict):
+        if isinstance(config_value, (dict, list)):
             config_value = yaml.dump(
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
@@ -563,6 +565,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         and self.hass.config.country
                     ):
                         data["country_code"] = self.hass.config.country
+                    else:
+                        _LOGGER.debug(
+                            "No country configured in Home Assistant; week "
+                            "schedules default to Monday-first weeks"
+                        )
                 except AttributeError:
                     # Fallback - try to get from locale or default to None
                     pass
@@ -573,7 +580,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 if config_yaml:
                     config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict:
+                    if config_dict is not None:
                         data["configuration"] = config_dict
 
                 errors.update(self._validate_week_schedule(data))
@@ -607,7 +614,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         defaults = user_input if user_input and errors else self._schedule_data
         # Convert configuration dict back to YAML string for display
         config_value = defaults.get("configuration", "")
-        if isinstance(config_value, dict):
+        if isinstance(config_value, (dict, list)):
             config_value = yaml.dump(
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
@@ -710,7 +717,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 if config_yaml:
                     config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict:
+                    if config_dict is not None:
                         data["configuration"] = config_dict
 
                 # Get current schedules and validate for conflicts
@@ -739,7 +746,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         defaults = user_input if user_input and errors else self._schedule_data
         # Convert configuration dict back to YAML string for display
         config_value = defaults.get("configuration", "")
-        if isinstance(config_value, dict):
+        if isinstance(config_value, (dict, list)):
             config_value = yaml.dump(
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
@@ -942,7 +949,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 if config_yaml:
                     config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict:
+                    if config_dict is not None:
                         data["configuration"] = config_dict
 
                 schedules = self._get_service_schedules()
@@ -974,7 +981,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         defaults = user_input if user_input and errors else self._schedule_data
         config_value = defaults.get("configuration", "")
-        if isinstance(config_value, dict):
+        if isinstance(config_value, (dict, list)):
             config_value = yaml.dump(
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
@@ -1201,7 +1208,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 new_services[self._service_id] = {
                     **new_services[self._service_id],
-                    "configuration": config_dict or {},
+                    "configuration": config_dict if config_dict is not None else {},
                 }
 
                 updated_options = {**entry.options, "services": new_services}
