@@ -15,6 +15,10 @@ from .const import (
     DAY_NAMES_DISPLAY,
     MONTH_NAMES_DISPLAY,
     OCCURRENCE_NAMES_DISPLAY,
+    SCHEDULE_TYPE_DATE,
+    SCHEDULE_TYPE_HOLIDAY,
+    SCHEDULE_TYPE_NTH_DAY,
+    SCHEDULE_TYPE_WEEK,
 )
 
 # Babel imports moved inside functions to avoid blocking I/O during module import
@@ -147,7 +151,7 @@ def _build_holiday_cache_requests(
     requests: set[tuple[str, str | None, str, str, int]] = set()
 
     for schedule in schedules:
-        if schedule.get("schedule_type") != "holiday":
+        if schedule.get("schedule_type") != SCHEDULE_TYPE_HOLIDAY:
             continue
 
         try:
@@ -349,7 +353,7 @@ def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool
     if pattern is None:
         return False
 
-    return pattern.get("schedule_type") == "date" and str(
+    return pattern.get("schedule_type") == SCHEDULE_TYPE_DATE and str(
         pattern.get("description", "")
     ).startswith("Variable date")
 
@@ -359,7 +363,7 @@ def build_holiday_schedule_pattern(
 ) -> dict[str, Any]:
     """Build a holiday-backed pattern for import flows."""
     return {
-        "schedule_type": "holiday",
+        "schedule_type": SCHEDULE_TYPE_HOLIDAY,
         "country_code": country_code.upper(),
         "category": category,
         "holiday_name": holiday_name,
@@ -505,9 +509,16 @@ async def get_available_categories(country_code: str) -> dict[str, str]:
 
 
 def _get_holidays_for_country_sync(
-    country_code: str, categories: list[str] | None = None
+    country_code: str,
+    categories: list[str] | None = None,
+    today: date | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Get all holidays for a country with their patterns (sync version)."""
+    """Get all holidays for a country with their patterns (sync version).
+
+    ``today`` anchors the year window used for pattern analysis. Callers
+    inside Home Assistant should pass ``dt_util.now().date()`` so the
+    configured timezone is honored; defaults to the system date.
+    """
     if not _holidays_available():
         return {}
 
@@ -518,7 +529,7 @@ def _get_holidays_for_country_sync(
         all_holidays: dict[str, dict[str, Any]] = {}
 
         # Get holidays for multiple years to analyze patterns
-        today = date.today()
+        today = today or date.today()
         years = list(
             range(
                 today.year - CALENDAR_YEAR_LOOKAROUND,
@@ -590,7 +601,7 @@ def _get_holidays_for_country_sync(
                 if dates:
                     first_date = dates[0]
                     pattern = {
-                        "schedule_type": "date",
+                        "schedule_type": SCHEDULE_TYPE_DATE,
                         "start_month": first_date.month,
                         "start_day": first_date.day,
                         "end_month": first_date.month,
@@ -612,12 +623,18 @@ def _get_holidays_for_country_sync(
 
 
 async def get_holidays_for_country(
-    country_code: str, categories: list[str] | None = None
+    country_code: str,
+    categories: list[str] | None = None,
+    today: date | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Get all holidays for a country with their patterns."""
+    """Get all holidays for a country with their patterns.
+
+    ``today`` anchors the year window used for pattern analysis; see
+    ``_get_holidays_for_country_sync``.
+    """
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        None, _get_holidays_for_country_sync, country_code, categories
+        None, _get_holidays_for_country_sync, country_code, categories, today
     )
 
 
@@ -630,7 +647,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
     if len(dates) == 1:
         date_obj = dates[0]
         return {
-            "schedule_type": "date",
+            "schedule_type": SCHEDULE_TYPE_DATE,
             "start_month": date_obj.month,
             "start_day": date_obj.day,
             "end_month": date_obj.month,
@@ -645,7 +662,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
     if all(d.month == dates[0].month and d.day == dates[0].day for d in dates):
         # Fixed date pattern (e.g., July 4th, Christmas)
         return {
-            "schedule_type": "date",
+            "schedule_type": SCHEDULE_TYPE_DATE,
             "start_month": dates[0].month,
             "start_day": dates[0].day,
             "end_month": dates[0].month,
@@ -675,7 +692,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
                     return week_pattern
 
                 return {
-                    "schedule_type": "nth-day",
+                    "schedule_type": SCHEDULE_TYPE_NTH_DAY,
                     "month": month,
                     "occurrence": occurrence,
                     "day_of_week": day_of_week,
@@ -691,7 +708,7 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
 
         # If we can't determine a clear pattern, default to first occurrence as date
         return {
-            "schedule_type": "date",
+            "schedule_type": SCHEDULE_TYPE_DATE,
             "start_month": first_date.month,
             "start_day": first_date.day,
             "end_month": first_date.month,
@@ -763,7 +780,7 @@ def _analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None:
                     if consistent:
                         # Create week-based schedule with appropriate week types
                         schedule = {
-                            "schedule_type": "week",
+                            "schedule_type": SCHEDULE_TYPE_WEEK,
                             "start_month": first_date.month,
                             "start_week": start_occurrence,
                             "start_day_of_week": first_date.weekday(),

@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
-from .const import DAY_NAMES
+from .const import (
+    DAY_NAMES,
+    SCHEDULE_TYPE_DATE,
+    SCHEDULE_TYPE_HOLIDAY,
+    SCHEDULE_TYPE_NTH_DAY,
+    SCHEDULE_TYPE_WEEK,
+)
 from .holiday_importer import async_prime_holiday_cache
 from .schedule_generator import generate_schedule_dates
 
@@ -66,7 +72,7 @@ async def async_get_config_entry_diagnostics(
             }
         }
 
-    current_year = date.today().year
+    current_year = dt_util.now().date().year
     all_schedules = [
         schedule
         for service_data in services.values()
@@ -130,7 +136,7 @@ def _build_schedule_info(
     }
 
     # Add type-specific fields
-    if schedule_data.get("schedule_type") == "date":
+    if schedule_data.get("schedule_type") == SCHEDULE_TYPE_DATE:
         schedule_info.update(
             {
                 "start_month": schedule_data.get("start_month"),
@@ -139,7 +145,7 @@ def _build_schedule_info(
                 "end_day": schedule_data.get("end_day"),
             }
         )
-    elif schedule_data.get("schedule_type") == "week":
+    elif schedule_data.get("schedule_type") == SCHEDULE_TYPE_WEEK:
         start_day_of_week = schedule_data.get("start_day_of_week")
         end_day_of_week = schedule_data.get("end_day_of_week")
         start_week_type = schedule_data.get("start_week_type", "partial")
@@ -173,7 +179,7 @@ def _build_schedule_info(
                 "country_code": schedule_data.get("country_code"),
             }
         )
-    elif schedule_data.get("schedule_type") == "nth-day":
+    elif schedule_data.get("schedule_type") == SCHEDULE_TYPE_NTH_DAY:
         day_of_week = schedule_data.get("day_of_week")
         schedule_info.update(
             {
@@ -185,7 +191,7 @@ def _build_schedule_info(
                 "end_offset": schedule_data.get("end_offset"),
             }
         )
-    elif schedule_data.get("schedule_type") == "holiday":
+    elif schedule_data.get("schedule_type") == SCHEDULE_TYPE_HOLIDAY:
         schedule_info.update(
             {
                 "country_code": schedule_data.get("country_code"),
@@ -231,7 +237,7 @@ def _calculate_future_dates(
     Returns:
         Dictionary with yearly data, overlap information, and any computation warnings.
     """
-    current_year = date.today().year
+    current_year = dt_util.now().date().year
     future_data: dict[str, Any] = {"years": {}, "warnings": []}
 
     for year in range(current_year, current_year + 3):

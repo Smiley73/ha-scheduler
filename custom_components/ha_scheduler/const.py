@@ -2,6 +2,12 @@
 
 DOMAIN = "ha_scheduler"
 
+# Schedule type identifiers (stored values in config entry options)
+SCHEDULE_TYPE_DATE = "date"
+SCHEDULE_TYPE_WEEK = "week"
+SCHEDULE_TYPE_NTH_DAY = "nth-day"
+SCHEDULE_TYPE_HOLIDAY = "holiday"
+
 # How many years before/after today to include when generating calendar events
 CALENDAR_YEAR_LOOKAROUND = 3
 

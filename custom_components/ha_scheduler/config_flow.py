@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import date
 from typing import Any
 
 import voluptuous as vol
@@ -22,8 +21,17 @@ from homeassistant.helpers.selector import (
     SelectSelectorMode,
     TemplateSelector,
 )
+from homeassistant.util import dt as dt_util
 
-from .const import DAY_NAMES, DOMAIN, MONTH_NAMES
+from .const import (
+    DAY_NAMES,
+    DOMAIN,
+    MONTH_NAMES,
+    SCHEDULE_TYPE_DATE,
+    SCHEDULE_TYPE_HOLIDAY,
+    SCHEDULE_TYPE_NTH_DAY,
+    SCHEDULE_TYPE_WEEK,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,20 +65,20 @@ def _get_occurrence_options() -> list[SelectOptionDict]:
 def _get_schedule_type_options() -> list[SelectOptionDict]:
     """Get options for schedule type selection."""
     return [
-        SelectOptionDict(value="date", label="By Date"),
-        SelectOptionDict(value="week", label="By Week of Month"),
-        SelectOptionDict(value="nth-day", label="By Nth Day of Month"),
-        SelectOptionDict(value="holiday", label="By Holiday"),
+        SelectOptionDict(value=SCHEDULE_TYPE_DATE, label="By Date"),
+        SelectOptionDict(value=SCHEDULE_TYPE_WEEK, label="By Week of Month"),
+        SelectOptionDict(value=SCHEDULE_TYPE_NTH_DAY, label="By Nth Day of Month"),
+        SelectOptionDict(value=SCHEDULE_TYPE_HOLIDAY, label="By Holiday"),
     ]
 
 
 def _get_schedule_type_display(schedule_type: str) -> str:
     """Return a display label for a schedule type."""
     display_names = {
-        "date": "By Date",
-        "week": "By Week of Month",
-        "nth-day": "By Nth Day of Month",
-        "holiday": "By Holiday",
+        SCHEDULE_TYPE_DATE: "By Date",
+        SCHEDULE_TYPE_WEEK: "By Week of Month",
+        SCHEDULE_TYPE_NTH_DAY: "By Nth Day of Month",
+        SCHEDULE_TYPE_HOLIDAY: "By Holiday",
     }
     return display_names.get(schedule_type, schedule_type)
 
@@ -303,7 +311,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
         self._overlap_conflicting_name = None
 
-        current_year = date.today().year
+        current_year = dt_util.now().date().year
         await async_prime_holiday_cache(
             [data, *schedules.values()],
             range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
@@ -328,6 +336,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 exclude_uid=self._schedule_id
                 if self._schedule_id in schedules
                 else None,
+                today=dt_util.now().date(),
             )
 
             if has_overlap:
@@ -344,7 +353,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def _validate_week_schedule(self, data: dict[str, Any]) -> dict[str, str]:
         """Validate that a week schedule produces a valid recurring range."""
-        if data.get("schedule_type") != "week":
+        if data.get("schedule_type") != SCHEDULE_TYPE_WEEK:
             return {}
 
         from .schedule_generator import week_schedule_has_valid_ranges
@@ -377,11 +386,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self._schedule_data = {"schedule_type": user_input["schedule_type"]}
             self._schedule_id = str(uuid.uuid4())
 
-            if user_input["schedule_type"] == "date":
+            if user_input["schedule_type"] == SCHEDULE_TYPE_DATE:
                 return await self.async_step_configure_date()
-            if user_input["schedule_type"] == "week":
+            if user_input["schedule_type"] == SCHEDULE_TYPE_WEEK:
                 return await self.async_step_configure_week()
-            if user_input["schedule_type"] == "holiday":
+            if user_input["schedule_type"] == SCHEDULE_TYPE_HOLIDAY:
                 return await self.async_step_configure_holiday_country()
             return await self.async_step_configure_nth_day()
 
@@ -389,7 +398,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="add_schedule",
             data_schema=vol.Schema(
                 {
-                    vol.Required("schedule_type", default="date"): SelectSelector(
+                    vol.Required(
+                        "schedule_type", default=SCHEDULE_TYPE_DATE
+                    ): SelectSelector(
                         SelectSelectorConfig(
                             options=_get_schedule_type_options(),
                             mode=SelectSelectorMode.DROPDOWN,
@@ -411,7 +422,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 # Convert string values to integers
                 data = {
                     "name": user_input["name"],
-                    "schedule_type": "date",
+                    "schedule_type": SCHEDULE_TYPE_DATE,
                     "start_month": int(user_input["start_month"]),
                     "start_day": int(user_input["start_day"]),
                     "end_month": int(user_input["end_month"]),
@@ -531,7 +542,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 data = {
                     "name": user_input["name"],
-                    "schedule_type": "week",
+                    "schedule_type": SCHEDULE_TYPE_WEEK,
                     "start_month": int(user_input["start_month"]),
                     "start_week": start_week,
                     "end_month": int(user_input["end_month"]),
@@ -702,7 +713,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             try:
                 data = {
                     "name": user_input["name"],
-                    "schedule_type": "nth-day",
+                    "schedule_type": SCHEDULE_TYPE_NTH_DAY,
                     "month": int(user_input["month"]),
                     "occurrence": int(user_input["occurrence"]),
                     "day_of_week": int(user_input["day_of_week"]),
@@ -915,7 +926,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             from .holiday_importer import get_holidays_for_country
 
             holidays_data = await get_holidays_for_country(
-                str(country_code), [category]
+                str(country_code), [category], today=dt_util.now().date()
             )
         except Exception as err:
             _LOGGER.error(
@@ -933,7 +944,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 data = {
                     "name": user_input["name"],
-                    "schedule_type": "holiday",
+                    "schedule_type": SCHEDULE_TYPE_HOLIDAY,
                     "country_code": str(country_code),
                     "category": str(category),
                     "holiday_name": holiday_name,
@@ -1050,11 +1061,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     sort_keys=False,
                 ).strip()
 
-            if schedule["schedule_type"] == "date":
+            if schedule["schedule_type"] == SCHEDULE_TYPE_DATE:
                 return await self.async_step_configure_date()
-            if schedule["schedule_type"] == "week":
+            if schedule["schedule_type"] == SCHEDULE_TYPE_WEEK:
                 return await self.async_step_configure_week()
-            if schedule["schedule_type"] == "holiday":
+            if schedule["schedule_type"] == SCHEDULE_TYPE_HOLIDAY:
                 return await self.async_step_configure_holiday_country()
             return await self.async_step_configure_nth_day()
 
@@ -1390,7 +1401,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     }
                 )
 
-            holidays_data = await get_holidays_for_country(country, categories)
+            holidays_data = await get_holidays_for_country(
+                country, categories, today=dt_util.now().date()
+            )
 
             _LOGGER.debug(
                 "Got %d holidays for country %s, categories %s",
@@ -1462,7 +1475,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             if not country:
                 return self.async_abort(reason="import_error")
 
-            all_holidays = await get_holidays_for_country(country, categories)
+            all_holidays = await get_holidays_for_country(
+                country, categories, today=dt_util.now().date()
+            )
 
             # Get current schedules
             schedules = self._get_service_schedules()
@@ -1540,7 +1555,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         continue
 
                 existing_schedules_list = get_schedules_with_uids()
-                current_year = date.today().year
+                current_year = dt_util.now().date().year
                 await async_prime_holiday_cache(
                     [schedule, *existing_schedules_list],
                     range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
@@ -1549,6 +1564,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     schedule,
                     existing_schedules_list,
                     exclude_uid=excluded_uid,
+                    today=dt_util.now().date(),
                 )
 
                 if has_overlap and skip_on_overlap:

@@ -8,6 +8,13 @@ from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any
 
+from .const import (
+    SCHEDULE_TYPE_DATE,
+    SCHEDULE_TYPE_HOLIDAY,
+    SCHEDULE_TYPE_NTH_DAY,
+    SCHEDULE_TYPE_WEEK,
+)
+
 # Babel imports moved inside functions to avoid blocking I/O during module import
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,15 +145,15 @@ def generate_schedule_dates(
 
     This function recalculates the actual dates for the specified year.
     """
-    schedule_type = schedule.get("schedule_type", "date")
+    schedule_type = schedule.get("schedule_type", SCHEDULE_TYPE_DATE)
 
-    if schedule_type == "date":
+    if schedule_type == SCHEDULE_TYPE_DATE:
         return _generate_by_date(schedule, year)
-    if schedule_type == "week":
+    if schedule_type == SCHEDULE_TYPE_WEEK:
         return _generate_by_week(schedule, year)
-    if schedule_type == "nth-day":
+    if schedule_type == SCHEDULE_TYPE_NTH_DAY:
         return _generate_by_nth_day(schedule, year)
-    if schedule_type == "holiday":
+    if schedule_type == SCHEDULE_TYPE_HOLIDAY:
         return _generate_by_holiday(schedule, year)
 
     return []
@@ -438,7 +445,7 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
 def week_schedule_has_valid_ranges(schedule: dict[str, Any]) -> bool:
     """Return whether a week schedule generates a valid range every year."""
-    if schedule.get("schedule_type") != "week":
+    if schedule.get("schedule_type") != SCHEDULE_TYPE_WEEK:
         return False
 
     return _week_schedule_has_valid_ranges(_get_overlap_signature(schedule))
@@ -750,12 +757,21 @@ def check_overlap(
     schedule: dict[str, Any],
     existing_schedules: list[dict[str, Any]],
     exclude_uid: str | None = None,
+    today: date | None = None,
 ) -> tuple[bool, str | None]:
     """Check if a schedule overlaps with existing schedules.
 
     Gregorian schedules are validated across a full 400-year cycle to keep
     overlap checks deterministic. Holiday-backed schedules use a bounded,
     provider-backed horizon because their dates come from the holidays library.
+
+    Args:
+        schedule: Schedule to validate.
+        existing_schedules: Schedules to validate against.
+        exclude_uid: Schedule uid to skip (when editing an existing schedule).
+        today: Reference date for the holiday-overlap horizon. Callers inside
+            Home Assistant should pass ``dt_util.now().date()`` so the
+            configured timezone is honored; defaults to the system date.
 
     Returns:
         Tuple of (has_overlap, conflicting_schedule_name)
@@ -787,7 +803,7 @@ def check_overlap(
             if not existing_dates:
                 continue
         else:
-            overlap_years = _get_overlap_years(schedule, existing)
+            overlap_years = _get_overlap_years(schedule, existing, today)
             new_dates = tuple(_generate_dates_for_years(schedule, overlap_years))
             if not new_dates:
                 continue
@@ -809,7 +825,7 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
     """Return the date-relevant schedule fields as a stable cache key."""
     schedule_type = schedule.get("schedule_type")
 
-    if schedule_type == "date":
+    if schedule_type == SCHEDULE_TYPE_DATE:
         return (
             "date",
             schedule.get("start_month"),
@@ -818,7 +834,7 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
             schedule.get("end_day"),
         )
 
-    if schedule_type == "week":
+    if schedule_type == SCHEDULE_TYPE_WEEK:
         country_code = schedule.get("country_code")
         normalized_country = (
             country_code.upper() if isinstance(country_code, str) else None
@@ -836,7 +852,7 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
             normalized_country,
         )
 
-    if schedule_type == "nth-day":
+    if schedule_type == SCHEDULE_TYPE_NTH_DAY:
         return (
             "nth-day",
             schedule.get("month"),
@@ -846,7 +862,7 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
             schedule.get("end_offset", 0),
         )
 
-    if schedule_type == "holiday":
+    if schedule_type == SCHEDULE_TYPE_HOLIDAY:
         country_code = schedule.get("country_code")
         normalized_country = (
             country_code.upper() if isinstance(country_code, str) else None
@@ -873,17 +889,17 @@ def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | No
 
     schedule_type = signature[0]
 
-    if schedule_type == "date":
+    if schedule_type == SCHEDULE_TYPE_DATE:
         _, start_month, start_day, end_month, end_day = signature
         return {
-            "schedule_type": "date",
+            "schedule_type": SCHEDULE_TYPE_DATE,
             "start_month": start_month,
             "start_day": start_day,
             "end_month": end_month,
             "end_day": end_day,
         }
 
-    if schedule_type == "week":
+    if schedule_type == SCHEDULE_TYPE_WEEK:
         (
             _,
             start_month,
@@ -897,7 +913,7 @@ def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | No
             country_code,
         ) = signature
         schedule = {
-            "schedule_type": "week",
+            "schedule_type": SCHEDULE_TYPE_WEEK,
             "start_month": start_month,
             "start_week": start_week,
             "end_month": end_month,
@@ -913,10 +929,10 @@ def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | No
             schedule["country_code"] = country_code
         return schedule
 
-    if schedule_type == "nth-day":
+    if schedule_type == SCHEDULE_TYPE_NTH_DAY:
         _, month, occurrence, day_of_week, start_offset, end_offset = signature
         return {
-            "schedule_type": "nth-day",
+            "schedule_type": SCHEDULE_TYPE_NTH_DAY,
             "month": month,
             "occurrence": occurrence,
             "day_of_week": day_of_week,
@@ -924,7 +940,7 @@ def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | No
             "end_offset": end_offset,
         }
 
-    if schedule_type == "holiday":
+    if schedule_type == SCHEDULE_TYPE_HOLIDAY:
         (
             _,
             country_code,
@@ -935,7 +951,7 @@ def _schedule_from_signature(signature: OverlapSignature) -> dict[str, Any] | No
             end_offset,
         ) = signature
         schedule = {
-            "schedule_type": "holiday",
+            "schedule_type": SCHEDULE_TYPE_HOLIDAY,
             "country_code": country_code,
             "holiday_name": holiday_name,
             "name_lookup": lookup,
@@ -997,14 +1013,16 @@ def _uses_deterministic_overlap_cycle(signature: OverlapSignature) -> bool:
 
 
 def _get_overlap_years(
-    schedule: dict[str, Any], existing_schedule: dict[str, Any]
+    schedule: dict[str, Any],
+    existing_schedule: dict[str, Any],
+    today: date | None = None,
 ) -> range:
     """Return the bounded year range used for holiday-backed overlap checks."""
-    current_year = date.today().year
+    current_year = (today or date.today()).year
 
     if (
-        schedule.get("schedule_type") == "holiday"
-        or existing_schedule.get("schedule_type") == "holiday"
+        schedule.get("schedule_type") == SCHEDULE_TYPE_HOLIDAY
+        or existing_schedule.get("schedule_type") == SCHEDULE_TYPE_HOLIDAY
     ):
         return range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1)
 
