@@ -1,15 +1,25 @@
 [lint]
 select = [
-    "E",  # pycodestyle
-    "F",  # pyflakes
-    "I",  # isort
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "S",   # flake8-bandit (security)
+    "B",   # flake8-bugbear
+    "BLE", # flake8-blind-except
+    "UP",  # pyupgrade
+    "RUF", # ruff-specific rules
 ]
 ignore = [
     "E501",  # Line too long - will address in future refactoring
 ]
 
 [lint.per-file-ignores]
-"tests/*" = ["E501"]
+"tests/*" = [
+    "E501",
+    "S101",   # asserts are expected in tests
+    "S110",   # try-except-pass is a legitimate pattern when probing behavior
+    "BLE001", # broad catches are fine when tests probe failure behavior
+]
 
 [format]
 indent-style = "space"

@@ -190,7 +190,7 @@ def test_check_overlap_edge_cases() -> None:
     }
 
     # Overlapping schedules
-    has_overlap, conflicting_name = check_overlap(schedule1, [schedule2])
+    has_overlap, _conflicting_name = check_overlap(schedule1, [schedule2])
     assert has_overlap is True
 
     # Non-overlapping schedules
@@ -203,7 +203,7 @@ def test_check_overlap_edge_cases() -> None:
         "uid": "schedule3",
     }
 
-    has_overlap, conflicting_name = check_overlap(schedule1, [schedule3])
+    has_overlap, _conflicting_name = check_overlap(schedule1, [schedule3])
     assert has_overlap is False
 
 

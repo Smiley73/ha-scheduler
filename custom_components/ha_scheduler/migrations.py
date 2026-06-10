@@ -92,6 +92,6 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
 
         return True
 
-    except Exception as err:
-        _LOGGER.error("Failed to migrate config entry: %s", err)
+    except Exception:
+        _LOGGER.exception("Failed to migrate config entry")
         return False

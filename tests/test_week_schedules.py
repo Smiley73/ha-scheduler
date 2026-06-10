@@ -587,12 +587,12 @@ def test_partial_week_boundary_calculations():
         assert len(dates) == 1
 
         start_date, end_date = dates[0]
-        assert (
-            start_date == exp_start
-        ), f"Year {year}, month {month}, first_weekday {first_weekday}"
-        assert (
-            end_date == exp_end
-        ), f"Year {year}, month {month}, first_weekday {first_weekday}"
+        assert start_date == exp_start, (
+            f"Year {year}, month {month}, first_weekday {first_weekday}"
+        )
+        assert end_date == exp_end, (
+            f"Year {year}, month {month}, first_weekday {first_weekday}"
+        )
 
 
 def test_cross_month_week_schedules():

@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+from collections.abc import Iterable
 from datetime import date, timedelta
 from functools import lru_cache
 from types import ModuleType
-from typing import Any, Iterable
+from typing import Any
 
 from .const import (
     CALENDAR_YEAR_LOOKAROUND,
@@ -45,7 +46,8 @@ def format_date_localized(date_obj: date, locale_code: str | None = None) -> str
         _LOGGER.debug("Babel not available for date formatting: %s", e)
         # Fallback to Python's strftime
         return date_obj.strftime("%B %d")
-    except Exception as e:  # Catch UnknownLocaleError, ValueError, etc.
+    except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
+        # Catches UnknownLocaleError, ValueError, etc.
         _LOGGER.debug("Could not format date with locale %s: %s", locale_code, e)
         # Fallback to Python's strftime
         return date_obj.strftime("%B %d")
@@ -79,7 +81,8 @@ def get_localized_country_name(
     except ImportError as e:
         _LOGGER.debug("Babel not available for country names: %s", e)
         return fallback_name or country_code.replace("_", " ").title()
-    except Exception as e:  # Catch UnknownLocaleError, ValueError, AttributeError, etc.
+    except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
+        # Catches UnknownLocaleError, ValueError, AttributeError, etc.
         _LOGGER.debug(
             "Could not get localized name for country %s: %s", country_code, e
         )
@@ -91,8 +94,9 @@ def get_localized_country_name(
         en_locale = Locale("en")
         if country_code.upper() in en_locale.territories:
             return en_locale.territories[country_code.upper()]
-    except Exception:  # Any error including ImportError
-        pass
+    except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
+        # Any error including ImportError
+        _LOGGER.debug("Could not look up territory name: %s", e)
 
     # Fallback to provided name or formatted country code
     return fallback_name or country_code.replace("_", " ").title()
@@ -235,7 +239,7 @@ def _get_named_holiday_dates_sync(
                 for holiday_date, current_name in country_holidays.items()
                 if str(current_name).casefold() == holiday_name.casefold()
             ]
-    except Exception as err:
+    except Exception as err:  # noqa: BLE001 - graceful fallback around third-party library quirks
         _LOGGER.debug(
             "Could not resolve holiday %s for %s/%s in %s: %s",
             holiday_name,
@@ -280,7 +284,8 @@ def _get_named_holiday_dates_sync(
                 if lang_dates:
                     named_dates = lang_dates
                     break
-            except Exception:
+            except Exception as err:  # noqa: BLE001 - graceful fallback around third-party library quirks
+                _LOGGER.debug("Language lookup failed for %s: %s", holiday_name, err)
                 continue
 
     return tuple(sorted(set(named_dates)))
@@ -409,14 +414,14 @@ def _get_supported_countries_sync() -> dict[str, str]:
                 country_name = get_localized_country_name(country_code, holidays_name)
                 country_dict[country_code] = country_name
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
                 _LOGGER.debug("Could not get info for country %s: %s", country_code, e)
                 continue
 
         return dict(sorted(country_dict.items(), key=lambda x: x[1]))
 
-    except Exception as e:
-        _LOGGER.error("Failed to get supported countries: %s", e)
+    except Exception:
+        _LOGGER.exception("Failed to get supported countries")
         # Fallback to basic list if dynamic discovery fails
         return {
             "US": "United States",
@@ -476,7 +481,7 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
                     if len(test_holidays) > 0:
                         category_name = category.replace("_", " ").title()
                         available_categories[category] = category_name
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
                     _LOGGER.debug(
                         "Category %s not supported for %s: %s",
                         category,
@@ -491,8 +496,8 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
 
         return available_categories
 
-    except Exception as e:
-        _LOGGER.error("Failed to get categories for %s: %s", country_code, e)
+    except Exception:
+        _LOGGER.exception("Failed to get categories for %s", country_code)
         return {"public": "Public Holidays"}
 
 
@@ -551,7 +556,7 @@ def _get_holidays_for_country_sync(
                                 }
                             all_holidays[holiday_name]["dates"].append(holiday_date)
 
-                    except Exception as e:
+                    except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
                         _LOGGER.debug(
                             "Could not get %s holidays for %s in %s: %s",
                             category,
@@ -561,7 +566,7 @@ def _get_holidays_for_country_sync(
                         )
                         continue
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
                 _LOGGER.debug(
                     "Category %s not supported for %s: %s", category, country_code, e
                 )
@@ -606,8 +611,8 @@ def _get_holidays_for_country_sync(
 
         return all_holidays
 
-    except Exception as e:
-        _LOGGER.error("Failed to get holidays for %s: %s", country_code, e)
+    except Exception:
+        _LOGGER.exception("Failed to get holidays for %s", country_code)
         return {}
 
 
@@ -824,5 +829,5 @@ def calculate_occurrence(target_date: date) -> int | None:
 
         return occurrence
 
-    except Exception:
+    except Exception:  # noqa: BLE001 - graceful fallback around third-party library quirks
         return None

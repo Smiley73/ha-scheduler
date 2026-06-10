@@ -31,7 +31,7 @@ def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
     original_module = sys.modules[module_name]
     original_import = builtins.__import__
 
-    def guard_holidays_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: A002
+    def guard_holidays_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name == "holidays":
             raise AssertionError("holidays imported during module load")
         return original_import(name, globals, locals, fromlist, level)

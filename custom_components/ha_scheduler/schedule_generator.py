@@ -106,7 +106,7 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
         _LOGGER.debug("Babel not available for weekday detection: %s", e)
         return _get_fallback_weekday(country_code, country_upper)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - see comment below
         # Catch Babel's UnknownLocaleError (direct Exception subclass), ValueError,
         # AttributeError, TypeError, and any other locale-related errors
         # Note: We use broad Exception here because babel.core.UnknownLocaleError
@@ -119,7 +119,7 @@ def get_country_first_weekday(country_code: str | None = None) -> int:
             locale = Locale.parse(country_code.lower())
             first_day = locale.first_week_day
             return first_day
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 - last-resort fallback below
             # Any locale-related error in fallback - use mapping or default
             pass
 
