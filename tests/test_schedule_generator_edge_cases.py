@@ -286,3 +286,87 @@ def test_schedule_generator_robustness() -> None:
     except (TypeError, ValueError):
         # Expected if no type conversion is done
         pass
+
+
+def test_date_schedule_across_spring_dst_boundary() -> None:
+    """Schedule date math is calendar-based and unaffected by spring DST."""
+    # US DST 2026: clocks spring forward on March 8.
+    schedule = {
+        "schedule_type": "date",
+        "start_month": 3,
+        "start_day": 7,
+        "end_month": 3,
+        "end_day": 9,
+        "uid": "dst-spring",
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert dates == [(date(2026, 3, 7), date(2026, 3, 9))]
+
+
+def test_date_schedule_across_fall_dst_boundary() -> None:
+    """Schedule date math is calendar-based and unaffected by fall DST."""
+    # US DST 2026: clocks fall back on November 1.
+    schedule = {
+        "schedule_type": "date",
+        "start_month": 10,
+        "start_day": 31,
+        "end_month": 11,
+        "end_day": 2,
+        "uid": "dst-fall",
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert dates == [(date(2026, 10, 31), date(2026, 11, 2))]
+
+
+def test_week_schedule_across_dst_boundary() -> None:
+    """Week-of-month schedules spanning a DST transition keep whole days."""
+    # Second week of March 2026 contains the March 8 spring-forward.
+    schedule = {
+        "schedule_type": "week",
+        "start_month": 3,
+        "start_week": 1,  # second week
+        "end_month": 3,
+        "end_week": 1,
+        "uid": "dst-week",
+    }
+
+    dates = generate_schedule_dates(schedule, 2026)
+    assert len(dates) == 1
+    start, end = dates[0]
+    # The range must cover March 8 fully and span whole days.
+    assert start <= date(2026, 3, 8) <= end
+    assert (end - start).days == 6
+
+
+def test_check_overlap_accepts_today_reference_date() -> None:
+    """check_overlap accepts an explicit reference date for its horizon."""
+    schedule1 = {
+        "schedule_type": "date",
+        "start_month": 6,
+        "start_day": 1,
+        "end_month": 6,
+        "end_day": 30,
+        "name": "June",
+        "uid": "june",
+    }
+    schedule2 = {
+        "schedule_type": "date",
+        "start_month": 6,
+        "start_day": 15,
+        "end_month": 7,
+        "end_day": 15,
+        "name": "Summer",
+        "uid": "summer",
+    }
+
+    has_overlap, conflicting = check_overlap(
+        schedule1, [schedule2], today=date(2026, 1, 1)
+    )
+    assert has_overlap is True
+    assert conflicting == "Summer"
+
+    has_overlap, conflicting = check_overlap(schedule1, [], today=date(2026, 1, 1))
+    assert has_overlap is False
+    assert conflicting is None

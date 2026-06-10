@@ -158,6 +158,8 @@ class SchedulerCalendar(CalendarEntity):
                 date_ranges = generate_schedule_dates(schedule, year)
 
                 for schedule_start, schedule_end in date_ranges:
+                    # All-day events use date objects; CalendarEvent.end is
+                    # exclusive, so add one day to include the end date.
                     event = CalendarEvent(
                         start=schedule_start,
                         end=schedule_end + timedelta(days=1),
@@ -237,6 +239,8 @@ class SchedulerCalendar(CalendarEntity):
                 for schedule_start, schedule_end in date_ranges:
                     # Only include if it overlaps with requested range
                     if schedule_start <= end_day and schedule_end >= start_day:
+                        # All-day events use date objects; CalendarEvent.end is
+                        # exclusive, so add one day to include the end date.
                         events.append(
                             CalendarEvent(
                                 start=schedule_start,
