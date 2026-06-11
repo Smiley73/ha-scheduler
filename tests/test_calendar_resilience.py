@@ -6,6 +6,7 @@ in stored options when the installed holidays version changes underneath an
 existing config entry. The calendar must keep serving the remaining schedules.
 """
 
+import re
 from datetime import date, datetime
 
 import pytest
@@ -149,6 +150,44 @@ async def test_renamed_holiday_falls_back_to_contains_lookup(
     assert events[0].summary == "Thanksgiving"
     # Thanksgiving Day 2026 is November 26
     assert events[0].start == date(2026, 11, 26)
+
+
+def test_no_unintended_base_class_overrides() -> None:
+    """Members defined on SchedulerCalendar must not shadow CalendarEntity.
+
+    HA 2026.6 added CalendarEntity._async_update_listener, which the calendar
+    dashboard's event subscription invokes. Our options-update listener used
+    to share that name with an incompatible signature, so every dashboard
+    subscription raised TypeError and the dashboard showed no events. Guard
+    against any future accidental shadowing of base-class members.
+    """
+    from homeassistant.components.calendar import CalendarEntity
+
+    from custom_components.ha_scheduler.calendar import SchedulerCalendar
+
+    intentional_overrides = {
+        "_attr_has_entity_name",
+        "async_added_to_hass",
+        "async_will_remove_from_hass",
+        "extra_state_attributes",
+        "event",
+        "async_get_events",
+    }
+
+    shadowed = {
+        name
+        for name in SchedulerCalendar.__dict__
+        if not name.startswith("__")
+        and not name.startswith("_abc_")
+        and not re.match(r"_[A-Z]", name)  # name-mangled (_ClassName__attr)
+        and hasattr(CalendarEntity, name)
+        and name not in intentional_overrides
+    }
+
+    assert not shadowed, (
+        f"SchedulerCalendar unintentionally overrides CalendarEntity members: "
+        f"{sorted(shadowed)}"
+    )
 
 
 async def test_legacy_options_layout_still_lists_events(

@@ -498,7 +498,7 @@ async def test_calendar_update_listener(hass: HomeAssistant) -> None:
     calendar.async_write_ha_state = Mock()
 
     # Trigger update listener
-    await calendar._async_update_listener(hass, entry)
+    await calendar._async_options_updated(hass, entry)
 
     # Verify state update was called
     calendar.async_write_ha_state.assert_called_once()
