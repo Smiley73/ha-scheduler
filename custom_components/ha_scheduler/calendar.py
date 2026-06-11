@@ -15,11 +15,22 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN
 from .holiday_importer import async_prime_holiday_cache
-from .schedule_generator import generate_schedule_dates
+from .schedule_generator import generate_schedule_dates, get_country_first_weekday
 
 PARALLEL_UPDATES = 0
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _prime_locale_cache(schedules: list[dict[str, Any]]) -> None:
+    """Load Babel locale data for week schedules (blocking; run in executor).
+
+    Babel reads its locale data files from disk on first use; resolving each
+    country once here lets later event-loop lookups hit Babel's in-memory cache.
+    """
+    for schedule in schedules:
+        if schedule.get("schedule_type") == "week":
+            get_country_first_weekday(schedule.get("country_code"))
 
 
 async def async_setup_entry(
@@ -59,6 +70,7 @@ async def async_setup_entry(
             current_year + CALENDAR_YEAR_LOOKAROUND + 1,
         ),
     )
+    await hass.async_add_executor_job(_prime_locale_cache, all_schedules)
 
     async_add_entities(calendars, True)
 
@@ -106,7 +118,7 @@ class SchedulerCalendar(CalendarEntity):
     async def async_added_to_hass(self) -> None:
         """Register update listener when entity is added to hass."""
         self.async_on_remove(
-            self._entry.add_update_listener(self._async_update_listener)
+            self._entry.add_update_listener(self._async_options_updated)
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -114,18 +126,26 @@ class SchedulerCalendar(CalendarEntity):
         self._removed = True
         await super().async_will_remove_from_hass()
 
-    async def _async_update_listener(
+    async def _async_options_updated(
         self, hass: HomeAssistant, entry: ConfigEntry
     ) -> None:
-        """Handle options update."""
+        """Handle options update.
+
+        Must not be called _async_update_listener: CalendarEntity defines a
+        method of that name (HA 2026.6+) which the calendar dashboard's event
+        subscription invokes, and shadowing it with this signature breaks
+        every dashboard subscription for the entity.
+        """
         current_year = dt_util.now().date().year
+        schedules = self._get_schedules()
         await async_prime_holiday_cache(
-            self._get_schedules(),
+            schedules,
             range(
                 current_year - CALENDAR_YEAR_LOOKAROUND,
                 current_year + CALENDAR_YEAR_LOOKAROUND + 1,
             ),
         )
+        await hass.async_add_executor_job(_prime_locale_cache, schedules)
         # The await above can outlive this entity: if the entity was removed
         # meanwhile, writing state would re-arm the calendar component's
         # event-transition timers with nothing left to cancel them.
