@@ -1,27 +1,32 @@
-# Scheduler for Home Assistant
+<p align="center">
+  <img src="assets/icon.png" alt="HA Scheduler logo" width="120">
+</p>
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Release](https://img.shields.io/github/release/Smiley73/ha-scheduler.svg)](https://github.com/Smiley73/ha-scheduler/releases)
-[![License](https://img.shields.io/github/license/Smiley73/ha-scheduler.svg)](LICENSE)
+<h1 align="center">Scheduler for Home Assistant</h1>
 
-A custom Home Assistant integration to support seasonal schedules, like holiday lighting.
+<p align="center">
+  <a href="https://github.com/custom-components/hacs"><img src="https://img.shields.io/badge/HACS-Default-orange.svg" alt="hacs_badge"></a>
+  <a href="https://github.com/Smiley73/ha-scheduler/releases"><img src="https://img.shields.io/github/release/Smiley73/ha-scheduler.svg" alt="GitHub Release"></a>
+  <a href="https://github.com/Smiley73/ha-scheduler/commits/main"><img src="https://img.shields.io/github/last-commit/Smiley73/ha-scheduler" alt="Last Commit"></a>
+  <a href="https://github.com/Smiley73/ha-scheduler/actions/workflows/test.yml"><img src="https://img.shields.io/github/actions/workflow/status/Smiley73/ha-scheduler/test.yml?label=tests" alt="Tests"></a>
+  <a href="https://github.com/Smiley73/ha-scheduler/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/Smiley73/ha-scheduler/validate.yml?label=validation" alt="Validation"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Smiley73/ha-scheduler.svg" alt="License"></a>
+</p>
 
-## Table of Contents
+A custom Home Assistant integration for **seasonal schedules** — think holiday lighting, seasonal thermostat settings, or anything that should follow the calendar. Define date ranges, recurring weeks, "nth weekday" rules, or real-world holidays, attach your own configuration (colors, temperatures, modes) to each schedule, and drive your automations from a single calendar entity that always knows what season it is.
 
-- [Installation](#installation)
-- [Configuration](#configuration)
-  - [Holiday Import Feature](#holiday-import-feature)
-- [Features](#features)
-- [Schedule Types](#schedule-types)
-- [Advanced Configuration](#advanced-configuration)
-  - [Enhanced Week Schedule Examples](#enhanced-week-schedule-examples)
-- [Diagnostics](#diagnostics)
-- [Support](#support)
-- [License](#license)
+## ✨ Features
 
-> **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev) and [Claude Code](https://claude.ai).
+- 🖱️ Easy configuration entirely through the UI
+- 📅 Four flexible schedule types: date-based, week-based, nth-day, and holiday-backed
+- 🗓️ Enhanced week-based schedules with optional day restrictions, country-specific week starts, and partial/full week types
+- 🌍 Holiday import for 100+ countries with automatic pattern detection
+- 📆 Calendar entity showing all active schedules as events
+- 🧩 Optional YAML configuration per schedule for custom attributes
+- ⚙️ Default configuration that applies to all schedules
+- 🚦 Automatic overlap detection to prevent conflicting schedules
 
-## Installation
+## 📦 Installation
 
 ### HACS (Recommended)
 
@@ -33,23 +38,26 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
 6. Click "Install"
 7. Restart Home Assistant
 
-### Manual Installation
+<details>
+<summary>🔧 Manual installation</summary>
 
 1. Copy the `custom_components/ha_scheduler` directory to your Home Assistant's `custom_components` directory
 2. Restart Home Assistant
 
-## Configuration
+</details>
+
+## 🚀 Quick Start
 
 ### Initial Setup
 
-1. Go to Settings -> Devices & Services
+1. Go to Settings → Devices & Services
 2. Click "+ Add Integration"
 3. Search for "HA Scheduler" and select it
 4. Provide a name for the scheduler and click "Submit" to create it
 
 ### Adding Schedules
 
-1. Go to Settings -> Devices & Services
+1. Go to Settings → Devices & Services
 2. Find the "HA Scheduler" integration and click "Configure"
 3. Select "Add Schedule"
 4. Enter a name and choose a schedule type (Date, Week, Nth-Day, or Holiday)
@@ -57,21 +65,140 @@ A custom Home Assistant integration to support seasonal schedules, like holiday 
    - Holiday schedules walk you through country and category selection before you choose the holiday itself
 6. (Optional) Add YAML configuration for custom attributes
 
-### Managing Schedules
+From the same Configure menu you can also **Remove Schedule**, **Import Holidays** (see [Holiday Import](#-holiday-import)), and **Edit Default Configuration**. The integration automatically prevents overlapping schedules to avoid conflicts.
 
-From the Configure menu, you can:
-- **Add Schedule**: Create a new schedule with optional configuration
-- **Remove Schedule**: Delete an existing schedule
-- **Import Holidays**: Import holidays from any supported country as schedules
-- **Edit Default Configuration**: Set default configuration that applies to all schedules
+### Using it in automations
 
-The integration automatically prevents overlapping schedules to avoid conflicts.
+Each scheduler creates a calendar entity. Its state is `on` while a schedule is active, and its attributes carry the active schedule's name and configuration:
 
-### Holiday Import Feature
+```yaml
+condition: template
+value_template: "{{ state_attr('calendar.my_scheduler', 'name') != None }}"
+```
 
-The HA Scheduler integration includes a powerful holiday import feature that allows you to automatically create schedules for holidays from any supported country using the Python `holidays` library.
+See the **Configuration & Automations** section below for the full picture.
 
-#### How to Import Holidays
+## 📅 Schedule Types
+
+| Type | Use for | Example |
+|------|---------|---------|
+| 📆 **Date** | Fixed date ranges, with year wrap-around | Christmas lights: Nov 25 – Jan 6 |
+| 🗓️ **Week** | Specific weeks within months | Last week of December |
+| 🔢 **Nth-Day** | Nth weekday of a month, with offsets | Thanksgiving: 4th Thursday of November |
+| 🎉 **Holiday** | Movable named holidays, resolved each year | Good Friday in Germany |
+
+<details>
+<summary>📆 Date-based schedules</summary>
+
+**Use for:** Fixed date ranges like holiday seasons, summer months, or specific date periods.
+
+**Configuration:**
+- Start Month & Day: When the schedule begins (e.g., November 15)
+- End Month & Day: When the schedule ends (e.g., January 10)
+
+**Examples:**
+- Christmas lights: November 25 - January 6
+- Summer pool schedule: June 1 - August 31
+- Tax season reminder: February 1 - April 15
+
+**Supports wrap-around:** Yes (e.g., November to February crosses year boundary)
+
+</details>
+
+<details>
+<summary>🗓️ Week-based schedules</summary>
+
+**Use for:** Schedules based on specific weeks within months, like "first week of every month," "last two weeks of December," or entire weeks without specific day restrictions.
+
+**Configuration options:**
+- **Start Month & Week (0-4)**: When the schedule begins (Week 0 = first week, Week 4 = last week)
+- **End Month & Week (0-4)**: When the schedule ends
+- **Day of Week (Optional)**: Specific days within the week range
+- **Week Type**: How first/last weeks are calculated
+- **Country Code**: Determines week start day (Sunday vs Monday)
+
+**Week Types:**
+- **Partial** (default): First week includes any days in the month, even if week starts in previous month
+- **Full**: First week must be entirely within the month
+
+**Day of Week Options:**
+- **Both days specified**: Traditional behavior - specific day range (e.g., Monday to Friday)
+- **Start day only**: From specified day to end of week period
+- **End day only**: From start of week period to specified day
+- **No days specified**: Entire week(s) are active
+
+**Country-Specific Week Starts:**
+- **Sunday-first countries**: US, CA, JP, KR, and many others
+- **Monday-first countries**: Most of Europe, AU, NZ (default)
+
+**Examples:**
+- **Entire first week of every month**: Week 0 to Week 0 (no day restrictions)
+- **First Monday of every month**: Week 0, Monday to Week 0, Monday
+- **Last week of December**: Week 4, Monday to Week 4, Sunday
+- **Mid-month period**: Week 2, Monday to Week 3, Friday
+- **Whole weeks 2-3**: Week 1 to Week 2 (no day restrictions)
+- **US-style first full week**: Week 0, Week Type: Full, Country: US
+
+**Note:** All days between the start and end dates are active, not just the specified days of the week.
+
+**Validation:** Week-based schedules that do not produce a valid recurring range are rejected during configuration. For example, choosing a start day later than the end day within the same week, or selecting a weekday that does not exist in the chosen partial week pattern, will not be saved.
+
+</details>
+
+<details>
+<summary>🔢 Nth-Day schedules</summary>
+
+**Use for:** Schedules around specific occurrences of weekdays in a month, like "Thanksgiving" or "second Tuesday of March."
+
+**Configuration:**
+- Month: Target month (1-12)
+- Occurrence: Which occurrence (First, Second, Third, Fourth, or Last)
+- Day of Week: Target weekday (Monday-Sunday)
+- Start Offset: Days before the target date to activate (0-30)
+- End Offset: Days after the target date to stay active (0-30)
+
+**Examples:**
+- Thanksgiving (4th Thursday of November): Month=11, Occurrence=Fourth, Day=Thursday, Offsets=0/0
+- Mother's Day weekend (2nd Sunday of May, Friday-Monday): Month=5, Occurrence=Second, Day=Sunday, Start Offset=2, End Offset=1
+- Memorial Day (Last Monday of May): Month=5, Occurrence=Last, Day=Monday, Offsets=0/0
+- Tax deadline prep (around April 15): Calculate 3rd Monday of April with appropriate offsets
+
+**Perfect for:** US holidays, recurring events based on "nth weekday of month" patterns, and creating date ranges around specific days.
+
+</details>
+
+<details>
+<summary>🎉 Holiday schedules</summary>
+
+**Use for:** Named holidays that cannot be safely expressed as fixed dates, week-of-month rules, or nth-day rules.
+
+**Configuration:**
+- Country: Holiday source country
+- Category: Holiday category for that country
+- Holiday: Named holiday from the provider
+- Start Offset: Days before the holiday to activate (0-30)
+- End Offset: Days after the holiday to stay active (0-30)
+
+**Behavior:**
+- Stores the selected country, category, and holiday name as the schedule definition
+- Looks up the actual holiday date from the Python `holidays` library each year when dates are generated
+- Applies the configured day offsets after that yearly lookup
+- Supports single-day and contiguous multi-day holiday names
+- Keeps movable holidays like Good Friday accurate without pinning them to one representative Gregorian date
+- Does not convert the holiday into one fixed month/day rule behind the scenes
+
+**Examples:**
+- Good Friday in Germany
+- Easter Monday in the United Kingdom
+- Other provider-backed movable holidays that shift year to year
+
+</details>
+
+## 🌍 Holiday Import
+
+Instead of building holiday schedules by hand, the import feature creates them for you from the Python `holidays` library — covering 100+ countries and their country-specific categories (Public, Bank, School, Observance, and more). It analyzes several years of holiday data and automatically picks the best schedule type for each holiday: fixed dates become Date schedules, "nth weekday" holidays become Nth-Day schedules, and movable holidays like Good Friday become [holiday-backed schedules](#-schedule-types) that are re-resolved every year.
+
+**To import holidays:**
 
 1. Go to Settings → Devices & Services
 2. Find your HA Scheduler integration and click "Configure"
@@ -85,7 +212,8 @@ The HA Scheduler integration includes a powerful holiday import feature that all
    - **Include country name**: Add country code to schedule names (e.g., "Independence Day (USA)" vs "Independence Day")
    - **Import as holiday-backed schedules**: Enabled by default. Store the selected holidays using the `holiday` schedule type instead of the detected Date, Week, or Nth-Day pattern
 
-#### Smart Pattern Detection
+<details>
+<summary>🧠 Smart pattern detection</summary>
 
 The holiday import feature automatically analyzes multiple years of holiday data to determine the best schedule type:
 
@@ -107,11 +235,19 @@ The holiday import feature automatically analyzes multiple years of holiday data
 
 - **Holiday-Backed Movable Holidays** (e.g., Good Friday, Easter Monday)
   - Creates the "Holiday" type when a holiday cannot be safely reduced to Date, Week, or Nth-Day rules
-  - Stores the selected country, category, and holiday name instead of converting the holiday into one fixed Gregorian date
-  - Looks up the actual holiday date from the Python `holidays` library for each year that needs to be evaluated
   - Pattern: `Holiday-backed (resolved each year)`
 
-#### Supported Countries and Categories
+**Pattern analysis process** — the import feature analyzes a rolling 7-year window (`current year ± 3`) to detect patterns:
+
+1. **Data Collection**: Retrieves holiday dates for multiple years
+2. **Pattern Recognition**: Analyzes date consistency and variations
+3. **Schedule Type Selection**: Chooses the most appropriate schedule type, or falls back to the holiday-backed type for movable holidays. If you enable the import toggle for holiday-backed schedules, all selected holidays use the `holiday` schedule type instead.
+4. **Validation**: Ensures patterns work correctly across years
+
+</details>
+
+<details>
+<summary>🗺️ Supported countries and categories</summary>
 
 - **Countries**: Extensive support through the Python `holidays` library including:
   - **Major countries**: US, Canada, UK, Germany, France, Australia, New Zealand, Japan, South Korea
@@ -129,18 +265,10 @@ The holiday import feature automatically analyzes multiple years of holiday data
   - **Government**: Government office closures
   - **Financial**: Financial market holidays
 
-#### Pattern Analysis Process
+</details>
 
-The import feature analyzes a rolling 7-year window (`current year ± 3`) to detect patterns:
-
-1. **Data Collection**: Retrieves holiday dates for multiple years
-2. **Pattern Recognition**: Analyzes date consistency and variations
-3. **Schedule Type Selection**: Chooses the most appropriate schedule type, or falls back to the holiday-backed type for movable holidays. If you enable the import toggle for holiday-backed schedules, all selected holidays use the `holiday` schedule type instead.
-4. **Validation**: Ensures patterns work correctly across years
-
-For the holiday-backed type, the imported schedule keeps a reference to the named holiday and asks the Python `holidays` library for that holiday again each year. That means movable holidays stay accurate without being flattened into a single sample date like "April 7 every year."
-
-#### Conflict Management
+<details>
+<summary>🚦 Conflict management</summary>
 
 The import feature includes comprehensive conflict detection:
 
@@ -150,7 +278,10 @@ The import feature includes comprehensive conflict detection:
 - **Clear Feedback**: Detailed reporting of what was imported, skipped, or overwritten
 - **Preview Mode**: See what would be imported before making changes
 
-#### Examples
+</details>
+
+<details>
+<summary>🌐 Import examples (US, UK, Germany, Canada)</summary>
 
 **Import US Federal Holidays:**
 1. Select "United States" → "Public" → Choose holidays like:
@@ -179,144 +310,31 @@ The import feature includes comprehensive conflict detection:
    - Thanksgiving → `Second Monday of October`
    - Victoria Day → `Third Monday of May`
 
-## Features
+</details>
 
-- Easy configuration through the UI
-- Four flexible schedule types: date-based, week-based, nth-day, and holiday-backed
-- **Enhanced week-based schedules** with optional day restrictions, country-specific week starts, and partial/full week types
-- **Holiday import feature** supporting 100+ countries with automatic pattern detection
-- Calendar entity showing all active schedules as events
-- Optional YAML configuration per schedule for custom attributes
-- Default configuration that applies to all schedules
-- Automatic overlap detection to prevent conflicting schedules
+## ⚙️ Configuration & Automations
 
-## Schedule Types
+### Calendar entity
 
-The HA Scheduler integration supports four types of schedules to cover different use cases:
+Each scheduler creates a calendar entity (`calendar.<scheduler_name>`) that displays all your schedules as calendar events. It automatically updates when schedules change, supports year-wrapping schedules, and exposes the active event — or the next upcoming event when the calendar is idle.
 
-### 1. Date-Based Schedules
-
-**Use for:** Fixed date ranges like holiday seasons, summer months, or specific date periods.
-
-**Configuration:**
-- Start Month & Day: When the schedule begins (e.g., November 15)
-- End Month & Day: When the schedule ends (e.g., January 10)
-
-**Examples:**
-- Christmas lights: November 25 - January 6
-- Summer pool schedule: June 1 - August 31
-- Tax season reminder: February 1 - April 15
-
-**Supports wrap-around:** Yes (e.g., November to February crosses year boundary)
-
-### 2. Week-Based Schedules
-
-**Use for:** Schedules based on specific weeks within months, like "first week of every month," "last two weeks of December," or entire weeks without specific day restrictions.
-
-**Enhanced Configuration Options:**
-- **Start Month & Week (0-4)**: When the schedule begins (Week 0 = first week, Week 4 = last week)
-- **End Month & Week (0-4)**: When the schedule ends
-- **Day of Week (Optional)**: Specific days within the week range
-- **Week Type**: How first/last weeks are calculated
-- **Country Code**: Determines week start day (Sunday vs Monday)
-
-**Week Types:**
-- **Partial** (default): First week includes any days in the month, even if week starts in previous month
-- **Full**: First week must be entirely within the month
-
-**Day of Week Options:**
-- **Both days specified**: Traditional behavior - specific day range (e.g., Monday to Friday)
-- **Start day only**: From specified day to end of week period
-- **End day only**: From start of week period to specified day  
-- **No days specified**: Entire week(s) are active
-
-**Country-Specific Week Starts:**
-- **Sunday-first countries**: US, CA, JP, KR, and many others
-- **Monday-first countries**: Most of Europe, AU, NZ (default)
-
-**Examples:**
-- **Entire first week of every month**: Week 0 to Week 0 (no day restrictions)
-- **First Monday of every month**: Week 0, Monday to Week 0, Monday
-- **Last week of December**: Week 4, Monday to Week 4, Sunday  
-- **Mid-month period**: Week 2, Monday to Week 3, Friday
-- **Whole weeks 2-3**: Week 1 to Week 2 (no day restrictions)
-- **US-style first full week**: Week 0, Week Type: Full, Country: US
-
-**Note:** All days between the start and end dates are active, not just the specified days of the week.
-
-**Validation:** Week-based schedules that do not produce a valid recurring range are rejected during configuration. For example, choosing a start day later than the end day within the same week, or selecting a weekday that does not exist in the chosen partial week pattern, will not be saved.
-
-### 3. Nth-Day Schedules
-
-**Use for:** Schedules around specific occurrences of weekdays in a month, like "Thanksgiving" or "second Tuesday of March."
-
-**Configuration:**
-- Month: Target month (1-12)
-- Occurrence: Which occurrence (First, Second, Third, Fourth, or Last)
-- Day of Week: Target weekday (Monday-Sunday)
-- Start Offset: Days before the target date to activate (0-30)
-- End Offset: Days after the target date to stay active (0-30)
-
-**Examples:**
-- Thanksgiving (4th Thursday of November): Month=11, Occurrence=Fourth, Day=Thursday, Offsets=0/0
-- Mother's Day weekend (2nd Sunday of May, Friday-Monday): Month=5, Occurrence=Second, Day=Sunday, Start Offset=2, End Offset=1
-- Memorial Day (Last Monday of May): Month=5, Occurrence=Last, Day=Monday, Offsets=0/0
-- Tax deadline prep (around April 15): Calculate 3rd Monday of April with appropriate offsets
-
-**Perfect for:** US holidays, recurring events based on "nth weekday of month" patterns, and creating date ranges around specific days.
-
-### 4. Holiday Schedules
-
-**Use for:** Named holidays that cannot be safely expressed as fixed dates, week-of-month rules, or nth-day rules.
-
-**Configuration:**
-- Country: Holiday source country
-- Category: Holiday category for that country
-- Holiday: Named holiday from the provider
-- Start Offset: Days before the holiday to activate (0-30)
-- End Offset: Days after the holiday to stay active (0-30)
-
-**Behavior:**
-- Stores the selected country, category, and holiday name as the schedule definition
-- Looks up the actual holiday date from the Python `holidays` library each year when dates are generated
-- Applies the configured day offsets after that yearly lookup
-- Supports single-day and contiguous multi-day holiday names
-- Keeps movable holidays like Good Friday accurate without pinning them to one representative Gregorian date
-- Does not convert the holiday into one fixed month/day rule behind the scenes
-
-**Examples:**
-- Good Friday in Germany
-- Easter Monday in the United Kingdom
-- Other provider-backed movable holidays that shift year to year
-
-### Calendar Integration
-
-The HA Scheduler integration creates a calendar entity (`calendar.<scheduler_name>`) that displays all your schedules as calendar events. Each schedule appears as an event during its active period, making it easy to visualize your schedules in Home Assistant's calendar view.
-
-**Calendar Features:**
-- Automatically updates when schedules are added, modified, or deleted
-- Exposes the active event, or the next upcoming event when the calendar is idle
-- Configuration data available through dedicated entity attributes
-- Events span the full duration of each schedule period
-- Supports year-wrapping schedules (e.g., November to February)
-
-**Using the Calendar:**
-- View in the Calendar dashboard
-- Use `calendar.get_events` service to query upcoming schedules
+- If a schedule is active, `calendar.<scheduler_name>` has the state `on`
+- View it in the Calendar dashboard, or query upcoming schedules with the `calendar.get_events` service
 - Access the active or next upcoming event via `calendar.<scheduler_name>.event`
-- If a schedule is active `calendar.<scheduler_name>` will have the state `on`
-- Access configuration via `state_attr('calendar.<scheduler_name>', 'configuration')`
-- If there is no active or upcoming event, `calendar.<scheduler_name>.event` is `None`, the calendar state stays `off`, `name` and `schedule_uid` are `None`, and `configuration` falls back to the default configuration
+- If there is no active or upcoming event, `calendar.<scheduler_name>.event` is `None` and the calendar state stays `off`
 
-## Advanced Configuration
+**Available calendar attributes:**
 
-### Schedule-Specific Configuration
+- `configuration`: Active schedule's configuration, or the next upcoming schedule's configuration (falls back to the default configuration if no schedule-specific config exists)
+- `name`: Name of the currently active schedule, or the next upcoming schedule
+- `schedule_uid`: Unique identifier of the active schedule, or the next upcoming schedule
+- `default_configuration`: Default configuration from integration settings
 
-Each schedule can have optional YAML configuration that provides custom attributes for that schedule. This configuration is exposed through the calendar entity attributes for the active schedule, or for the next upcoming schedule when the calendar is idle.
+If there is no active or upcoming schedule, `configuration` falls back to `default_configuration`, and `name` / `schedule_uid` are `None`.
 
-**Example: Christmas Lighting Schedule**
+### Schedule-specific configuration
 
-When adding a schedule, you can include configuration like:
+Each schedule can have optional YAML configuration that provides custom attributes for that schedule, exposed through the calendar entity attributes. For example, a Christmas lighting schedule could carry:
 
 ```yaml
 colors:
@@ -326,37 +344,16 @@ brightness: 50
 effect: twinkle
 ```
 
-### Default Configuration
+### Default configuration
 
-You can also set a default configuration that applies to all schedules that don't have their own configuration. Access this from the Configure menu -> "Edit Default Configuration".
-
-**Example Default Configuration:**
+You can also set a default configuration that applies to all schedules that don't have their own configuration. Access this from the Configure menu → "Edit Default Configuration":
 
 ```yaml
 mode: normal
 brightness: 75
 ```
 
-### Accessing Configuration in Automations
-
-The configuration is available through dedicated attributes on the calendar entity for the active schedule, or for the next upcoming schedule when the calendar is idle. This provides clean, direct access to schedule-specific settings in your automations.
-
-**Available Calendar Attributes:**
-- `configuration`: Active schedule's configuration, or the next upcoming schedule's configuration (falls back to the default configuration if no schedule-specific config exists)
-- `name`: Name of the currently active schedule, or the next upcoming schedule
-- `schedule_uid`: Unique identifier of the active schedule, or the next upcoming schedule
-- `default_configuration`: Default configuration from integration settings
-
-If there is no active or upcoming schedule, `configuration` falls back to `default_configuration`, and `name` / `schedule_uid` are `None`.
-
-**Check if a schedule is currently active:**
-
-```yaml
-condition: template
-value_template: "{{ state_attr('calendar.my_scheduler', 'name') != None }}"
-```
-
-**Access configuration directly from the calendar entity:**
+### Accessing configuration in automations
 
 When a schedule is active, or when there is a next upcoming schedule, the `configuration` attribute contains that schedule's configuration dict (or the default configuration if the schedule doesn't have its own):
 
@@ -369,25 +366,8 @@ variables:
   schedule_name: "{{ state_attr('calendar.my_scheduler', 'name') }}"
 ```
 
-**Alternative: Use calendar.get_events service:**
-
-You can also get events via the calendar.get_events service (note: configuration is in entity attributes, not event descriptions):
-
-```yaml
-- service: calendar.get_events
-  target:
-    entity_id: calendar.my_scheduler
-  data:
-    duration:
-      hours: 1
-  response_variable: schedule_events
-- variables:
-    current_event: "{{ schedule_events['calendar.my_scheduler'].events[0] if schedule_events['calendar.my_scheduler'].events else none }}"
-    # Configuration comes from entity attributes, not event description
-    config: "{{ state_attr('calendar.my_scheduler', 'configuration') | default({}) }}"
-```
-
-### Example 1: Multiple Holiday Schedules with Configuration
+<details>
+<summary>💡 Example 1: Seasonal lights from schedule configuration</summary>
 
 **Setup: Create schedules with specific configurations**
 
@@ -441,7 +421,7 @@ actions:
       effect: "{{ config.effect | default('none') }}"
   - service: light.turn_on
     target:
-      entity_id: 
+      entity_id:
         - light.front_porch
         - light.back_yard
     data:
@@ -451,7 +431,10 @@ actions:
 mode: restart
 ```
 
-### Example 2: Dynamic Color Rotation
+</details>
+
+<details>
+<summary>🌈 Example 2: Dynamic color rotation</summary>
 
 **Schedule Configuration:**
 
@@ -464,11 +447,7 @@ brightness: 60
 change_interval: 300  # seconds
 ```
 
-**Template Sensor** (add to `configuration.yaml`):
-
-Note: Template sensors cannot directly call services, so for dynamic color rotation, use an automation that updates an input_select or helper entity based on the schedule configuration.
-
-**Automation for color rotation:**
+Note: Template sensors cannot directly call services, so for dynamic color rotation, use an automation that updates the lights on a time pattern:
 
 ```yaml
 alias: Rotate Holiday Colors
@@ -503,7 +482,10 @@ actions:
 mode: restart
 ```
 
-### Example 3: Thermostat Schedule with Temperature Settings
+</details>
+
+<details>
+<summary>🌡️ Example 3: Thermostat schedule with temperature settings</summary>
 
 **Setup: Create seasonal thermostat schedules**
 
@@ -558,7 +540,10 @@ actions:
 mode: restart
 ```
 
-### Example 4: Schedule Change Notifications
+</details>
+
+<details>
+<summary>🔔 Example 4: Schedule change notifications</summary>
 
 Get notified when schedules change with details about the new configuration:
 
@@ -583,7 +568,31 @@ actions:
 mode: restart
 ```
 
-### Enhanced Week Schedule Examples
+</details>
+
+<details>
+<summary>📡 Alternative: Use the calendar.get_events service</summary>
+
+You can also get events via the calendar.get_events service (note: configuration is in entity attributes, not event descriptions):
+
+```yaml
+- service: calendar.get_events
+  target:
+    entity_id: calendar.my_scheduler
+  data:
+    duration:
+      hours: 1
+  response_variable: schedule_events
+- variables:
+    current_event: "{{ schedule_events['calendar.my_scheduler'].events[0] if schedule_events['calendar.my_scheduler'].events else none }}"
+    # Configuration comes from entity attributes, not event description
+    config: "{{ state_attr('calendar.my_scheduler', 'configuration') | default({}) }}"
+```
+
+</details>
+
+<details>
+<summary>🗓️ Enhanced week schedule examples</summary>
 
 The enhanced week-based schedules support flexible configurations for different use cases:
 
@@ -601,7 +610,7 @@ Country: US  # Sunday-first weeks
 
 **Vacation Weeks (Last Two Weeks of July):**
 ```yaml
-Schedule Type: Week  
+Schedule Type: Week
 Start: Month 7, Week 2 (Third)
 End: Month 7, Week 4 (Last)
 # Covers two complete weeks
@@ -620,7 +629,7 @@ End: Month 12, Week 1 (Second), Day: Sunday
 **Mid-Week Break (Wednesday to Friday of Third Week):**
 ```yaml
 Schedule Type: Week
-Start: Month 1, Week 2 (Third), Day: Wednesday  
+Start: Month 1, Week 2 (Third), Day: Wednesday
 End: Month 12, Week 2 (Third), Day: Friday
 ```
 
@@ -639,7 +648,7 @@ Country: US
 ```yaml
 Schedule Type: Week
 Start: Month 1, Week 0, Day: Monday, Week Type: Partial
-End: Month 12, Week 0, Day: Thursday, Week Type: Partial  
+End: Month 12, Week 0, Day: Thursday, Week Type: Partial
 Country: DE
 # First week using European Monday-first calendar
 ```
@@ -651,7 +660,7 @@ Country: DE
 Schedule Type: Week
 Start: Month 1, Week 0, Day: Monday
 End: Month 12, Week 0
-# From Monday through end of first week (Sunday in US, Sunday in Europe)
+# From Monday through end of first week
 ```
 
 **End of Week Only (Start of Week to Friday):**
@@ -662,43 +671,27 @@ End: Month 12, Week 0, Day: Friday
 # From start of first week through Friday
 ```
 
-### Tips for Using Configuration
+</details>
+
+### Tips
 
 1. **Keep it simple**: Store only the values you need (colors, temperatures, modes, etc.)
 2. **Use defaults**: Always provide default values in templates with `| default(value)`
 3. **Test your YAML**: Invalid YAML in the configuration field will prevent the schedule from saving
-4. **Access nested values**: Use dot notation or bracket notation: `config.settings.brightness` or `config['settings']['brightness']`
-5. **Default configuration**: Set common values in the default configuration, override per schedule as needed
-6. **Week schedules**: Use country codes for proper week start calculations (US=Sunday-first, most others=Monday-first)
-7. **Week types**: Use "full" for schedules that must be entirely within the month, "partial" for flexibility
+4. **Week schedules**: Use country codes for proper week start calculations (US=Sunday-first, most others=Monday-first), and use week type "full" for schedules that must be entirely within the month, "partial" for flexibility
 
-## Diagnostics
+## 🩺 Diagnostics
 
-The HA Scheduler integration provides comprehensive diagnostic information to help troubleshoot issues and understand your schedule configuration. The diagnostics include detailed information about each schedule, future date calculations, overlap detection, and more.
+The integration provides comprehensive diagnostic information to help troubleshoot issues: details about each schedule, calculated future dates for the next 3 years, overlap detection, and configuration inheritance.
 
-### How to Generate Diagnostics
+**To download diagnostics:**
 
-1. **Via Home Assistant UI:**
-   - Go to Settings → Devices & Services
-   - Find your HA Scheduler integration
-   - Click on the integration name
-   - Click the three dots menu (⋮) in the top right
-   - Select "Download diagnostics"
-   - Save the JSON file to your computer
+1. Go to Settings → Devices & Services
+2. Find your HA Scheduler integration and click on the integration name
+3. Click the three dots menu (⋮) in the top right and select "Download diagnostics"
 
-2. **Via Developer Tools:**
-   - Go to Developer Tools → Services
-   - Select service: `system_log.write`
-   - In the service data, use:
-     ```yaml
-     message: "Scheduler diagnostics requested"
-     level: info
-     ```
-   - Then access diagnostics through the integration page as described above
-
-### What Diagnostics Provide
-
-The diagnostic output includes comprehensive information for troubleshooting and analysis:
+<details>
+<summary>🔍 What diagnostics provide</summary>
 
 #### Schedule Information
 - **Basic Details**: Schedule ID, name, type, and configuration parameters
@@ -714,7 +707,7 @@ For each schedule, diagnostics calculate and display:
 
 #### Overlap Detection
 Advanced conflict analysis for each year:
-- **Conflict Status**: 
+- **Conflict Status**:
   - `"no_conflicts"`: No overlapping schedules found
   - `"conflicts_found"`: One or more overlapping schedules detected
   - `"no_dates"`: Schedule has no valid dates for the year
@@ -731,7 +724,7 @@ Advanced conflict analysis for each year:
 - **Schedule-Specific Configuration**: Individual configuration for each schedule
 - **Configuration Inheritance**: How schedules inherit from default configuration
 
-### Example Diagnostic Output
+#### Example Diagnostic Output
 
 ```json
 {
@@ -768,7 +761,10 @@ Advanced conflict analysis for each year:
 }
 ```
 
-### Using Diagnostics for Troubleshooting
+</details>
+
+<details>
+<summary>🛠️ Using diagnostics for troubleshooting</summary>
 
 **Common Issues Diagnostics Help Identify:**
 
@@ -788,10 +784,16 @@ Advanced conflict analysis for each year:
 **Sharing Diagnostics:**
 When reporting issues, include the diagnostic output (with sensitive information removed) to help maintainers understand your configuration and identify problems quickly.
 
-## Support
+</details>
+
+## 🆘 Support
 
 For issues and feature requests, please use the [GitHub issue tracker](https://github.com/Smiley73/ha-scheduler/issues).
 
-## License
+---
+
+> **Note:** The majority of this code was generated with AI assistance using [Kiro](https://kiro.dev) and [Claude Code](https://claude.ai).
+
+## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
