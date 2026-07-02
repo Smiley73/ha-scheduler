@@ -306,7 +306,9 @@ def _get_named_holiday_dates_sync(
             # holidays_module cannot be None here (a provider object exists),
             # but narrow explicitly to satisfy the type checker and mirror the
             # defensive checks elsewhere in this file.
-            if holidays_module is None:
+            if (
+                holidays_module is None
+            ):  # pragma: no cover - unreachable without mutating the lru_cache mid-call; _get_holidays_module already returned non-None earlier in this call
                 break
             try:
                 kwargs: dict[str, Any] = {"years": year, "language": lang}
@@ -681,7 +683,7 @@ def _get_holidays_for_country_sync(
                         )
                         continue
 
-            except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
+            except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks  # pragma: no cover - unreachable short of a second failure inside the per-year except's own logging call, which already catches every Exception from the loop body
                 _LOGGER.debug(
                     "Category %s not supported for %s: %s", category, country_code, e
                 )
@@ -689,18 +691,22 @@ def _get_holidays_for_country_sync(
 
         # Analyze patterns for each holiday
         for holiday_name, holiday_data in all_holidays.items():
-            if holiday_data is None:
+            if (
+                holiday_data is None
+            ):  # pragma: no cover - every value in all_holidays is a dict constructed above, never None
                 _LOGGER.warning("Holiday data is None for %s", holiday_name)
                 continue
 
             dates = holiday_data.get("dates", [])
-            if not dates:
+            if not dates:  # pragma: no cover - each holiday entry is created together with an immediate dates.append() call
                 _LOGGER.warning("No dates found for holiday %s", holiday_name)
                 holiday_data["pattern"] = None
                 continue
 
             pattern = analyze_holiday_pattern(dates)
-            if pattern is None:
+            if (
+                pattern is None
+            ):  # pragma: no cover - dates is non-empty here, so analyze_holiday_pattern always returns a dict
                 _LOGGER.warning(
                     "Could not analyze pattern for %s with dates %s",
                     holiday_name,
@@ -719,7 +725,7 @@ def _get_holidays_for_country_sync(
                     }
             elif _should_use_holiday_schedule_pattern(pattern):
                 pattern = build_holiday_schedule_pattern(
-                    country_code, category, holiday_name
+                    country_code, holiday_data["category"], holiday_name
                 )
 
             holiday_data["pattern"] = pattern

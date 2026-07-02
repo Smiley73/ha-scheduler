@@ -44,7 +44,7 @@ pytest tests/ -q               # full suite (fast, ~2s)
 ruff check custom_components/ tests/ && ruff format --check custom_components/ tests/
 ```
 
-CI runs tests on Python 3.14 with an 80% coverage gate, ruff over
+CI runs tests on Python 3.14 with a 95% coverage gate, ruff over
 `custom_components/` and `tests/`, hassfest + HACS validation, and CodeQL.
 Dependencies are unpinned floors; a weekly scheduled test run catches
 upstream `holidays`/`babel`/`homeassistant` changes.
@@ -78,6 +78,6 @@ upstream `holidays`/`babel`/`homeassistant` changes.
 - **Versioning**: bump `manifest.json` version for every user-visible change;
   keep `SPEC.md` in sync. Config entry migrations live in `migrations.py`
   with `CURRENT_VERSION`/`CURRENT_MINOR_VERSION`.
-- **Quality scale**: manifest claims `silver`; `quality_scale.yaml` tracks
+- **Quality scale**: manifest claims `gold`; `quality_scale.yaml` tracks
   the honest per-rule status. Do not raise the claim without completing the
   rules.

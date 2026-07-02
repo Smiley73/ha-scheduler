@@ -1,7 +1,5 @@
 # Honest rule-by-rule status against the Home Assistant quality scale.
-# The manifest claims "silver". The single remaining gap before "gold" is
-# the Silver test-coverage rule (>95%; CI currently gates at 80%), tracked
-# for a dedicated coverage PR.
+# The manifest claims "gold". All rules are done or exempt.
 rules:
   # Bronze
   action-setup:
@@ -67,8 +65,8 @@ rules:
     status: exempt
     comment: No authentication involved.
   test-coverage:
-    status: todo
-    comment: CI enforces 80%; the rule requires above 95%.
+    status: done
+    comment: CI gates at 95%.
 
   # Gold
   devices: done

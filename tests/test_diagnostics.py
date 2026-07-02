@@ -6,7 +6,12 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.ha_scheduler.diagnostics import (
+    _check_year_overlaps,
+    _get_day_name,
     async_get_config_entry_diagnostics,
+)
+from custom_components.ha_scheduler.schedule_generator import (
+    generate_schedule_dates as real_generate_schedule_dates,
 )
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -387,3 +392,171 @@ async def test_diagnostics_day_names_nth_day_schedule(
     schedule = default_service["schedules"]["items"][0]
     assert schedule["day_of_week"] == 3
     assert schedule["day_name"] == "Thursday"
+
+
+def test_get_day_name_invalid_inputs() -> None:
+    """Invalid or missing day-of-week numbers resolve to None, not a crash."""
+    assert _get_day_name(None) is None
+    assert _get_day_name(7) is None
+    assert _get_day_name(-1) is None
+
+
+async def test_diagnostics_future_dates_generation_failure(
+    hass: HomeAssistant,
+    create_service_entry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A schedule whose date generation raises still produces diagnostics.
+
+    The failure is recorded per-year (error, no dates) and surfaced as a
+    warning instead of aborting the whole diagnostics dump.
+    """
+    schedule_data = {
+        "schedule-1": {
+            "name": "Broken Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "schedule-1",
+        }
+    }
+    entry = create_service_entry(schedules=schedule_data)
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.ha_scheduler.diagnostics.generate_schedule_dates",
+        side_effect=RuntimeError("boom"),
+    ):
+        diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    schedule = diagnostics["services"]["default"]["schedules"]["items"][0]
+    future_dates = schedule["future_dates"]
+
+    assert future_dates["warnings"] != []
+    assert all("boom" in warning for warning in future_dates["warnings"])
+    assert len(future_dates["years"]) == 3
+
+    for year_data in future_dates["years"].values():
+        assert year_data["error"] == "boom"
+        assert year_data["start_date"] is None
+        assert year_data["end_date"] is None
+        assert year_data["duration_days"] is None
+
+    assert any(
+        record.levelname == "WARNING"
+        and "Failed to calculate schedule dates for year" in record.message
+        for record in caplog.records
+    )
+
+
+def test_check_year_overlaps_no_dates() -> None:
+    """A schedule with no date ranges for the year reports status no_dates."""
+    with patch(
+        "custom_components.ha_scheduler.diagnostics.generate_schedule_dates",
+        return_value=[],
+    ):
+        result = _check_year_overlaps({"name": "Current"}, {}, "current-id", 2026)
+
+    assert result == {"status": "no_dates", "conflicting_schedules": []}
+
+
+def test_check_year_overlaps_conflicts_found() -> None:
+    """Two overlapping schedules are reported as a conflict with overlap bounds."""
+    current = {
+        "name": "Summer",
+        "schedule_type": "date",
+        "start_month": 6,
+        "start_day": 1,
+        "end_month": 8,
+        "end_day": 31,
+    }
+    other = {
+        "name": "Late Summer",
+        "schedule_type": "date",
+        "start_month": 7,
+        "start_day": 15,
+        "end_month": 9,
+        "end_day": 15,
+    }
+    all_schedules = {"current-id": current, "other-id": other}
+
+    result = _check_year_overlaps(current, all_schedules, "current-id", 2026)
+
+    assert result["status"] == "conflicts_found"
+    assert result["conflict_count"] == 1
+    assert len(result["conflicting_schedules"]) == 1
+
+    conflict = result["conflicting_schedules"][0]
+    assert conflict["id"] == "other-id"
+    assert conflict["name"] == "Late Summer"
+    assert conflict["start_date"] == "2026-07-15"
+    assert conflict["end_date"] == "2026-09-15"
+    assert conflict["overlap_start"] == "2026-07-15"
+    assert conflict["overlap_end"] == "2026-08-31"
+
+
+def test_check_year_overlaps_other_schedule_failure_is_logged_and_skipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failure generating dates for an *other* schedule is logged but non-fatal.
+
+    The current schedule's own overlap check still completes, reporting no
+    conflicts rather than aborting because one other schedule is broken.
+    """
+    current = {
+        "name": "Summer",
+        "schedule_type": "date",
+        "start_month": 6,
+        "start_day": 1,
+        "end_month": 8,
+        "end_day": 31,
+    }
+    other = {"name": "Broken Other", "schedule_type": "date"}
+    all_schedules = {"current-id": current, "other-id": other}
+
+    def side_effect(schedule: dict, year: int) -> list:
+        if schedule is other:
+            raise RuntimeError("other-boom")
+        return real_generate_schedule_dates(schedule, year)
+
+    with patch(
+        "custom_components.ha_scheduler.diagnostics.generate_schedule_dates",
+        side_effect=side_effect,
+    ):
+        result = _check_year_overlaps(current, all_schedules, "current-id", 2026)
+
+    assert result == {
+        "status": "no_conflicts",
+        "conflicting_schedules": [],
+        "conflict_count": 0,
+    }
+    assert any(
+        record.levelname == "WARNING"
+        and "Failed to check overlap with schedule other-id for year 2026"
+        in record.message
+        for record in caplog.records
+    )
+
+
+def test_check_year_overlaps_error_for_current_schedule(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A generation failure for the current schedule reports status error."""
+    with patch(
+        "custom_components.ha_scheduler.diagnostics.generate_schedule_dates",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = _check_year_overlaps({"name": "Current"}, {}, "current-id", 2026)
+
+    assert result == {
+        "status": "error",
+        "error": "boom",
+        "conflicting_schedules": [],
+    }
+    assert any(
+        record.levelname == "WARNING"
+        and "Failed to check overlaps for year 2026" in record.message
+        for record in caplog.records
+    )

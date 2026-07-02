@@ -422,7 +422,7 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
         else:
             # Both days specified
             if start_day_of_week is None or end_day_of_week is None:
-                return []  # Unreachable given the preceding branches; satisfies the type checker
+                return []  # pragma: no cover - unreachable given the preceding branches; satisfies the type checker
             return _generate_specific_day_range(
                 year,
                 start_month,
@@ -531,7 +531,9 @@ def _get_week_start(
             week_start = last_date - timedelta(days=days_back)
 
             # Make sure it's still in the same month
-            if week_start.month != month:
+            if (
+                week_start.month != month
+            ):  # pragma: no cover - the last-week start is at most 6 days before the month's last day, i.e. day >= 22, so it can't cross into the previous month
                 # If week start is in previous month, find the first day of month that's in this week
                 return date(year, month, 1)
 
@@ -579,7 +581,9 @@ def _get_week_start(
                 # But subsequent weeks should follow calendar week boundaries
                 # So we need to find the next Sunday (or Monday) after the first day
                 days_to_next_week_start = (first_weekday - first_day.weekday()) % 7
-                if days_to_next_week_start == 0:
+                if (
+                    days_to_next_week_start == 0
+                ):  # pragma: no cover - the enclosing branch requires the first calendar week to start in the previous month, which forces days_back != 0
                     days_to_next_week_start = (
                         7  # If first day is already the week start day, go to next week
                     )
