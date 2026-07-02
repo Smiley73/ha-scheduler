@@ -126,4 +126,7 @@ rules:
   inject-websession:
     status: exempt
     comment: No HTTP communication.
-  strict-typing: todo
+  strict-typing:
+    status: done
+    comment: mypy --strict passes over the integration (config in mypy.ini)
+      and is enforced by the mypy step in the Lint CI workflow.

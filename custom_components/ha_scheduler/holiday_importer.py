@@ -96,7 +96,7 @@ def get_localized_country_name(
 
         en_locale = Locale("en")
         if country_code.upper() in en_locale.territories:
-            return en_locale.territories[country_code.upper()]
+            return str(en_locale.territories[country_code.upper()])
     except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
         # Any error including ImportError
         _LOGGER.debug("Could not look up territory name: %s", e)
@@ -303,6 +303,11 @@ def _get_named_holiday_dates_sync(
             languages_to_try.insert(0, default_language)
 
         for lang in languages_to_try:
+            # holidays_module cannot be None here (a provider object exists),
+            # but narrow explicitly to satisfy the type checker and mirror the
+            # defensive checks elsewhere in this file.
+            if holidays_module is None:
+                break
             try:
                 kwargs: dict[str, Any] = {"years": year, "language": lang}
                 if category and category != "public":

@@ -192,7 +192,8 @@ class SchedulerCalendar(CalendarEntity):
         """Return live service data, handling both new and legacy layouts."""
         services = self._entry.options.get("services", {})
         if services:
-            return services.get(self._service_id, {})
+            service: dict[str, Any] = services.get(self._service_id, {})
+            return service
 
         # Legacy (pre-services) entries store schedules at the options root.
         return {

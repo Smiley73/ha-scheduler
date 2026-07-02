@@ -35,6 +35,16 @@ repos:
 
   - repo: local
     hooks:
+      # Enforce strict typing (quality-scale strict-typing rule). Uses a local
+      # system hook so mypy resolves against the installed Home Assistant deps
+      # rather than an isolated mirrors-mypy env; config lives in mypy.ini.
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
       # Run pytest on all tests
       - id: pytest-check
         name: pytest-check

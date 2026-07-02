@@ -84,7 +84,7 @@ def _get_schedule_type_display(schedule_type: str) -> str:
     return display_names.get(schedule_type, schedule_type)
 
 
-def _validate_yaml_config(yaml_str: str) -> dict | list | None:
+def _validate_yaml_config(yaml_str: str) -> dict[str, Any] | list[Any] | None:
     """Validate YAML configuration string.
 
     Returns the parsed structure (dict or list) if valid, ``None`` for an
@@ -485,7 +485,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
-                    updated_options = self._save_schedule(self._schedule_id, data)
+                    schedule_id = self._schedule_id
+                    if schedule_id is None:
+                        return self.async_abort(reason="unknown")
+                    updated_options = self._save_schedule(schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -510,7 +513,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ).strip()
 
         # Only use config_value as placeholder, not as default (to allow clearing)
-        schema_dict = {
+        schema_dict: dict[vol.Marker, Any] = {
             vol.Required("name", default=defaults.get("name", "My Schedule")): str,
             vol.Required(
                 "start_month", default=str(defaults.get("start_month", 1))
@@ -643,7 +646,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     )
 
                 if not errors:
-                    updated_options = self._save_schedule(self._schedule_id, data)
+                    schedule_id = self._schedule_id
+                    if schedule_id is None:
+                        return self.async_abort(reason="unknown")
+                    updated_options = self._save_schedule(schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -682,7 +688,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         else:
             end_week_display = str(end_week_default)
 
-        schema_dict = {
+        schema_dict: dict[vol.Marker, Any] = {
             vol.Required("name", default=defaults.get("name", "My Schedule")): str,
             vol.Required(
                 "start_month", default=str(defaults.get("start_month", 1))
@@ -785,7 +791,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
-                    updated_options = self._save_schedule(self._schedule_id, data)
+                    schedule_id = self._schedule_id
+                    if schedule_id is None:
+                        return self.async_abort(reason="unknown")
+                    updated_options = self._save_schedule(schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -809,7 +818,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 config_value, default_flow_style=False, sort_keys=False
             ).strip()
 
-        schema_dict = {
+        schema_dict: dict[vol.Marker, Any] = {
             vol.Required("name", default=defaults.get("name", "My Schedule")): str,
             vol.Required(
                 "month", default=str(defaults.get("month", 1))
@@ -1023,7 +1032,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     )
 
                 if not errors:
-                    updated_options = self._save_schedule(self._schedule_id, data)
+                    schedule_id = self._schedule_id
+                    if schedule_id is None:
+                        return self.async_abort(reason="unknown")
+                    updated_options = self._save_schedule(schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -1060,7 +1072,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 holiday_options[0]["value"] if holiday_options else ""
             )
 
-        schema_dict = {
+        schema_dict: dict[vol.Marker, Any] = {
             vol.Required(
                 "name", default=defaults.get("name", "My Holiday Schedule")
             ): str,
@@ -1199,7 +1211,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Confirm schedule removal."""
         if user_input is not None:
             if user_input.get("confirm"):
-                updated_options = self._remove_schedule(self._schedule_id)
+                schedule_id = self._schedule_id
+                if schedule_id is None:
+                    return self.async_abort(reason="unknown")
+                updated_options = self._remove_schedule(schedule_id)
 
                 return self.async_create_entry(title="", data=updated_options)
 
