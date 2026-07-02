@@ -4,6 +4,7 @@ import builtins
 import importlib
 import logging
 import sys
+from contextlib import contextmanager
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -34,6 +35,24 @@ from custom_components.ha_scheduler.holiday_importer import (
 )
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+@contextmanager
+def _patched_holidays_module(module_or_none):
+    """Patch HOLIDAYS_AVAILABLE=True and _get_holidays_module's return value.
+
+    Several tests need the holidays library to appear available while
+    controlling exactly what _get_holidays_module() resolves to (a fake
+    module or None); this collapses that identical two-patch idiom.
+    """
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+    ):
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
+            return_value=module_or_none,
+        ):
+            yield
 
 
 def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
@@ -632,17 +651,31 @@ class TestFormatDateLocalizedBabelFallback:
 class TestGetLocalizedCountryNameFallbacks:
     """Test the fallback branches of get_localized_country_name."""
 
-    def test_babel_import_missing_returns_fallback_name(self):
-        """Test that a missing babel dependency returns the supplied fallback."""
-        with patch.dict(sys.modules, {"babel": None}):
-            result = get_localized_country_name("US", "United States")
-        assert result == "United States"
+    @pytest.mark.parametrize(
+        ("code", "fallback", "expected"),
+        [
+            pytest.param(
+                "US",
+                "United States",
+                "United States",
+                id="returns_fallback_name",
+            ),
+            pytest.param(
+                "us",
+                None,
+                "Us",
+                id="without_fallback_title_cases_code",
+            ),
+        ],
+    )
+    def test_babel_import_missing(self, code, fallback, expected):
+        """Test a missing babel dependency falls back to the fallback name.
 
-    def test_babel_import_missing_without_fallback_title_cases_code(self):
-        """Test that a missing fallback name is derived from the country code."""
+        Falls back to a title-cased country code when no fallback is given.
+        """
         with patch.dict(sys.modules, {"babel": None}):
-            result = get_localized_country_name("us", None)
-        assert result == "Us"
+            result = get_localized_country_name(code, fallback)
+        assert result == expected
 
     def test_parse_and_territory_lookup_both_fail_uses_final_fallback(self, caplog):
         """Test that failures in both babel lookups fall through to the final return."""
@@ -726,14 +759,8 @@ class TestGetCountryHolidaysSyncGuards:
 
     def test_returns_none_when_module_missing(self):
         """Test the function returns None when the holidays module can't load."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-                return_value=None,
-            ):
-                result = _get_country_holidays_sync("US", "public", 2026)
+        with _patched_holidays_module(None):
+            result = _get_country_holidays_sync("US", "public", 2026)
         assert result is None
 
 
@@ -886,75 +913,57 @@ class TestGetSupportedCountriesSyncAdditionalFallbacks:
 
     def test_module_missing_returns_empty_dict(self):
         """Test the function returns {} when the holidays module can't load."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-                return_value=None,
-            ):
-                result = _get_supported_countries_sync()
+        with _patched_holidays_module(None):
+            result = _get_supported_countries_sync()
         assert result == {}
 
-    def test_entity_loader_used_when_country_attribute_matches_code(self):
-        """Test the EntityLoader fallback runs when .country equals the code."""
+    @pytest.mark.parametrize(
+        ("entity_loader_raises", "expected_result"),
+        [
+            pytest.param(
+                False,
+                {"ZZ": "Zetaland"},
+                id="country_attribute_matches_code",
+            ),
+            pytest.param(
+                True,
+                {"ZZ": "ZZ"},
+                id="exception_is_swallowed",
+            ),
+        ],
+    )
+    def test_entity_loader_fallback(self, entity_loader_raises, expected_result):
+        """Test the EntityLoader fallback: successful lookup vs swallowed error.
+
+        When the loader succeeds, its .country attribute is used as the
+        localized name. When it raises, the lookup is swallowed and the
+        holidays_name stays "ZZ" (the raised lookup never overwrote it).
+        """
         fake_module = MagicMock()
         fake_module.list_supported_countries.return_value = ["ZZ"]
         country_obj = MagicMock()
         country_obj.country = "ZZ"
         fake_module.country_holidays.return_value = country_obj
 
-        country_class = MagicMock()
-        country_class.country = "Zetaland"
         entity_loader = MagicMock()
-        entity_loader.get.return_value = country_class
+        if entity_loader_raises:
+            entity_loader.get.side_effect = KeyError("unknown entity")
+        else:
+            country_class = MagicMock()
+            country_class.country = "Zetaland"
+            entity_loader.get.return_value = country_class
         fake_module.registry.EntityLoader = entity_loader
 
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
+        with _patched_holidays_module(fake_module):
             with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-                return_value=fake_module,
+                "custom_components.ha_scheduler.holiday_importer"
+                ".get_localized_country_name",
+                side_effect=lambda code, fallback: fallback,
             ):
-                with patch(
-                    "custom_components.ha_scheduler.holiday_importer"
-                    ".get_localized_country_name",
-                    side_effect=lambda code, fallback: fallback,
-                ):
-                    result = _get_supported_countries_sync()
+                result = _get_supported_countries_sync()
 
-        assert result == {"ZZ": "Zetaland"}
+        assert result == expected_result
         entity_loader.get.assert_called_once_with("ZZ")
-
-    def test_entity_loader_exception_is_swallowed(self):
-        """Test an EntityLoader lookup failure is swallowed, not propagated."""
-        fake_module = MagicMock()
-        fake_module.list_supported_countries.return_value = ["ZZ"]
-        country_obj = MagicMock()
-        country_obj.country = "ZZ"
-        fake_module.country_holidays.return_value = country_obj
-
-        entity_loader = MagicMock()
-        entity_loader.get.side_effect = KeyError("unknown entity")
-        fake_module.registry.EntityLoader = entity_loader
-
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-                return_value=fake_module,
-            ):
-                with patch(
-                    "custom_components.ha_scheduler.holiday_importer"
-                    ".get_localized_country_name",
-                    side_effect=lambda code, fallback: fallback,
-                ):
-                    result = _get_supported_countries_sync()
-
-        # holidays_name stays "ZZ" (the raised lookup never overwrote it).
-        assert result == {"ZZ": "ZZ"}
 
 
 class TestGetAvailableCategoriesSyncAdditionalFallbacks:
@@ -962,14 +971,8 @@ class TestGetAvailableCategoriesSyncAdditionalFallbacks:
 
     def test_module_missing_returns_default_category(self):
         """Test the function returns the default when the module can't load."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-                return_value=None,
-            ):
-                result = _get_available_categories_sync("US")
+        with _patched_holidays_module(None):
+            result = _get_available_categories_sync("US")
         assert result == {"public": "Public Holidays"}
 
     def test_probe_loop_builds_dict_and_skips_failing_category(self, caplog):
@@ -993,18 +996,12 @@ class TestGetAvailableCategoriesSyncAdditionalFallbacks:
         fake_module = MagicMock()
         fake_module.country_holidays.side_effect = fake_country_holidays
 
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-                return_value=fake_module,
+        with _patched_holidays_module(fake_module):
+            with caplog.at_level(
+                logging.DEBUG,
+                logger="custom_components.ha_scheduler.holiday_importer",
             ):
-                with caplog.at_level(
-                    logging.DEBUG,
-                    logger="custom_components.ha_scheduler.holiday_importer",
-                ):
-                    result = _get_available_categories_sync("US")
+                result = _get_available_categories_sync("US")
 
         assert result == {"public": "Public"}
         assert "Category bank not supported for US" in caplog.text
