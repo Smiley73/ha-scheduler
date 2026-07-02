@@ -271,3 +271,185 @@ async def test_unresolvable_holiday_logs_warning(
         and "Definitely Not A Real Holiday" in record.message
         for record in caplog.records
     )
+
+
+# A malformed schedule missing "name" raises KeyError while the event is built
+# (schedule["name"] / schedule["uid"] access), not while its dates are
+# generated. `_generate_by_date` only requires the month/day fields, so this
+# reaches the CalendarEvent(...) construction inside the try block before
+# failing.
+MALFORMED_SCHEDULE = {
+    "schedule_type": "date",
+    "start_month": 1,
+    "start_day": 1,
+    "end_month": 12,
+    "end_day": 31,
+    "uid": "malformed",
+    # "name" intentionally omitted.
+}
+
+
+async def test_malformed_schedule_skipped_in_current_event(
+    hass: HomeAssistant,
+    create_service_entry,
+    caplog: pytest.LogCaptureFixture,
+    freezer,
+) -> None:
+    """A schedule that fails to build must not blank the current/next event.
+
+    Regression coverage for `_compute_current_or_upcoming_event`: a schedule
+    missing "name" raises KeyError while building its CalendarEvent. That
+    exception must be caught per-schedule so a later, valid schedule still
+    determines the calendar's current event, with a warning logged for the
+    broken one.
+    """
+    freezer.move_to("2026-07-02 12:00:00")
+
+    schedules = {
+        "malformed": MALFORMED_SCHEDULE,
+        "valid": {
+            "name": "Valid Schedule",
+            "schedule_type": "date",
+            "start_month": 1,
+            "start_day": 1,
+            "end_month": 12,
+            "end_day": 31,
+            "uid": "valid",
+        },
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    current_event = calendar.event
+    assert current_event is not None
+    assert current_event.summary == "Valid Schedule"
+
+    state = hass.states.get("calendar.test_scheduler")
+    assert state is not None
+    assert state.attributes.get("message") == "Valid Schedule"
+
+    assert any(
+        record.levelname == "WARNING"
+        and "Skipping schedule" in record.message
+        and "determining the current event" in record.message
+        for record in caplog.records
+    )
+
+
+async def test_malformed_schedule_skipped_in_async_get_events(
+    hass: HomeAssistant,
+    create_service_entry,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A schedule that fails to build must not blank async_get_events results.
+
+    Regression coverage for `async_get_events`: the same malformed schedule
+    must be skipped (with a warning) while still returning the valid
+    schedule's events for a range covering both.
+    """
+    schedules = {
+        "malformed": MALFORMED_SCHEDULE,
+        "valid": {
+            "name": "Valid Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 6,
+            "end_day": 30,
+            "uid": "valid",
+        },
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+    start = datetime(2026, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    end = datetime(2026, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+
+    events = await calendar.async_get_events(hass, start, end)
+
+    assert len(events) == 1
+    assert events[0].summary == "Valid Schedule"
+    assert events[0].start == date(2026, 6, 1)
+
+    assert any(
+        record.levelname == "WARNING"
+        and "Skipping schedule" in record.message
+        and "listing calendar events" in record.message
+        for record in caplog.records
+    )
+
+
+async def test_daily_refresh_repopulates_cached_state(
+    hass: HomeAssistant,
+    create_service_entry,
+    freezer,
+) -> None:
+    """The midnight refresh clears the per-day event memo and rewrites state.
+
+    `_get_current_or_upcoming_event` only recomputes when the local day
+    changes; a same-day options change that bypasses the update listener
+    (e.g. picked up by the midnight refresh re-reading live options) would
+    otherwise stay hidden behind the cached tuple. Firing the registered
+    daily-refresh callback must drop that memo and write fresh state.
+    """
+    freezer.move_to("2026-07-02 10:00:00")
+
+    schedules = {
+        "morning": {
+            "name": "Morning Schedule",
+            "schedule_type": "date",
+            "start_month": 7,
+            "start_day": 2,
+            "end_month": 7,
+            "end_day": 2,
+            "uid": "morning",
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("calendar.test_scheduler")
+    assert state is not None
+    assert state.attributes.get("message") == "Morning Schedule"
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    # Mutate live options directly, bypassing the update listener, to model
+    # an external change the per-day memo would otherwise mask.
+    entry.options["services"]["default"]["schedules"] = {
+        "afternoon": {
+            "name": "Afternoon Schedule",
+            "schedule_type": "date",
+            "start_month": 7,
+            "start_day": 2,
+            "end_month": 7,
+            "end_day": 2,
+            "uid": "afternoon",
+        }
+    }
+
+    # The memo is keyed on the (unchanged) local day, so state stays stale
+    # until something clears it.
+    stale_state = hass.states.get("calendar.test_scheduler")
+    assert stale_state is not None
+    assert stale_state.attributes.get("message") == "Morning Schedule"
+
+    # Invoke the registered midnight listener directly.
+    await calendar._async_daily_refresh(dt_util.now())
+    await hass.async_block_till_done()
+
+    refreshed_state = hass.states.get("calendar.test_scheduler")
+    assert refreshed_state is not None
+    assert refreshed_state.attributes.get("message") == "Afternoon Schedule"
