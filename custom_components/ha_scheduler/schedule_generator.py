@@ -736,7 +736,7 @@ def _get_nth_weekday(
                 check_date = date(year, month, day)
                 if check_date.weekday() == day_of_week:
                     return check_date
-            return None  # pragma: no cover - every weekday occurs within the last 7 days of any month
+            return None
 
         # Find first occurrence of the weekday
         days_until_target = (day_of_week - first_day.weekday()) % 7

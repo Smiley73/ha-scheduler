@@ -182,6 +182,16 @@ def test_get_nth_weekday_last_occurrence_semantics() -> None:
     assert _get_nth_weekday(2024, 3, 3, 4) == date(2024, 3, 22)
 
 
+def test_get_nth_weekday_last_occurrence_out_of_range_day_of_week() -> None:
+    """An out-of-range day_of_week never matches date.weekday() (0-6).
+
+    day_of_week isn't range-validated at this layer (it's a plain int), so a
+    stored/legacy schedule with a bad value must fall through the backward
+    scan to None instead of raising or returning a wrong date.
+    """
+    assert _get_nth_weekday(2024, 3, 4, 99) is None
+
+
 def test_check_overlap_edge_cases() -> None:
     """Test check_overlap with edge cases."""
     # Same schedule overlapping with itself
