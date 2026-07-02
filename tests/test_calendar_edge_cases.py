@@ -491,6 +491,9 @@ async def test_calendar_update_listener(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
 
     calendar = _create_calendar_from_entry(entry)
+    # The listener is only registered once the entity is added to hass, at
+    # which point entity.hass is always set; mirror that here.
+    calendar.hass = hass
 
     # Mock the async_write_ha_state method
     from unittest.mock import Mock

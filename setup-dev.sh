@@ -18,9 +18,19 @@ if [ -z "$VIRTUAL_ENV" ]; then
     fi
 fi
 
-# Install development dependencies (includes pre-commit)
-echo "📚 Installing development dependencies..."
-pip install -r requirements_test.txt
+# Warn when the local Python lags CI (CI runs 3.14)
+PY_MINOR=$(python -c 'import sys; print(sys.version_info.minor)')
+if [ "$PY_MINOR" -lt 14 ]; then
+    echo "⚠️  Python 3.$PY_MINOR detected; CI runs 3.14. Consider rebuilding"
+    echo "   the venv on 3.14 to keep local results representative."
+fi
+
+# Install development dependencies (includes pre-commit).
+# --upgrade matters: requirements are unpinned floors, and a stale venv can
+# mask bugs that only occur with the holidays/homeassistant versions users
+# actually run.
+echo "📚 Installing development dependencies (latest versions)..."
+pip install --upgrade -r requirements_test.txt
 
 # Install pre-commit hooks
 echo "🪝 Installing pre-commit hooks..."

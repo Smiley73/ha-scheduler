@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_change
 
 from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN
 from .holiday_importer import async_prime_holiday_cache
@@ -79,7 +80,17 @@ class SchedulerCalendar(CalendarEntity):
     """Representation of a Scheduler calendar."""
 
     _attr_has_entity_name = True
+    # All events are all-day, so the current/next event only changes at local
+    # midnight or when options change. The base CalendarEntity arms timers at
+    # event transitions; the daily refresh handles the date rollover. Polling
+    # every minute (the calendar platform default) would just recompute an
+    # unchanged state.
+    _attr_should_poll = False
     _removed = False
+    # Free-form user configuration blobs stay out of the recorder database:
+    # they can be large and may contain sensitive values. They remain visible
+    # as live state attributes for automations to consume.
+    _unrecorded_attributes = frozenset({"configuration", "default_configuration"})
 
     def __init__(
         self, entry: ConfigEntry, service_id: str, service_data: dict[str, Any]
@@ -88,6 +99,13 @@ class SchedulerCalendar(CalendarEntity):
         self._entry = entry
         self._service_id = service_id
         self._service_data = service_data
+        # Memoizes the current/upcoming event per local day: the event and
+        # extra_state_attributes properties both need it on every state
+        # write, and recomputing means iterating all schedules over the
+        # whole year lookaround.
+        self._event_cache: (
+            tuple[date, tuple[CalendarEvent, dict[str, Any]] | None] | None
+        ) = None
 
         # For single service (default), use the entry title as calendar name
         # For multiple services, use service name
@@ -116,9 +134,17 @@ class SchedulerCalendar(CalendarEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Register update listener when entity is added to hass."""
+        """Register update and midnight listeners when added to hass."""
         self.async_on_remove(
             self._entry.add_update_listener(self._async_options_updated)
+        )
+        # All-day events transition at local midnight; the refresh also
+        # re-primes holiday caches when the year lookaround window shifts,
+        # keeping holiday lookups off the event loop after a year rollover.
+        self.async_on_remove(
+            async_track_time_change(
+                self.hass, self._async_daily_refresh, hour=0, minute=0, second=0
+            )
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -136,6 +162,14 @@ class SchedulerCalendar(CalendarEntity):
         subscription invokes, and shadowing it with this signature breaks
         every dashboard subscription for the entity.
         """
+        await self._async_refresh()
+
+    async def _async_daily_refresh(self, now: datetime) -> None:
+        """Refresh state and caches at local midnight."""
+        await self._async_refresh()
+
+    async def _async_refresh(self) -> None:
+        """Re-prime lookup caches, drop the event memo and write state."""
         current_year = dt_util.now().date().year
         schedules = self._get_schedules()
         await async_prime_holiday_cache(
@@ -145,12 +179,13 @@ class SchedulerCalendar(CalendarEntity):
                 current_year + CALENDAR_YEAR_LOOKAROUND + 1,
             ),
         )
-        await hass.async_add_executor_job(_prime_locale_cache, schedules)
+        await self.hass.async_add_executor_job(_prime_locale_cache, schedules)
         # The await above can outlive this entity: if the entity was removed
         # meanwhile, writing state would re-arm the calendar component's
         # event-transition timers with nothing left to cancel them.
         if self._removed:
             return
+        self._event_cache = None
         self.async_write_ha_state()
 
     def _get_service_data(self) -> dict[str, Any]:
@@ -177,8 +212,23 @@ class SchedulerCalendar(CalendarEntity):
     def _get_current_or_upcoming_event(
         self,
     ) -> tuple[CalendarEvent, dict[str, Any]] | None:
-        """Return the active event, or the next upcoming event when idle."""
+        """Return the active event, or the next upcoming event when idle.
+
+        Memoized per local day; the memo is dropped on options updates and
+        by the midnight refresh.
+        """
         today = dt_util.now().date()
+        if self._event_cache and self._event_cache[0] == today:
+            return self._event_cache[1]
+
+        result = self._compute_current_or_upcoming_event(today)
+        self._event_cache = (today, result)
+        return result
+
+    def _compute_current_or_upcoming_event(
+        self, today: date
+    ) -> tuple[CalendarEvent, dict[str, Any]] | None:
+        """Compute the active event, or the next upcoming event when idle."""
         current_year = today.year
         active_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
         future_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
@@ -195,11 +245,14 @@ class SchedulerCalendar(CalendarEntity):
                     for schedule_start, schedule_end in date_ranges:
                         # All-day events use date objects; CalendarEvent.end is
                         # exclusive, so add one day to include the end date.
+                        # The uid is keyed on the start date: holiday schedules
+                        # can produce several ranges per generation year, and
+                        # uids must stay unique across them.
                         event = CalendarEvent(
                             start=schedule_start,
                             end=schedule_end + timedelta(days=1),
                             summary=schedule["name"],
-                            uid=f"{schedule['uid']}_{year}",
+                            uid=f"{schedule['uid']}_{schedule_start.isoformat()}",
                             description="",
                         )
                         if schedule_start <= today <= schedule_end:
@@ -262,11 +315,13 @@ class SchedulerCalendar(CalendarEntity):
         events = []
         schedules = self._get_schedules()
 
-        start_day = start_date.date()
-        end_day = end_date.date()
+        # The calendar component supplies timezone-aware datetimes; normalize
+        # defensively so direct callers with naive datetimes keep working.
+        start_date = dt_util.as_local(start_date)
+        end_date = dt_util.as_local(end_date)
 
-        start_year = start_day.year
-        end_year = end_day.year
+        start_year = start_date.date().year
+        end_year = end_date.date().year
 
         await async_prime_holiday_cache(schedules, range(start_year - 1, end_year + 1))
 
@@ -277,16 +332,25 @@ class SchedulerCalendar(CalendarEntity):
                     date_ranges = generate_schedule_dates(schedule, year)
 
                     for schedule_start, schedule_end in date_ranges:
-                        # Only include if it overlaps with requested range
-                        if schedule_start <= end_day and schedule_end >= start_day:
+                        # Half-open overlap per the calendar entity contract:
+                        # end_date is exclusive against the event start, and
+                        # start_date is exclusive against the event end.
+                        event_start_dt = dt_util.start_of_local_day(schedule_start)
+                        event_end_dt = dt_util.start_of_local_day(
+                            schedule_end + timedelta(days=1)
+                        )
+                        if event_start_dt < end_date and event_end_dt > start_date:
                             # All-day events use date objects; CalendarEvent.end is
                             # exclusive, so add one day to include the end date.
+                            # The uid is keyed on the start date: holiday schedules
+                            # can produce several ranges per generation year, and
+                            # uids must stay unique across them.
                             events.append(
                                 CalendarEvent(
                                     start=schedule_start,
                                     end=schedule_end + timedelta(days=1),
                                     summary=schedule["name"],
-                                    uid=f"{schedule['uid']}_{year}",
+                                    uid=f"{schedule['uid']}_{schedule_start.isoformat()}",
                                     description="",
                                 )
                             )

@@ -19,7 +19,6 @@ from .const import (
     SCHEDULE_TYPE_DATE,
     SCHEDULE_TYPE_HOLIDAY,
     SCHEDULE_TYPE_NTH_DAY,
-    SCHEDULE_TYPE_WEEK,
 )
 
 # Babel imports moved inside functions to avoid blocking I/O during module import
@@ -381,6 +380,24 @@ def _merge_contiguous_dates(
     return ranges
 
 
+def _merge_overlapping_ranges(
+    ranges: list[tuple[date, date]],
+) -> list[tuple[date, date]]:
+    """Merge overlapping or adjacent date ranges (input sorted by start).
+
+    Offsets can make otherwise disjoint holiday occurrences overlap; a single
+    schedule must never yield self-overlapping calendar events.
+    """
+    merged: list[tuple[date, date]] = []
+    for range_start, range_end in ranges:
+        if merged and range_start <= merged[-1][1] + timedelta(days=1):
+            last_start, last_end = merged[-1]
+            merged[-1] = (last_start, max(last_end, range_end))
+        else:
+            merged.append((range_start, range_end))
+    return merged
+
+
 def generate_holiday_schedule_dates(
     schedule: dict[str, Any], year: int
 ) -> list[tuple[date, date]]:
@@ -405,13 +422,14 @@ def generate_holiday_schedule_dates(
     if not holiday_dates:
         return []
 
-    return [
+    offset_ranges = [
         (
             range_start - timedelta(days=start_offset),
             range_end + timedelta(days=end_offset),
         )
         for range_start, range_end in _merge_contiguous_dates(holiday_dates)
     ]
+    return _merge_overlapping_ranges(offset_ranges)
 
 
 def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool:
@@ -419,9 +437,7 @@ def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool
     if pattern is None:
         return False
 
-    return pattern.get("schedule_type") == SCHEDULE_TYPE_DATE and str(
-        pattern.get("description", "")
-    ).startswith("Variable date")
+    return bool(pattern.get("variable_date"))
 
 
 def build_holiday_schedule_pattern(
@@ -440,14 +456,20 @@ def build_holiday_schedule_pattern(
     }
 
 
-def _get_supported_countries_sync() -> dict[str, str]:
-    """Get list of all supported countries dynamically (sync version)."""
+def _get_supported_countries_sync(today: date | None = None) -> dict[str, str]:
+    """Get list of all supported countries dynamically (sync version).
+
+    ``today`` anchors the sample year used to probe each country; defaults to
+    the system date.
+    """
     if not _holidays_available():
         return {}
 
     holidays_module = _get_holidays_module()
     if holidays_module is None:
         return {}
+
+    sample_year = (today or date.today()).year
 
     try:
         # Get all available countries from holidays library
@@ -457,7 +479,9 @@ def _get_supported_countries_sync() -> dict[str, str]:
         for country_code in holidays_module.list_supported_countries():
             try:
                 # Get the country name from holidays library first
-                country_obj = holidays_module.country_holidays(country_code, years=2024)
+                country_obj = holidays_module.country_holidays(
+                    country_code, years=sample_year
+                )
                 holidays_name = getattr(country_obj, "country", None)
 
                 # If holidays library doesn't have a proper name, try the class
@@ -497,14 +521,20 @@ def _get_supported_countries_sync() -> dict[str, str]:
         }
 
 
-async def get_supported_countries() -> dict[str, str]:
+async def get_supported_countries(today: date | None = None) -> dict[str, str]:
     """Get list of all supported countries dynamically."""
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _get_supported_countries_sync)
+    return await loop.run_in_executor(None, _get_supported_countries_sync, today)
 
 
-def _get_available_categories_sync(country_code: str) -> dict[str, str]:
-    """Get available holiday categories for a specific country (sync version)."""
+def _get_available_categories_sync(
+    country_code: str, today: date | None = None
+) -> dict[str, str]:
+    """Get available holiday categories for a specific country (sync version).
+
+    ``today`` anchors the sample year used to probe categories; defaults to
+    the system date.
+    """
     if not _holidays_available():
         return {"public": "Public Holidays"}
 
@@ -512,9 +542,13 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
     if holidays_module is None:
         return {"public": "Public Holidays"}
 
+    sample_year = (today or date.today()).year
+
     try:
         # Get a sample year to inspect available categories
-        country_holidays = holidays_module.country_holidays(country_code, years=2024)
+        country_holidays = holidays_module.country_holidays(
+            country_code, years=sample_year
+        )
 
         # Different countries support different categories
         available_categories = {}
@@ -541,7 +575,7 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
                 try:
                     # Test if this category exists by trying to create holidays with it
                     test_holidays = holidays_module.country_holidays(
-                        country_code, categories=category, years=2024
+                        country_code, categories=category, years=sample_year
                     )
                     if len(test_holidays) > 0:
                         category_name = category.replace("_", " ").title()
@@ -566,11 +600,13 @@ def _get_available_categories_sync(country_code: str) -> dict[str, str]:
         return {"public": "Public Holidays"}
 
 
-async def get_available_categories(country_code: str) -> dict[str, str]:
+async def get_available_categories(
+    country_code: str, today: date | None = None
+) -> dict[str, str]:
     """Get available holiday categories for a specific country."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        None, _get_available_categories_sync, country_code
+        None, _get_available_categories_sync, country_code, today
     )
 
 
@@ -590,7 +626,9 @@ def _get_holidays_for_country_sync(
 
     try:
         if categories is None:
-            categories = list(_get_available_categories_sync(country_code).keys())
+            categories = list(
+                _get_available_categories_sync(country_code, today).keys()
+            )
 
         all_holidays: dict[str, dict[str, Any]] = {}
 
@@ -735,147 +773,120 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
             "end_day": dates[0].day,
             "description": f"Fixed date: {format_date_localized(dates[0])}",
         }
-    else:
-        # Variable date - try to determine pattern
-        first_date = dates[0]
 
-        # Check if all dates are in the same month and same weekday
-        if all(
-            d.month == first_date.month and d.weekday() == first_date.weekday()
-            for d in dates
-        ):
-            month = first_date.month
-            day_of_week = first_date.weekday()
+    first_date = dates[0]
 
-            # Calculate which occurrence (1st, 2nd, 3rd, 4th, or last)
-            occurrence = calculate_occurrence(first_date)
-
-            if occurrence is not None:
-                # Check if this could be a week-based pattern instead
-                # Some holidays might span multiple days in the same week
-                week_pattern = _analyze_week_pattern(dates)
-                if week_pattern:
-                    return week_pattern
-
-                return {
-                    "schedule_type": SCHEDULE_TYPE_NTH_DAY,
-                    "month": month,
-                    "occurrence": occurrence,
-                    "day_of_week": day_of_week,
-                    "start_offset": 0,
-                    "end_offset": 0,
-                    "description": f"{OCCURRENCE_NAMES_DISPLAY[occurrence]} {DAY_NAMES_DISPLAY[day_of_week]} of {MONTH_NAMES_DISPLAY[month]}",
-                }
-
-        # Check for week-based patterns (holidays that span multiple days)
-        week_pattern = _analyze_week_pattern(dates)
-        if week_pattern:
-            return week_pattern
-
-        # If we can't determine a clear pattern, default to first occurrence as date
-        return {
-            "schedule_type": SCHEDULE_TYPE_DATE,
-            "start_month": first_date.month,
-            "start_day": first_date.day,
-            "end_month": first_date.month,
-            "end_day": first_date.day,
-            "description": f"Variable date (using {first_date.year} date: {format_date_localized(first_date)})",
-        }
-
-
-def _analyze_week_pattern(dates: list[date]) -> dict[str, Any] | None:
-    """Analyze if dates follow a week-based pattern."""
-    if len(dates) < 2:
-        return None
-
-    # Group dates by year to analyze patterns
+    # Group dates by year for recurrence analysis
     dates_by_year: dict[int, list[date]] = {}
     for d in dates:
-        if d.year not in dates_by_year:
-            dates_by_year[d.year] = []
-        dates_by_year[d.year].append(d)
+        dates_by_year.setdefault(d.year, []).append(d)
 
-    # Check if we have consistent patterns across years
+    # Single date per year, same month and weekday: nth weekday of month.
+    # The occurrence is validated by regenerating every input year rather
+    # than trusting the first year alone (a 4th weekday that happens to be
+    # last in one year must not turn the whole pattern into "last").
+    if (
+        len(dates_by_year) >= 2
+        and all(len(year_dates) == 1 for year_dates in dates_by_year.values())
+        and all(
+            d.month == first_date.month and d.weekday() == first_date.weekday()
+            for d in dates
+        )
+    ):
+        pattern = _build_nth_weekday_pattern(dates, span_days=0)
+        if pattern:
+            return pattern
+
+    # Multi-day holidays: fixed-length span anchored on an nth weekday
+    if span_pattern := _analyze_multi_day_pattern(dates_by_year):
+        return span_pattern
+
+    # If we can't determine a clear pattern, default to first occurrence as date
+    return {
+        "schedule_type": SCHEDULE_TYPE_DATE,
+        "start_month": first_date.month,
+        "start_day": first_date.day,
+        "end_month": first_date.month,
+        "end_day": first_date.day,
+        "variable_date": True,
+        "description": f"Variable date (using {first_date.year} date: {format_date_localized(first_date)})",
+    }
+
+
+def _build_nth_weekday_pattern(
+    anchor_dates: list[date], span_days: int
+) -> dict[str, Any] | None:
+    """Build an nth-day pattern that regenerates every anchor date exactly.
+
+    Returns the pattern for the first occurrence value (0-4, 4 = last) that
+    reproduces all anchors via ``_get_nth_weekday``, or ``None`` when the
+    anchors do not share a single consistent occurrence.
+    """
+    from .schedule_generator import _get_nth_weekday
+
+    first = anchor_dates[0]
+    month = first.month
+    day_of_week = first.weekday()
+
+    for occurrence in range(len(OCCURRENCE_NAMES_DISPLAY)):
+        if all(
+            _get_nth_weekday(d.year, month, occurrence, day_of_week) == d
+            for d in anchor_dates
+        ):
+            description = (
+                f"{OCCURRENCE_NAMES_DISPLAY[occurrence]} "
+                f"{DAY_NAMES_DISPLAY[day_of_week]} of {MONTH_NAMES_DISPLAY[month]}"
+            )
+            if span_days:
+                description += f" ({span_days + 1} days)"
+            return {
+                "schedule_type": SCHEDULE_TYPE_NTH_DAY,
+                "month": month,
+                "occurrence": occurrence,
+                "day_of_week": day_of_week,
+                "start_offset": 0,
+                "end_offset": span_days,
+                "description": description,
+            }
+
+    return None
+
+
+def _analyze_multi_day_pattern(
+    dates_by_year: dict[int, list[date]],
+) -> dict[str, Any] | None:
+    """Detect fixed-length multi-day spans anchored on an nth weekday.
+
+    Emits an nth-day schedule with ``end_offset`` covering the span. This
+    replaces the former week-based patterns, whose stored week numbers were
+    weekday occurrences while the generator expected calendar weeks — such
+    schedules generated events in almost no years.
+    """
     if len(dates_by_year) < 2:
         return None
 
-    # Look for patterns where dates span multiple consecutive days in the same week/month
-    for year, year_dates in dates_by_year.items():
+    anchors: list[date] = []
+    spans: set[int] = set()
+
+    for _year, year_dates in sorted(dates_by_year.items()):
         year_dates.sort()
+        first, last = year_dates[0], year_dates[-1]
+        span = (last - first).days
+        # Only short spans fully contained in one month qualify; anything
+        # else is safer represented as a holiday-backed schedule.
+        if len(year_dates) < 2 or first.month != last.month or not 1 <= span <= 6:
+            return None
+        anchors.append(first)
+        spans.add(span)
 
-        # Check if dates are consecutive and in the same month
-        if len(year_dates) >= 2:
-            first_date = year_dates[0]
-            last_date = year_dates[-1]
+    if len(spans) != 1:
+        return None
+    if len({anchor.month for anchor in anchors}) != 1:
+        return None
+    if len({anchor.weekday() for anchor in anchors}) != 1:
+        return None
 
-            # Check if they're in the same month and span multiple days
-            if (
-                first_date.month == last_date.month
-                and (last_date - first_date).days >= 1
-                and (last_date - first_date).days <= 6
-            ):  # Within a week
-                # Try to determine if this follows a week pattern
-                start_occurrence = calculate_occurrence(first_date)
-                end_occurrence = calculate_occurrence(last_date)
-
-                if start_occurrence is not None and end_occurrence is not None:
-                    # Check if this pattern is consistent across other years
-                    consistent = True
-                    for other_year, other_dates in dates_by_year.items():
-                        if other_year == year:
-                            continue
-
-                        other_dates.sort()
-                        if len(other_dates) >= 2:
-                            other_first = other_dates[0]
-                            other_last = other_dates[-1]
-
-                            other_start_occ = calculate_occurrence(other_first)
-                            other_end_occ = calculate_occurrence(other_last)
-
-                            if (
-                                other_first.month != first_date.month
-                                or other_start_occ != start_occurrence
-                                or other_end_occ != end_occurrence
-                                or other_first.weekday() != first_date.weekday()
-                                or other_last.weekday() != last_date.weekday()
-                            ):
-                                consistent = False
-                                break
-
-                    if consistent:
-                        # Create week-based schedule with appropriate week types
-                        schedule = {
-                            "schedule_type": SCHEDULE_TYPE_WEEK,
-                            "start_month": first_date.month,
-                            "start_week": start_occurrence,
-                            "start_day_of_week": first_date.weekday(),
-                            "end_month": last_date.month,
-                            "end_week": end_occurrence,
-                            "end_day_of_week": last_date.weekday(),
-                        }
-
-                        # Add week types for first weeks (occurrence 0)
-                        # Default to "partial" for holidays as they typically follow calendar weeks
-                        if start_occurrence == 0:
-                            schedule["start_week_type"] = "partial"
-                        if end_occurrence == 0:
-                            schedule["end_week_type"] = "partial"
-
-                        if start_occurrence == end_occurrence:
-                            # Same week, different days
-                            schedule["description"] = (
-                                f"{OCCURRENCE_NAMES_DISPLAY[start_occurrence]} week of {MONTH_NAMES_DISPLAY[first_date.month]} ({DAY_NAMES_DISPLAY[first_date.weekday()]} to {DAY_NAMES_DISPLAY[last_date.weekday()]})"
-                            )
-                        else:
-                            # Different weeks
-                            schedule["description"] = (
-                                f"{OCCURRENCE_NAMES_DISPLAY[start_occurrence]} {DAY_NAMES_DISPLAY[first_date.weekday()]} to {OCCURRENCE_NAMES_DISPLAY[end_occurrence]} {DAY_NAMES_DISPLAY[last_date.weekday()]} of {MONTH_NAMES_DISPLAY[first_date.month]}"
-                            )
-
-                        return schedule
-
-    return None
+    return _build_nth_weekday_pattern(anchors, span_days=spans.pop())
 
 
 def calculate_occurrence(target_date: date) -> int | None:

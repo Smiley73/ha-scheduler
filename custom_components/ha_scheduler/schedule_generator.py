@@ -205,11 +205,20 @@ def _calculate_end_year(end_month: int, start_month: int, year: int) -> int:
     return year + 1 if end_month < start_month else year
 
 
-def _get_effective_week_type(
-    start_month: int, end_month: int, start_week_type: str, end_week_type: str
-) -> str:
-    """Determine effective week type for end week."""
-    return start_week_type if start_month == end_month else end_week_type
+def _resolve_end_week_type(schedule: dict[str, Any]) -> str:
+    """Resolve the effective week type for the end week of a week schedule.
+
+    An explicitly stored ``end_week_type`` always wins. When absent, a
+    same-month schedule inherits the start week's type (the two bounds refer
+    to the same month's week structure); otherwise default to "partial".
+    """
+    if (end_week_type := schedule.get("end_week_type")) is not None:
+        return str(end_week_type)
+
+    if schedule.get("start_month") == schedule.get("end_month"):
+        return str(schedule.get("start_week_type", "partial"))
+
+    return "partial"
 
 
 def _build_date_range(
@@ -239,13 +248,10 @@ def _generate_whole_week_range(
     if not week_start_date:
         return []
 
-    effective_end_week_type = _get_effective_week_type(
-        start_month, end_month, start_week_type, end_week_type
-    )
     end_year = _calculate_end_year(end_month, start_month, year)
 
     week_end_date = _get_week_end(
-        end_year, end_month, end_week, first_weekday, effective_end_week_type
+        end_year, end_month, end_week, first_weekday, end_week_type
     )
     return _build_date_range(week_start_date, week_end_date)
 
@@ -268,12 +274,9 @@ def _generate_start_day_to_end_week(
     if not start_date:
         return []
 
-    effective_end_week_type = _get_effective_week_type(
-        start_month, end_month, start_week_type, end_week_type
-    )
     end_year = _calculate_end_year(end_month, start_month, year)
     week_end_date = _get_week_end(
-        end_year, end_month, end_week, first_weekday, effective_end_week_type
+        end_year, end_month, end_week, first_weekday, end_week_type
     )
 
     return _build_date_range(start_date, week_end_date)
@@ -297,9 +300,6 @@ def _generate_week_start_to_end_day(
     if not week_start_date:
         return []
 
-    effective_end_week_type = _get_effective_week_type(
-        start_month, end_month, start_week_type, end_week_type
-    )
     end_year = _calculate_end_year(end_month, start_month, year)
     end_date = _get_weekday_in_week(
         end_year,
@@ -307,7 +307,7 @@ def _generate_week_start_to_end_day(
         end_week,
         end_day_of_week,
         first_weekday,
-        effective_end_week_type,
+        end_week_type,
     )
 
     return _build_date_range(week_start_date, end_date)
@@ -339,9 +339,6 @@ def _generate_specific_day_range(
         return []
 
     end_year = _calculate_end_year(end_month, start_month, year)
-    effective_end_week_type = _get_effective_week_type(
-        start_month, end_month, start_week_type, end_week_type
-    )
 
     end_date = _get_weekday_in_week(
         end_year,
@@ -349,7 +346,7 @@ def _generate_specific_day_range(
         end_week,
         int(end_day_of_week),
         first_weekday,
-        effective_end_week_type,
+        end_week_type,
     )
     return _build_date_range(start_date, end_date)
 
@@ -380,7 +377,7 @@ def _generate_by_week(schedule: dict[str, Any], year: int) -> list[tuple[date, d
 
     # Get week types (partial or full) for start and end weeks
     start_week_type = schedule.get("start_week_type", "partial")
-    end_week_type = schedule.get("end_week_type", "partial")
+    end_week_type = _resolve_end_week_type(schedule)
 
     try:
         # Dispatch to appropriate helper based on which day_of_week fields are specified
@@ -848,7 +845,9 @@ def _get_overlap_signature(schedule: dict[str, Any]) -> OverlapSignature:
             schedule.get("end_week"),
             schedule.get("end_day_of_week"),
             schedule.get("start_week_type", "partial"),
-            schedule.get("end_week_type", "partial"),
+            # Store the resolved value so cached overlap checks agree with
+            # direct generation for schedules without a stored end_week_type.
+            _resolve_end_week_type(schedule),
             normalized_country,
         )
 

@@ -188,7 +188,8 @@
       "import_error": "Failed to load holiday data",
       "no_holidays_imported": "No holidays were imported. All selected holidays were already present or would overlap with existing schedules.",
       "entry_not_found": "Config entry not found",
-      "no_holidays_selected": "Please select at least one holiday to import"
+      "no_holidays_selected": "Please select at least one holiday to import",
+      "stored_holiday_not_found": "The previously selected holiday was not found in the installed holidays library (it may have been renamed). Review the holiday selection before saving."
     },
     "abort": {
       "no_schedules": "No schedules to edit or remove",
@@ -209,38 +210,48 @@
     },
     "month": {
       "options": {
-        "january": "January",
-        "february": "February",
-        "march": "March",
-        "april": "April",
-        "may": "May",
-        "june": "June",
-        "july": "July",
-        "august": "August",
-        "september": "September",
-        "october": "October",
-        "november": "November",
-        "december": "December"
+        "1": "January",
+        "2": "February",
+        "3": "March",
+        "4": "April",
+        "5": "May",
+        "6": "June",
+        "7": "July",
+        "8": "August",
+        "9": "September",
+        "10": "October",
+        "11": "November",
+        "12": "December"
       }
     },
     "day_of_week": {
       "options": {
-        "monday": "Monday",
-        "tuesday": "Tuesday",
-        "wednesday": "Wednesday",
-        "thursday": "Thursday",
-        "friday": "Friday",
-        "saturday": "Saturday",
-        "sunday": "Sunday"
+        "0": "Monday",
+        "1": "Tuesday",
+        "2": "Wednesday",
+        "3": "Thursday",
+        "4": "Friday",
+        "5": "Saturday",
+        "6": "Sunday"
       }
     },
     "occurrence": {
       "options": {
-        "first": "First",
-        "second": "Second",
-        "third": "Third",
-        "fourth": "Fourth",
-        "last": "Last"
+        "0": "First",
+        "1": "Second",
+        "2": "Third",
+        "3": "Fourth",
+        "4": "Last"
+      }
+    },
+    "week_occurrence": {
+      "options": {
+        "0_partial": "First week (may start in previous month)",
+        "0_full": "First full week (entirely within month)",
+        "1": "Second",
+        "2": "Third",
+        "3": "Fourth",
+        "4": "Last"
       }
     }
   }

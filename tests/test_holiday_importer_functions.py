@@ -499,3 +499,56 @@ class TestCalculateOccurrenceEdgeCases:
             result = calculate_occurrence(date(2024, 1, 15))
             # Should still work with actual date object
             assert result in [0, 1, 2, 3, 4, None]
+
+
+class TestOffsetRangeMerging:
+    """Offsets must never produce self-overlapping ranges for one schedule."""
+
+    def test_generate_holiday_schedule_dates_merges_offset_overlap(self):
+        """Test that offsets which bridge disjoint occurrences are merged.
+
+        Regression test: a holiday occurring on two non-contiguous dates
+        (e.g. July 25 and 27) with end_offset=2 produced the overlapping
+        ranges (25th-27th) and (27th-29th) for the same schedule.
+        """
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": "CU",
+            "category": "public",
+            "holiday_name": "Commemoration Day",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 2,
+        }
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+            return_value=(date(2026, 7, 25), date(2026, 7, 27)),
+        ):
+            result = generate_holiday_schedule_dates(schedule, 2026)
+
+        assert result == [(date(2026, 7, 25), date(2026, 7, 29))]
+
+    def test_generate_holiday_schedule_dates_keeps_disjoint_ranges(self):
+        """Test that genuinely disjoint occurrences stay separate ranges."""
+        schedule = {
+            "schedule_type": "holiday",
+            "country_code": "AE",
+            "category": "public",
+            "holiday_name": "Eid al-Fitr",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+        }
+
+        # A lunar-calendar holiday can occur twice in one Gregorian year.
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+            return_value=(date(2033, 1, 2), date(2033, 12, 23)),
+        ):
+            result = generate_holiday_schedule_dates(schedule, 2033)
+
+        assert result == [
+            (date(2033, 1, 2), date(2033, 1, 2)),
+            (date(2033, 12, 23), date(2033, 12, 23)),
+        ]

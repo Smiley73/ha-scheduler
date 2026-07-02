@@ -332,6 +332,9 @@ Each scheduler creates a calendar entity (`calendar.<scheduler_name>`) that disp
 
 If there is no active or upcoming schedule, `configuration` falls back to `default_configuration`, and `name` / `schedule_uid` are `None`.
 
+> [!NOTE]
+> The `configuration` and `default_configuration` attributes are visible to **every** Home Assistant user and API client that can read the calendar entity's state — do not put secrets (tokens, passwords, API keys) in schedule configuration. These attributes are excluded from the recorder, so they are not written to the history database.
+
 ### Schedule-specific configuration
 
 Each schedule can have optional YAML configuration that provides custom attributes for that schedule, exposed through the calendar entity attributes. For example, a Christmas lighting schedule could carry:
@@ -785,6 +788,51 @@ Advanced conflict analysis for each year:
 When reporting issues, include the diagnostic output (with sensitive information removed) to help maintainers understand your configuration and identify problems quickly.
 
 </details>
+
+## 🧯 Troubleshooting
+
+**The calendar shows no events**
+- Check the Home Assistant log for `Skipping schedule` warnings — one broken schedule is skipped with a warning while the others keep working, and the warning names the schedule and the reason.
+- For holiday schedules, the stored holiday name must still exist in the installed `holidays` library. The library occasionally renames holidays between releases (e.g. "Thanksgiving" became "Thanksgiving Day"); the integration falls back to a contains-style match and logs when it does. If a name no longer resolves at all, edit the schedule — the form warns when the stored holiday can't be found and lets you pick it again.
+- Download diagnostics (see above): each schedule lists its generated dates for the next three years, including an explicit error when no valid dates could be generated.
+
+**A holiday schedule resolves to unexpected dates**
+- Holiday dates come from the installed `holidays` library version, so they can shift after a library update — especially *estimated* dates for lunar-calendar holidays in future years.
+- Some holidays legitimately occur twice in one calendar year (e.g. lunar holidays); each occurrence becomes its own event.
+
+**Week schedules start on the "wrong" day**
+- Week boundaries follow the schedule's country convention (Monday-first in most of Europe, Sunday-first in the US and others). The country is captured from your Home Assistant configuration when the schedule is created and kept on edit.
+- "First week" (partial) can start in the previous month; "First full week" is the first week lying entirely within the month. See the week schedule examples above.
+
+**Adding a schedule fails with an overlap error**
+- Schedules within one scheduler must not overlap, and the check covers a full 400-year calendar cycle — two schedules that don't collide in the next few years may still collide in a later year. The error names the conflicting schedule.
+
+**Enable debug logging**
+
+```yaml
+logger:
+  logs:
+    custom_components.ha_scheduler: debug
+```
+
+## ⚠️ Known Limitations
+
+- **All-day events only** — schedules have no time-of-day component; events start and end at local midnight.
+- **Annual recurrence only** — every schedule repeats each year; one-off events are not supported.
+- **One calendar per scheduler** — each scheduler (config entry) exposes exactly one calendar entity.
+- **No overlapping schedules** within a scheduler (by design, so the active schedule is always unambiguous). Use separate schedulers if you need overlapping periods.
+- **Holiday data tracks the installed `holidays` library** — dates (and holiday names) can change when Home Assistant updates the library; far-future dates for lunar-calendar holidays are estimates.
+- **Offsets are limited to 0–30 days** before/after the anchor date.
+- **Configuration attributes are visible to all users** — see the note in the **Configuration & Automations** section above; don't store secrets in them.
+
+## 🗑️ Removing the Integration
+
+1. Go to **Settings → Devices & Services → HA Scheduler**.
+2. For each scheduler entry, open the three-dot menu and select **Delete**. This removes the config entry, its device, and its calendar entity, including all schedules stored in it.
+3. If installed through HACS: go to **HACS → HA Scheduler → ⋮ → Remove**, then restart Home Assistant.
+4. If installed manually: delete the `custom_components/ha_scheduler` folder from your config directory and restart Home Assistant.
+
+Recorded history for the calendar entities is purged automatically by the recorder according to your retention settings.
 
 ## 🆘 Support
 

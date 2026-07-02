@@ -226,3 +226,174 @@ async def test_concurrent_options_flows(hass: HomeAssistant) -> None:
     except Exception:
         # Expected - Home Assistant prevents concurrent flows
         pass
+
+
+async def test_edit_schedule_without_stored_uid_does_not_self_conflict(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Editing a legacy schedule stored without a uid must be savable.
+
+    Regression test: overlap validation excludes the edited schedule by uid;
+    schedules migrated from v1 may lack a stored uid, and without backfilling
+    it from the storage key every edit conflicted with itself.
+    """
+    schedule_id = "legacy-no-uid"
+    entry = create_service_entry(
+        schedules={
+            schedule_id: {
+                # Deliberately no "uid" key
+                "name": "Summer",
+                "schedule_type": "date",
+                "start_month": 6,
+                "start_day": 1,
+                "end_month": 8,
+                "end_day": 31,
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_id": schedule_id}
+    )
+    assert result["step_id"] == "configure_date"
+
+    # Re-save with identical dates; this used to error "overlaps with Summer".
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "Summer",
+            "start_month": "6",
+            "start_day": 1,
+            "end_month": "8",
+            "end_day": 31,
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+    schedules = updated_entry.options["services"]["default"]["schedules"]
+    assert schedules[schedule_id]["name"] == "Summer"
+
+
+async def test_default_configuration_preserves_legacy_schedules(
+    hass: HomeAssistant,
+) -> None:
+    """Setting the default configuration must not strand legacy schedules.
+
+    Regression test: the step used to write a services dict unconditionally,
+    creating an empty services.default.schedules that hid the root-level
+    schedules of legacy-shaped entries from every reader.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Legacy Scheduler",
+        data={},
+        options={
+            "schedules": {
+                "legacy-1": {
+                    "uid": "legacy-1",
+                    "name": "Winter",
+                    "schedule_type": "date",
+                    "start_month": 12,
+                    "start_day": 1,
+                    "end_month": 2,
+                    "end_day": 28,
+                }
+            },
+            "configuration": {},
+        },
+        version=2,
+        minor_version=1,
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "default_configuration"}
+    )
+    assert result["step_id"] == "default_configuration"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"configuration": "mode: eco"}
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+    # Legacy layout is preserved: schedules stay at the options root and no
+    # competing (empty) services structure is created.
+    assert "services" not in updated_entry.options
+    assert updated_entry.options["configuration"] == {"mode": "eco"}
+    assert "legacy-1" in updated_entry.options["schedules"]
+
+
+async def test_edit_week_schedule_preserves_country_code(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Editing a week schedule must not adopt the current HA country.
+
+    Regression test: the stored country_code used to be overwritten with
+    hass.config.country on every edit, silently shifting week boundaries
+    (Monday-first vs Sunday-first) when the HA country had changed.
+    """
+    schedule_id = "week-us"
+    entry = create_service_entry(
+        schedules={
+            schedule_id: {
+                "uid": schedule_id,
+                "name": "US Weeks",
+                "schedule_type": "week",
+                "start_month": 3,
+                "start_week": 1,
+                "end_month": 3,
+                "end_week": 2,
+                "country_code": "US",
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # The HA instance has since been reconfigured to another country.
+    hass.config.country = "DE"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_id": schedule_id}
+    )
+    assert result["step_id"] == "configure_week"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "US Weeks",
+            "start_month": "3",
+            "start_week": "1",
+            "start_day_of_week": "",
+            "end_month": "3",
+            "end_week": "2",
+            "end_day_of_week": "",
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+    schedules = updated_entry.options["services"]["default"]["schedules"]
+    assert schedules[schedule_id]["country_code"] == "US"

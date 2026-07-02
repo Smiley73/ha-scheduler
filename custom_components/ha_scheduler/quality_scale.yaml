@@ -1,20 +1,129 @@
+# Honest rule-by-rule status against the Home Assistant quality scale.
+# The manifest claims "silver". The single remaining gap before "gold" is
+# the Silver test-coverage rule (>95%; CI currently gates at 80%), tracked
+# for a dedicated coverage PR.
 rules:
   # Bronze
-  config-flow: done
-  entity-unique-id: done
   action-setup:
     status: exempt
-    comment: Service integration does not register custom actions.
-  
+    comment: The integration does not register custom actions.
+  appropriate-polling:
+    status: done
+    comment: Entities set should_poll = False; state transitions are driven
+      by the calendar component's timers and a daily midnight refresh.
+  brands:
+    status: done
+    comment: Registered in home-assistant/brands under
+      custom_integrations/ha_scheduler (icon + dark variants).
+  common-modules:
+    status: done
+    comment: Single calendar platform; no coordinator is needed (all data is
+      computed locally from config entry options).
+  config-flow: done
+  config-flow-test-coverage: done
+  dependency-transparency: done
+  docs-actions:
+    status: exempt
+    comment: The integration does not register custom actions.
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  entity-event-setup:
+    status: done
+    comment: Listeners are registered in async_added_to_hass and removed via
+      async_on_remove.
+  entity-unique-id: done
+  has-entity-name: done
+  runtime-data:
+    status: exempt
+    comment: No runtime objects are held; all state derives from config
+      entry options.
+  test-before-configure:
+    status: exempt
+    comment: No device or service connection to test.
+  test-before-setup:
+    status: exempt
+    comment: No device or service connection to test.
+  unique-config-entry:
+    status: done
+    comment: Duplicate scheduler names are rejected in the user step.
+
   # Silver
-  entity-unavailable: done
+  action-exceptions:
+    status: exempt
+    comment: The integration does not register custom actions.
+  config-entry-unloading: done
+  docs-configuration-parameters: done
+  docs-installation-parameters: done
+  entity-unavailable:
+    status: exempt
+    comment: State is computed locally and cannot become unavailable.
+  integration-owner: done
+  log-when-unavailable:
+    status: exempt
+    comment: State is computed locally and cannot become unavailable.
   parallel-updates: done
-  
+  reauthentication-flow:
+    status: exempt
+    comment: No authentication involved.
+  test-coverage:
+    status: todo
+    comment: CI enforces 80%; the rule requires above 95%.
+
   # Gold
   devices: done
   diagnostics: done
+  discovery:
+    status: exempt
+    comment: Nothing to discover; schedules are user-defined.
+  discovery-update-info:
+    status: exempt
+    comment: Nothing to discover.
+  docs-data-update: done
+  docs-examples: done
+  docs-known-limitations: done
+  docs-supported-devices:
+    status: exempt
+    comment: No physical devices.
+  docs-supported-functions: done
+  docs-troubleshooting: done
+  docs-use-cases: done
+  dynamic-devices:
+    status: exempt
+    comment: One logical device per config entry; no dynamic devices.
+  entity-category:
+    status: exempt
+    comment: The calendar entity is the primary entity.
+  entity-device-class:
+    status: exempt
+    comment: Calendar entities have no device class.
+  entity-disabled-by-default:
+    status: exempt
+    comment: The single calendar entity is the integration's purpose.
   entity-translations: done
-  exception-translations: done
+  exception-translations:
+    status: exempt
+    comment: No custom actions; flow errors use translated error keys.
   icon-translations:
     status: exempt
-    comment: Calendar entity uses standard calendar icon.
+    comment: Calendar entity uses the standard calendar icon.
+  reconfiguration-flow:
+    status: exempt
+    comment: All settings are managed through the options flow; the entry
+      title rename is native Home Assistant functionality.
+  repair-issues:
+    status: exempt
+    comment: No repairable external conditions.
+  stale-devices:
+    status: exempt
+    comment: The single device is removed with the config entry.
+
+  # Platinum
+  async-dependency:
+    status: exempt
+    comment: holidays and babel are synchronous libraries; all calls run in
+      the executor.
+  inject-websession:
+    status: exempt
+    comment: No HTTP communication.
+  strict-typing: todo

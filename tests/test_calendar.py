@@ -521,3 +521,183 @@ async def test_calendar_event_window_spans_lookaround_years(
         )
     )
     assert event_years == expected_years
+
+
+async def test_configuration_attributes_excluded_from_recorder() -> None:
+    """Configuration blobs must not be written to the recorder database.
+
+    They are free-form user YAML (potentially large or sensitive); the
+    recorder exclusion keeps them out of history while leaving them visible
+    as live state attributes.
+    """
+    from custom_components.ha_scheduler.calendar import SchedulerCalendar
+
+    assert "configuration" in SchedulerCalendar._unrecorded_attributes
+    assert "default_configuration" in SchedulerCalendar._unrecorded_attributes
+    # The Entity machinery folds _unrecorded_attributes into a combined
+    # frozenset at class-creation time; verify the fold actually happened.
+    combined = SchedulerCalendar._Entity__combined_unrecorded_attributes
+    assert {"configuration", "default_configuration"} <= combined
+
+
+async def test_multi_occurrence_holiday_events_have_unique_uids(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Each generated range must carry its own uid.
+
+    Regression test: uids were keyed on the generation year, so a holiday
+    occurring twice in one year produced two events with identical uids,
+    breaking client-side dedup over the calendar APIs.
+    """
+    entry = create_service_entry(
+        schedules={
+            "eid": {
+                "uid": "eid",
+                "name": "Eid al-Fitr",
+                "schedule_type": "holiday",
+                "country_code": "AE",
+                "category": "public",
+                "holiday_name": "Eid al-Fitr",
+                "name_lookup": "iexact",
+                "start_offset": 0,
+                "end_offset": 0,
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+
+    def _dates_for_year(country, category, name, lookup, year):
+        # The real holidays library is year-scoped; only 2033 has the
+        # double occurrence in this scenario.
+        if year == 2033:
+            return (date(2033, 1, 2), date(2033, 12, 23))
+        return ()
+
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+        side_effect=_dates_for_year,
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+        state = hass.states.get("calendar.test_scheduler")
+        assert state is not None
+
+        calendar = next(
+            e
+            for e in hass.data["calendar"].entities
+            if e.entity_id == "calendar.test_scheduler"
+        )
+        start = datetime(2033, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+        end = datetime(2033, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+        events = await calendar.async_get_events(hass, start, end)
+
+    matching = [e for e in events if e.summary == "Eid al-Fitr"]
+    assert len(matching) == 2
+    uids = {e.uid for e in matching}
+    assert len(uids) == 2, f"duplicate uids: {uids}"
+
+
+async def test_calendar_does_not_poll_and_memoizes_event(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """The entity must not poll, and must compute the event once per write.
+
+    All events are all-day: state can only change at local midnight (covered
+    by the daily refresh and the calendar component's transition timers) or
+    on options updates. The event/extra_state_attributes properties share one
+    memoized computation instead of iterating all schedules twice.
+    """
+    from unittest.mock import patch as mock_patch
+
+    entry = create_service_entry(
+        schedules={
+            "summer": {
+                "uid": "summer",
+                "name": "Summer",
+                "schedule_type": "date",
+                "start_month": 6,
+                "start_day": 1,
+                "end_month": 8,
+                "end_day": 31,
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = next(
+        e
+        for e in hass.data["calendar"].entities
+        if e.entity_id == "calendar.test_scheduler"
+    )
+
+    assert calendar.should_poll is False
+
+    calendar._event_cache = None
+    with mock_patch.object(
+        type(calendar),
+        "_compute_current_or_upcoming_event",
+        wraps=calendar._compute_current_or_upcoming_event,
+    ) as mock_compute:
+        _ = calendar.event
+        _ = calendar.extra_state_attributes
+        _ = calendar.event
+
+    assert mock_compute.call_count == 1
+
+
+async def test_get_events_end_bound_is_exclusive(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """end_date is an exclusive bound against the event start.
+
+    Regression test: the overlap check used to truncate the bound to a date
+    and compare inclusively, so a "July" query (end = Aug 1 00:00) also
+    returned events starting exactly on Aug 1.
+    """
+    entry = create_service_entry(
+        schedules={
+            "aug": {
+                "uid": "aug",
+                "name": "August Schedule",
+                "schedule_type": "date",
+                "start_month": 8,
+                "start_day": 1,
+                "end_month": 8,
+                "end_day": 5,
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    # "Events in July": end bound is exclusive, Aug 1 event must not appear.
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2026, 7, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2026, 8, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert events == []
+
+    # Extending the bound past the event start includes it.
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2026, 7, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2026, 8, 2, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert len(events) == 1
+    assert events[0].start == date(2026, 8, 1)
+
+    # start_date is exclusive against the event end: a query starting exactly
+    # at the event's (exclusive) end must not return it.
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2026, 8, 6, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2026, 9, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert events == []
