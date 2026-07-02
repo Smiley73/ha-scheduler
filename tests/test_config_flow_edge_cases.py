@@ -121,6 +121,23 @@ async def _drive_to_configure_step(hass: HomeAssistant, entry, schedule_type: st
     return flow_id, result
 
 
+def _bare_options_flow(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> OptionsFlowHandler:
+    """Build an OptionsFlowHandler wired to `entry` without driving a full flow init.
+
+    Sets just enough (``hass``, ``handler``) for the ``config_entry`` property
+    to resolve, mirroring what ``hass.config_entries.options.async_init``
+    leaves in place by the time a step method runs -- without the
+    flow-manager bookkeeping (``_progress``, a real ``flow_id``, ...) that
+    driving a full init adds.
+    """
+    flow = OptionsFlowHandler()
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    return flow
+
+
 def test_validate_yaml_config_accepts_dict() -> None:
     """A YAML mapping is parsed and returned as a dict."""
     assert _validate_yaml_config("color: red\nbrightness: 75") == {
@@ -695,17 +712,9 @@ async def test_configure_step_unexpected_exception_shows_unknown_error(
     assert result["errors"]["base"] == "unknown"
 
 
-async def test_configure_week_renders_dict_configuration_as_yaml(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_week_renders_dict_configuration_as_yaml() -> None:
     """A stored dict configuration is rendered back as YAML in the week form."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_id = str(uuid.uuid4())
     flow._schedule_data = {
         "schedule_type": SCHEDULE_TYPE_WEEK,
@@ -725,17 +734,9 @@ async def test_configure_week_renders_dict_configuration_as_yaml(
     assert config_key.default() == "color: red\nbrightness: 75"
 
 
-async def test_configure_nth_day_renders_dict_configuration_as_yaml(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_nth_day_renders_dict_configuration_as_yaml() -> None:
     """A stored dict configuration is rendered back as YAML in the nth-day form."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_id = str(uuid.uuid4())
     flow._schedule_data = {
         "schedule_type": SCHEDULE_TYPE_NTH_DAY,
@@ -756,17 +757,9 @@ async def test_configure_nth_day_renders_dict_configuration_as_yaml(
     assert config_key.default() == "color: red\nbrightness: 75"
 
 
-async def test_configure_holiday_renders_dict_configuration_as_yaml(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_renders_dict_configuration_as_yaml() -> None:
     """A stored dict configuration is rendered back as YAML in the holiday form."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_id = str(uuid.uuid4())
     flow._schedule_data = {
         "schedule_type": SCHEDULE_TYPE_HOLIDAY,
@@ -846,17 +839,9 @@ async def test_configure_holiday_country_aborts_no_countries_available(
     assert result["reason"] == "no_countries_available"
 
 
-async def test_configure_holiday_category_redirects_without_country(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_category_redirects_without_country() -> None:
     """Entering the category step without a country redirects to country."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {}
 
     with patch(
@@ -868,17 +853,9 @@ async def test_configure_holiday_category_redirects_without_country(
     assert result["step_id"] == "configure_holiday_country"
 
 
-async def test_configure_holiday_category_aborts_import_error(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_category_aborts_import_error() -> None:
     """A failure loading categories aborts the flow as import_error."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {"country_code": "US"}
 
     with patch(
@@ -891,17 +868,9 @@ async def test_configure_holiday_category_aborts_import_error(
     assert result["reason"] == "import_error"
 
 
-async def test_configure_holiday_category_falls_back_to_public(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_category_falls_back_to_public() -> None:
     """An empty category map falls back to a single public option."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {"country_code": "US"}
 
     with patch(
@@ -918,17 +887,11 @@ async def test_configure_holiday_category_falls_back_to_public(
     assert [opt["value"] for opt in category_selector.config["options"]] == ["public"]
 
 
-async def test_configure_holiday_category_default_falls_back_when_stored_missing(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_category_default_falls_back_when_stored_missing() -> (
+    None
+):
     """A stored category absent from the loaded map defaults to the first one."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {"country_code": "US", "category": "christmas"}
 
     with patch(
@@ -945,17 +908,9 @@ async def test_configure_holiday_category_default_falls_back_when_stored_missing
     assert category_key.default() == "public"
 
 
-async def test_configure_holiday_redirects_without_country(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_redirects_without_country() -> None:
     """Entering the holiday step without a country redirects to country."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {}
 
     with patch(
@@ -967,17 +922,9 @@ async def test_configure_holiday_redirects_without_country(
     assert result["step_id"] == "configure_holiday_country"
 
 
-async def test_configure_holiday_redirects_without_category(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_redirects_without_category() -> None:
     """Entering the holiday step without a category redirects to category."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {"country_code": "US"}
 
     with patch(
@@ -989,17 +936,9 @@ async def test_configure_holiday_redirects_without_category(
     assert result["step_id"] == "configure_holiday_category"
 
 
-async def test_configure_holiday_import_error_shown_as_form_error(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_import_error_shown_as_form_error() -> None:
     """A failure loading holidays surfaces as a form error, not an abort."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {"country_code": "US", "category": "public"}
 
     with patch(
@@ -1012,17 +951,9 @@ async def test_configure_holiday_import_error_shown_as_form_error(
     assert result["errors"]["base"] == "import_error"
 
 
-async def test_configure_holiday_no_holidays_available(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_configure_holiday_no_holidays_available() -> None:
     """An empty holiday map surfaces as no_holidays_available."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._schedule_data = {"country_code": "US", "category": "public"}
 
     with patch(
@@ -1105,17 +1036,9 @@ async def test_configure_holiday_stored_holiday_not_found(
     assert holiday_key.default() == "New Holiday"
 
 
-async def test_import_holidays_categories_aborts_without_country(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_import_holidays_categories_aborts_without_country() -> None:
     """Entering the import-categories step without a country aborts."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._holiday_data = {}
 
     result = await flow.async_step_import_holidays_categories()
@@ -1124,17 +1047,9 @@ async def test_import_holidays_categories_aborts_without_country(
     assert result["reason"] == "import_error"
 
 
-async def test_import_holidays_categories_empty_defaults_to_public(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_import_holidays_categories_empty_defaults_to_public() -> None:
     """An empty category map proceeds to selection defaulted to public."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._holiday_data = {"country": "US"}
 
     with (
@@ -1154,17 +1069,9 @@ async def test_import_holidays_categories_empty_defaults_to_public(
     assert flow._holiday_data["categories"] == ["public"]
 
 
-async def test_holiday_selection_schema_empty_without_country(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_holiday_selection_schema_empty_without_country() -> None:
     """The holiday-selection schema has no options when country is missing."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._holiday_data = {"categories": ["public"]}
 
     schema = await flow._get_holiday_selection_schema()
@@ -1175,17 +1082,9 @@ async def test_holiday_selection_schema_empty_without_country(
     assert holiday_selector.config["options"] == []
 
 
-async def test_import_selected_holidays_shows_import_error(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_import_selected_holidays_shows_import_error() -> None:
     """A failure loading holidays inside the import step re-shows the form."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
     flow._holiday_data = {"country": "US", "categories": ["public"]}
 
     with patch(
@@ -1237,8 +1136,7 @@ async def test_service_schedule_helpers_return_empty_when_entry_missing(
     entry.add_to_hass(hass)
 
     real_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = _bare_options_flow(hass, entry)
 
     with patch.object(
         hass.config_entries, "async_get_entry", side_effect=[real_entry, None]
@@ -1314,12 +1212,9 @@ async def test_default_configuration_entry_not_found_when_get_entry_returns_none
     """
     entry = create_service_entry()
     entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
 
     real_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = _bare_options_flow(hass, entry)
 
     with patch.object(
         hass.config_entries, "async_get_entry", side_effect=[real_entry, None]
@@ -1342,12 +1237,9 @@ async def test_default_configuration_unexpected_exception_shows_unknown_error(
     """
     entry = create_service_entry()
     entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
 
     real_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = _bare_options_flow(hass, entry)
 
     with patch.object(
         hass.config_entries,
@@ -1395,29 +1287,9 @@ async def test_default_configuration_creates_missing_service(
     assert "other" in services
 
 
-async def test_remove_schedule_confirm_without_input_aborts_unknown(
-    hass: HomeAssistant, create_service_entry
-) -> None:
+async def test_remove_schedule_confirm_without_input_aborts_unknown() -> None:
     """Re-entering the confirm step with no input aborts as unknown."""
-    entry = create_service_entry(
-        schedules={
-            "sched-1": {
-                "uid": "sched-1",
-                "name": "Summer",
-                "schedule_type": "date",
-                "start_month": 6,
-                "start_day": 1,
-                "end_month": 8,
-                "end_day": 31,
-            }
-        }
-    )
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
+    flow = OptionsFlowHandler()
 
     result = await flow.async_step_remove_schedule_confirm()
 
