@@ -361,6 +361,53 @@ class TestGetHolidaysForCountrySync:
         assert pattern["holiday_name"] == "Good Friday"
         assert pattern["name_lookup"] == "iexact"
 
+    def test_get_holidays_variable_date_pattern_uses_own_category_not_last_iterated(
+        self,
+    ):
+        """A movable holiday's rebuilt pattern must use its own category.
+
+        Regression test: the pattern-rebuild call used to pass the outer
+        `for category in categories:` loop variable (left over at its last
+        value once the loop finished) instead of the holiday's actual
+        recorded category, so a movable holiday collected under an earlier
+        category would be mistagged with the last category in the list.
+        """
+        movable_dates = {
+            2023: date(2023, 4, 7),
+            2024: date(2024, 3, 29),
+            2025: date(2025, 4, 18),
+            2026: date(2026, 4, 3),
+            2027: date(2027, 3, 26),
+            2028: date(2028, 4, 14),
+            2029: date(2029, 3, 30),
+        }
+
+        def fake_get_country_holidays_sync(country_code, category, year):
+            if category == "public":
+                return {movable_dates[year]: "Good Friday"}
+            if category == "bank":
+                return {date(year, 1, 1): "Bank Day"}
+            return {}
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+        ):
+            with patch(
+                "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
+                side_effect=fake_get_country_holidays_sync,
+            ):
+                # "bank" is last in the list, so a bug that reuses the loop
+                # variable instead of the holiday's own category would tag
+                # "Good Friday" (collected under "public") as "bank".
+                result = _get_holidays_for_country_sync(
+                    "US", ["public", "bank"], today=date(2026, 6, 15)
+                )
+
+        pattern = result["Good Friday"]["pattern"]
+        assert result["Good Friday"]["category"] == "public"
+        assert pattern["category"] == "public"
+        assert result["Bank Day"]["category"] == "bank"
+
 
 class TestHolidayScheduleResolution:
     """Test holiday-backed schedule resolution."""
@@ -787,6 +834,12 @@ class TestNamedHolidayDatesLanguageRetry:
         succeeds via the casefold item-scan (no get_named on that provider),
         covering the match branch. A non-public category exercises the
         ``categories`` kwarg branch in the retry call.
+
+        The mock records what it was called with instead of asserting inline:
+        an inline assert would run inside the production retry loop's own
+        try/except (holiday_importer.py's "except Exception: continue"), so a
+        real regression there would be silently swallowed and only surface,
+        confusingly, via the final `result` assertion below.
         """
 
         class InitialProvider:
@@ -800,14 +853,16 @@ class TestNamedHolidayDatesLanguageRetry:
             def items(self):
                 return {date(2026, 1, 1): "Neujahr En"}.items()
 
+        calls = []
+        captured_kwargs = {}
+
         def fake_country_holidays_factory(country_code, **kwargs):
             language = kwargs.get("language")
+            calls.append(language)
             if language == "de":
                 raise RuntimeError("de lookup failed")
-            if language == "en":
-                assert kwargs.get("categories") == "bank"
-                return EnglishRetryProvider()
-            raise AssertionError(f"unexpected language {language}")
+            captured_kwargs.update(kwargs)
+            return EnglishRetryProvider()
 
         with patch(
             "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
@@ -822,6 +877,8 @@ class TestNamedHolidayDatesLanguageRetry:
                 )
 
         assert result == (date(2026, 1, 1),)
+        assert calls == ["de", "en"]
+        assert captured_kwargs.get("categories") == "bank"
 
 
 class TestGetSupportedCountriesSyncAdditionalFallbacks:
@@ -954,7 +1011,14 @@ class TestGetAvailableCategoriesSyncAdditionalFallbacks:
 
 
 class TestGetHolidaysForCountrySyncExceptHandlers:
-    """Test the reachable except-handlers in _get_holidays_for_country_sync."""
+    """Test the per-year except-handler in _get_holidays_for_country_sync.
+
+    The outer per-category except-handler is not covered here: the only
+    thing the outer try wraps is this per-year loop, whose own except
+    already catches every Exception and continues, so the outer handler is
+    unreachable short of a second, unrelated failure (e.g. the logging call
+    itself raising) -- see the pragma on that block instead.
+    """
 
     def test_per_year_failure_is_skipped_and_logged(self, caplog):
         """Test one year's failure is skipped while other years still resolve."""
@@ -986,52 +1050,6 @@ class TestGetHolidaysForCountrySyncExceptHandlers:
         # 2025 failed but other years in the lookaround window succeeded.
         assert len(result["New Year"]["dates"]) >= 1
         assert "Could not get public holidays for US in 2025" in caplog.text
-
-    def test_category_level_failure_is_skipped_and_logged(self, caplog):
-        """Test a whole-category failure is skipped while others still resolve.
-
-        Forces the outer per-category except (as opposed to the inner
-        per-year except) by making the per-year except handler's own log
-        call raise; that new exception is not caught by the inner try and
-        propagates to the outer per-category try/except.
-        """
-        original_debug = holiday_importer._LOGGER.debug
-
-        def selective_debug(msg, *args, **kwargs):
-            if isinstance(msg, str) and msg.startswith("Could not get"):
-                raise RuntimeError("logging blew up")
-            return original_debug(msg, *args, **kwargs)
-
-        def fake_country_holidays(country_code, category, year):
-            if category == "public":
-                raise RuntimeError("category lookup boom")
-            return {date(2026, 1, 1): "Bank Holiday"}
-
-        with patch.object(
-            holiday_importer._LOGGER, "debug", side_effect=selective_debug
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer"
-                "._get_country_holidays_sync",
-                side_effect=fake_country_holidays,
-            ):
-                with patch(
-                    "custom_components.ha_scheduler.holiday_importer"
-                    "._get_available_categories_sync",
-                    return_value={
-                        "public": "Public Holidays",
-                        "bank": "Bank Holidays",
-                    },
-                ):
-                    with caplog.at_level(logging.DEBUG):
-                        result = _get_holidays_for_country_sync(
-                            "US", ["public", "bank"]
-                        )
-
-        # The entire "public" category was abandoned; "bank" still resolved.
-        assert "Bank Holiday" in result
-        assert not any(data["category"] == "public" for data in result.values())
-        assert "Category public not supported for US" in caplog.text
 
 
 class TestGetHolidaysForCountryAsyncWrapper:

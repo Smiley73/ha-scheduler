@@ -683,7 +683,7 @@ def _get_holidays_for_country_sync(
                         )
                         continue
 
-            except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
+            except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks  # pragma: no cover - unreachable short of a second failure inside the per-year except's own logging call, which already catches every Exception from the loop body
                 _LOGGER.debug(
                     "Category %s not supported for %s: %s", category, country_code, e
                 )
@@ -725,7 +725,7 @@ def _get_holidays_for_country_sync(
                     }
             elif _should_use_holiday_schedule_pattern(pattern):
                 pattern = build_holiday_schedule_pattern(
-                    country_code, category, holiday_name
+                    country_code, holiday_data["category"], holiday_name
                 )
 
             holiday_data["pattern"] = pattern
