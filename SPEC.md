@@ -1126,7 +1126,7 @@ Include `data_description` for configuration fields:
 
 ### Home Assistant Requirements
 - Follow Home Assistant best practices (see AGENTS.md)
-- Use proper type hints (Python 3.13+)
+- Use proper type hints (Python 3.14+)
 - Pass ruff linting and formatting
 - Integration type: `service`
 - Quality scale: Gold
