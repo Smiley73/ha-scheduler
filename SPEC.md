@@ -2,7 +2,7 @@
 
 **Domain**: `ha_scheduler`
 **Version**: 0.5.2
-**Quality Scale**: Silver (honest rule-by-rule status in quality_scale.yaml)
+**Quality Scale**: Gold (honest rule-by-rule status in quality_scale.yaml)
 **Integration Type**: Service
 **Status**: Implemented and functional
 
