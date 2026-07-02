@@ -671,7 +671,7 @@ Integration metadata and dependencies:
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
-  "quality_scale": "silver",
+  "quality_scale": "gold",
   "requirements": ["holidays>=0.93", "babel>=2.18.0"],
   "version": "0.5.2"
 }
@@ -679,7 +679,7 @@ Integration metadata and dependencies:
 
 **Key Requirements**:
 - **Integration Type**: `service` (not helper)
-- **Quality Scale**: `silver`; remaining Gold/Platinum gaps tracked as todos in quality_scale.yaml
+- **Quality Scale**: `gold`; honest rule-by-rule status in quality_scale.yaml
 - **Dependencies**: `holidays>=0.93` for holiday import functionality, `babel>=2.18.0` for localization
 - **Config Flow**: UI-based configuration required
 - **Version**: 0.5.2 includes holiday import feature with improved code quality
@@ -1165,7 +1165,7 @@ The integration is complete when:
 10. Configuration YAML is properly displayed when editing schedules
 11. Diagnostics feature provides comprehensive service-based troubleshooting data
 12. Migration system seamlessly upgrades v1 to v2 without data loss or entity ID changes
-13. All tests pass; CI enforces a minimum of 80% coverage (including migration, diagnostics, and entity ID tests)
+13. All tests pass; CI enforces a minimum of 95% coverage (including migration, diagnostics, and entity ID tests)
 14. Code passes linting and formatting checks
 15. Integration loads and unloads cleanly in Home Assistant
 16. Service-based architecture supports future enhancements
