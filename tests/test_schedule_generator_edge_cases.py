@@ -4,6 +4,8 @@ import sys
 from datetime import date
 from unittest.mock import patch
 
+import pytest
+
 from custom_components.ha_scheduler.schedule_generator import (
     _generate_by_date,
     _generate_by_holiday,
@@ -401,17 +403,21 @@ def test_check_overlap_accepts_today_reference_date() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_country_first_weekday_babel_import_error_mapped_country() -> None:
-    """When babel can't be imported, a mapped country uses the fallback table."""
-    with patch.dict(sys.modules, {"babel": None}):
+@pytest.mark.parametrize(
+    "country_code, expected",
+    [
         # Japan is in COUNTRY_FIRST_WEEKDAY_FALLBACK with value 6 (Sunday).
-        assert get_country_first_weekday("JP") == 6
-
-
-def test_get_country_first_weekday_babel_import_error_unmapped_country() -> None:
-    """When babel can't be imported, an unmapped country defaults to Monday."""
+        ("JP", 6),
+        # An unmapped country defaults to Monday.
+        ("ZZ", 0),
+    ],
+)
+def test_get_country_first_weekday_babel_import_error(
+    country_code: str, expected: int
+) -> None:
+    """When babel can't be imported, the fallback table (or its default) is used."""
     with patch.dict(sys.modules, {"babel": None}):
-        assert get_country_first_weekday("ZZ") == 0
+        assert get_country_first_weekday(country_code) == expected
 
 
 def test_get_country_first_weekday_babel_retry_lowercase_locale_success() -> None:
@@ -621,7 +627,7 @@ def test_check_overlap_new_schedule_no_cached_ranges(monkeypatch) -> None:
     assert check_overlap(new_schedule, [existing_schedule]) == (False, None)
 
 
-def test_check_overlap_existing_schedule_no_ranges(monkeypatch) -> None:
+def test_check_overlap_existing_schedule_no_ranges() -> None:
     """An existing deterministic schedule that generates no ranges is skipped."""
     new_schedule = {
         "schedule_type": "date",
@@ -632,26 +638,17 @@ def test_check_overlap_existing_schedule_no_ranges(monkeypatch) -> None:
         "uid": "new",
     }
     existing_schedule = {
+        # An out-of-range start_month makes _generate_by_date return [] for
+        # every year in the overlap horizon, so _generate_overlap_ranges
+        # naturally produces () for this schedule's signature.
         "schedule_type": "date",
-        "start_month": 6,
+        "start_month": 13,
         "start_day": 1,
-        "end_month": 6,
-        "end_day": 5,
+        "end_month": 1,
+        "end_day": 2,
         "uid": "existing",
         "name": "Existing",
     }
-    existing_signature = _get_overlap_signature(existing_schedule)
-    real_generate = _generate_overlap_ranges.__wrapped__  # type: ignore[attr-defined]
-
-    def fake_generate(signature):
-        if signature == existing_signature:
-            return ()
-        return real_generate(signature)
-
-    monkeypatch.setattr(
-        "custom_components.ha_scheduler.schedule_generator._generate_overlap_ranges",
-        fake_generate,
-    )
     assert check_overlap(new_schedule, [existing_schedule]) == (False, None)
 
 
