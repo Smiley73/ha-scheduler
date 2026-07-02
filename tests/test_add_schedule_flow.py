@@ -304,3 +304,110 @@ async def test_add_schedule_with_future_cycle_overlap_error(
     assert result["description_placeholders"]["conflicting_schedule"] == (
         "Second Monday of January"
     )
+
+
+async def test_add_nth_day_schedule_first_occurrence(hass: HomeAssistant) -> None:
+    """Test adding an nth-day schedule with the "First" occurrence.
+
+    Regression test: the nth-day flow used to reuse the week occurrence
+    selector whose first-week values are "0_partial"/"0_full", which crashed
+    int() and surfaced a misleading invalid_yaml error.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Test Scheduler",
+        data={},
+        options={"schedules": {}},
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "add_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_type": "nth-day"}
+    )
+    assert result["step_id"] == "configure_nth_day"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "First Monday of March",
+            "month": "3",
+            "occurrence": "0",
+            "day_of_week": "0",
+            "start_offset": 0,
+            "end_offset": 0,
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+    services = updated_entry.options.get("services", {})
+    if services:
+        schedules = services.get("default", {}).get("schedules", {})
+    else:
+        schedules = updated_entry.options.get("schedules", {})
+    assert len(schedules) == 1
+    schedule = next(iter(schedules.values()))
+    assert schedule["occurrence"] == 0
+    assert schedule["day_of_week"] == 0
+    assert schedule["month"] == 3
+
+
+async def test_edit_nth_day_schedule_first_occurrence(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Test editing an existing occurrence-0 nth-day schedule round-trips."""
+    schedule_id = "nth-first"
+    entry = create_service_entry(
+        schedules={
+            schedule_id: {
+                "uid": schedule_id,
+                "name": "First Monday of March",
+                "schedule_type": "nth-day",
+                "month": 3,
+                "occurrence": 0,
+                "day_of_week": 0,
+                "start_offset": 0,
+                "end_offset": 0,
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "edit_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"schedule_id": schedule_id}
+    )
+    assert result["step_id"] == "configure_nth_day"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "name": "First Monday of March",
+            "month": "3",
+            "occurrence": "0",
+            "day_of_week": "0",
+            "start_offset": 1,
+            "end_offset": 0,
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
+    schedules = updated_entry.options["services"]["default"]["schedules"]
+    assert schedules[schedule_id]["occurrence"] == 0
+    assert schedules[schedule_id]["start_offset"] == 1

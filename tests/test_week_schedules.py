@@ -738,3 +738,45 @@ def test_multi_week_schedule_parametrized_years(year, expected_start, expected_e
 
     # Should always end on Saturday (US Sunday-first system)
     assert end_date.weekday() == 5
+
+
+class TestEndWeekTypeResolution:
+    """Same-month schedules must respect an explicitly stored end_week_type.
+
+    Regression tests: _get_effective_week_type used to force the end week's
+    type to the start week's type whenever start_month == end_month, silently
+    shrinking e.g. "first week" -> "first full week" ranges.
+    """
+
+    def test_same_month_explicit_end_week_type_respected(self):
+        """Partial first week to full first week of March 2025."""
+        schedule = {
+            "schedule_type": "week",
+            "start_month": 3,
+            "start_week": 0,
+            "start_week_type": "partial",
+            "end_month": 3,
+            "end_week": 0,
+            "end_week_type": "full",
+        }
+        # March 2025 starts on a Saturday (Monday-first weeks):
+        # partial first week = Mar 1-2, first full week = Mar 3-9.
+        assert generate_schedule_dates(schedule, 2025) == [
+            (date(2025, 3, 1), date(2025, 3, 9))
+        ]
+
+    def test_same_month_without_end_week_type_inherits_start(self):
+        """Without a stored end_week_type, same-month inherits the start type."""
+        schedule = {
+            "schedule_type": "week",
+            "start_month": 3,
+            "start_week": 0,
+            "start_week_type": "full",
+            "end_month": 3,
+            "end_week": 1,
+        }
+        # Both bounds use "full" weeks: first full week starts Mar 3, and the
+        # second week relative to it ends Mar 16.
+        assert generate_schedule_dates(schedule, 2025) == [
+            (date(2025, 3, 3), date(2025, 3, 16))
+        ]

@@ -25,7 +25,7 @@ jobs:
           pip install -r requirements_test.txt
 
       - name: Run ruff check
-        run: ruff check custom_components/
+        run: ruff check custom_components/ tests/
 
       - name: Run ruff format check
-        run: ruff format --check custom_components/
+        run: ruff format --check custom_components/ tests/

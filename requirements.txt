@@ -1,3 +1,5 @@
-homeassistant>=2023.12.0
+# Floor determined by the APIs in use: ConfigFlowResult (2024.4) and the
+# options-flow config_entry property without explicit injection (2024.11/12).
+homeassistant>=2024.12.0
 holidays>=0.95
 babel>=2.18.0

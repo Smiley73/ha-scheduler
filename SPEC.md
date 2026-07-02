@@ -1,8 +1,8 @@
 # Home Assistant Scheduler Integration - Specification
 
 **Domain**: `ha_scheduler`
-**Version**: 0.5.0
-**Quality Scale**: Gold
+**Version**: 0.5.2
+**Quality Scale**: Silver (honest rule-by-rule status in quality_scale.yaml)
 **Integration Type**: Service
 **Status**: Implemented and functional
 
@@ -19,7 +19,7 @@
 
 ### 🔧 **Technical Requirements**
 - **Integration Type**: `service` (changed from `helper`)
-- **Entity Naming**: `_attr_has_entity_name = False` to prevent ID duplication
+- **Entity Naming**: `_attr_has_entity_name = True` with a `None` entity name for single-service setups, so the entity takes the device name and keeps the historical `calendar.<scheduler title>` id
 - **Migration System**: Versioned functions supporting future upgrades
 - **Data Structure**: Service-based options with nested schedules and configuration
 - **Device Grouping**: All calendars grouped under scheduler service device
@@ -502,7 +502,7 @@ Present menu with five options:
 
 ### Entity Naming and IDs
 - **Entity ID Format**: `calendar.{service_name}` (clean, no duplication)
-- **has_entity_name**: Set to `False` to avoid service name duplication in entity ID
+- **has_entity_name**: Set to `True`; the default service uses a `None` entity name so the entity takes the device name without duplication
 - **Unique ID**: 
   - For default service (migrated from v1): `{entry_id}` (maintains backward compatibility)
   - For additional services: `{entry_id}_{service_id}` for internal tracking
@@ -554,7 +554,7 @@ Present menu with five options:
 - **Current Version**: 2 (service-based architecture)
 - **Previous Version**: 1 (helper-based architecture)
 - **Config Flow Version**: 2.1
-- **Manifest Version**: 0.5.0
+- **Manifest Version**: 0.5.2
 
 ### Migration Process
 The integration automatically detects and migrates older config entries:
@@ -671,18 +671,18 @@ Integration metadata and dependencies:
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
-  "quality_scale": "gold",
+  "quality_scale": "silver",
   "requirements": ["holidays>=0.93", "babel>=2.18.0"],
-  "version": "0.5.0"
+  "version": "0.5.2"
 }
 ```
 
 **Key Requirements**:
 - **Integration Type**: `service` (not helper)
-- **Quality Scale**: `gold` level compliance
+- **Quality Scale**: `silver`; remaining Gold/Platinum gaps tracked as todos in quality_scale.yaml
 - **Dependencies**: `holidays>=0.93` for holiday import functionality, `babel>=2.18.0` for localization
 - **Config Flow**: UI-based configuration required
-- **Version**: 0.5.0 includes holiday import feature with improved code quality
+- **Version**: 0.5.2 includes holiday import feature with improved code quality
 
 ### const.py
 Define constants:
@@ -786,7 +786,9 @@ Implement comprehensive diagnostics data collection:
 1. **Entity Naming**: 
    ```python
    class SchedulerCalendar(CalendarEntity):
-       _attr_has_entity_name = False  # Critical: Prevents name duplication
+       _attr_has_entity_name = True
+       # Single-service calendars use a None entity name so the entity takes
+       # the device name, preserving the historical entity id.
    ```
 
 2. **Entity ID Generation**:
@@ -1163,7 +1165,7 @@ The integration is complete when:
 10. Configuration YAML is properly displayed when editing schedules
 11. Diagnostics feature provides comprehensive service-based troubleshooting data
 12. Migration system seamlessly upgrades v1 to v2 without data loss or entity ID changes
-13. All tests pass with >95% coverage (including migration, diagnostics, and entity ID tests)
+13. All tests pass; CI enforces a minimum of 80% coverage (including migration, diagnostics, and entity ID tests)
 14. Code passes linting and formatting checks
 15. Integration loads and unloads cleanly in Home Assistant
 16. Service-based architecture supports future enhancements

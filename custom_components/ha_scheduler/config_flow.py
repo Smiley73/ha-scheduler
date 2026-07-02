@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from functools import partial
 from typing import Any
 
 import voluptuous as vol
@@ -19,14 +20,15 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TemplateSelector,
+    TextSelector,
+    TextSelectorConfig,
 )
 from homeassistant.util import dt as dt_util
 
 from .const import (
     DAY_NAMES,
     DOMAIN,
-    MONTH_NAMES,
+    OCCURRENCE_NAMES,
     SCHEDULE_TYPE_DATE,
     SCHEDULE_TYPE_HOLIDAY,
     SCHEDULE_TYPE_NTH_DAY,
@@ -36,12 +38,9 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _get_month_options() -> list[SelectOptionDict]:
-    """Get month options (values are integers 1-12)."""
-    return [
-        SelectOptionDict(value=str(i + 1), label=MONTH_NAMES[i].capitalize())
-        for i in range(12)
-    ]
+def _get_month_options() -> list[str]:
+    """Get month options (values are integers 1-12, labels via translations)."""
+    return [str(i) for i in range(1, 13)]
 
 
 def _get_day_of_week_options() -> list[SelectOptionDict]:
@@ -52,23 +51,25 @@ def _get_day_of_week_options() -> list[SelectOptionDict]:
     ]
 
 
-def _get_occurrence_options() -> list[SelectOptionDict]:
-    """Get occurrence options with week type support for week schedules."""
+def _get_occurrence_options() -> list[str]:
+    """Get week occurrence options (labels via the week_occurrence translations)."""
     from .const import WEEK_OCCURRENCE_OPTIONS
 
-    return [
-        SelectOptionDict(value=value, label=label.capitalize())
-        for value, label in WEEK_OCCURRENCE_OPTIONS
-    ]
+    return [value for value, _label in WEEK_OCCURRENCE_OPTIONS]
 
 
-def _get_schedule_type_options() -> list[SelectOptionDict]:
-    """Get options for schedule type selection."""
+def _get_nth_day_occurrence_options() -> list[str]:
+    """Get occurrence options for nth-day schedules (values are integers 0-4)."""
+    return [str(i) for i in range(len(OCCURRENCE_NAMES))]
+
+
+def _get_schedule_type_options() -> list[str]:
+    """Get options for schedule type selection (labels via translations)."""
     return [
-        SelectOptionDict(value=SCHEDULE_TYPE_DATE, label="By Date"),
-        SelectOptionDict(value=SCHEDULE_TYPE_WEEK, label="By Week of Month"),
-        SelectOptionDict(value=SCHEDULE_TYPE_NTH_DAY, label="By Nth Day of Month"),
-        SelectOptionDict(value=SCHEDULE_TYPE_HOLIDAY, label="By Holiday"),
+        SCHEDULE_TYPE_DATE,
+        SCHEDULE_TYPE_WEEK,
+        SCHEDULE_TYPE_NTH_DAY,
+        SCHEDULE_TYPE_HOLIDAY,
     ]
 
 
@@ -221,10 +222,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         # Handle both new service-based structure and legacy structure
         services = entry.options.get("services", {})
         if services:
-            return services.get(self._service_id, {}).get("schedules", {})
+            schedules = services.get(self._service_id, {}).get("schedules", {})
         else:
             # Legacy structure
-            return entry.options.get("schedules", {})
+            schedules = entry.options.get("schedules", {})
+
+        # Backfill uid from the storage key for legacy schedules stored
+        # without one; overlap validation excludes the schedule being edited
+        # by uid, and a missing uid made every edit conflict with itself.
+        return {
+            schedule_id: (
+                schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
+            )
+            for schedule_id, schedule in schedules.items()
+        }
 
     def _get_default_holiday_country(self) -> str | None:
         """Return the default country for holiday schedules."""
@@ -238,6 +249,25 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             pass
 
         return None
+
+    def _save_schedule(
+        self, schedule_id: str, schedule: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Merge one schedule into freshly-read options and return them.
+
+        Re-reading at write time (with no awaits before the write) keeps a
+        concurrently-finished flow's save from being clobbered: validation
+        runs on a snapshot, but only this schedule key is written.
+        """
+        schedules = self._get_service_schedules()
+        schedules[schedule_id] = schedule
+        return self._update_service_schedules(schedules)
+
+    def _remove_schedule(self, schedule_id: str) -> dict[str, Any]:
+        """Remove one schedule from freshly-read options and return them."""
+        schedules = self._get_service_schedules()
+        schedules.pop(schedule_id, None)
+        return self._update_service_schedules(schedules)
 
     def _update_service_schedules(self, schedules: dict[str, Any]) -> dict[str, Any]:
         """Update schedules for the current service and return updated options."""
@@ -328,15 +358,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 break
 
         if not errors:
-            has_overlap, conflicting_name = check_overlap(
-                data,
-                list(schedules.values()),
-                # When editing, exclude the current schedule so it doesn't conflict with itself.
-                # When adding, _schedule_id is a new UUID not yet in schedules, so exclude_uid=None.
-                exclude_uid=self._schedule_id
-                if self._schedule_id in schedules
-                else None,
-                today=dt_util.now().date(),
+            # Overlap validation generates schedules across a 400-year cycle;
+            # run it in the executor to keep the event loop responsive.
+            has_overlap, conflicting_name = await self.hass.async_add_executor_job(
+                partial(
+                    check_overlap,
+                    data,
+                    list(schedules.values()),
+                    # When editing, exclude the current schedule so it doesn't conflict with itself.
+                    # When adding, _schedule_id is a new UUID not yet in schedules, so exclude_uid=None.
+                    exclude_uid=self._schedule_id
+                    if self._schedule_id in schedules
+                    else None,
+                    today=dt_util.now().date(),
+                )
             )
 
             if has_overlap:
@@ -351,14 +386,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return errors
 
-    def _validate_week_schedule(self, data: dict[str, Any]) -> dict[str, str]:
-        """Validate that a week schedule produces a valid recurring range."""
+    async def _validate_week_schedule(self, data: dict[str, Any]) -> dict[str, str]:
+        """Validate that a week schedule produces a valid recurring range.
+
+        Runs in the executor: validation generates ranges across a 400-year
+        cycle and may load Babel locale data from disk on first use.
+        """
         if data.get("schedule_type") != SCHEDULE_TYPE_WEEK:
             return {}
 
         from .schedule_generator import week_schedule_has_valid_ranges
 
-        if week_schedule_has_valid_ranges(data):
+        if await self.hass.async_add_executor_job(week_schedule_has_valid_ranges, data):
             return {}
 
         return {"base": "invalid_week_schedule"}
@@ -404,6 +443,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         SelectSelectorConfig(
                             options=_get_schedule_type_options(),
                             mode=SelectSelectorMode.DROPDOWN,
+                            translation_key="schedule_type",
                         )
                     ),
                 }
@@ -445,10 +485,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
-                    # Save schedule
-                    new_schedules = dict(schedules)
-                    new_schedules[self._schedule_id] = data
-                    updated_options = self._update_service_schedules(new_schedules)
+                    updated_options = self._save_schedule(self._schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -479,7 +516,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "start_month", default=str(defaults.get("start_month", 1))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_month_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="month",
                 )
             ),
             vol.Required(
@@ -491,7 +530,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "end_month", default=str(defaults.get("end_month", 12))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_month_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="month",
                 )
             ),
             vol.Required(
@@ -502,8 +543,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         }
 
         # Add configuration field with default value
-        schema_dict[vol.Optional("configuration", default=config_value)] = (
-            TemplateSelector()
+        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
+            TextSelectorConfig(multiline=True)
         )
 
         return self.async_show_form(
@@ -569,21 +610,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ):
                     data["end_day_of_week"] = int(user_input["end_day_of_week"])
 
-                # Add country code if available from Home Assistant config
-                try:
-                    if (
-                        hasattr(self.hass.config, "country")
-                        and self.hass.config.country
-                    ):
-                        data["country_code"] = self.hass.config.country
-                    else:
-                        _LOGGER.debug(
-                            "No country configured in Home Assistant; week "
-                            "schedules default to Monday-first weeks"
-                        )
-                except AttributeError:
-                    # Fallback - try to get from locale or default to None
-                    pass
+                # Preserve the stored country when editing: silently adopting
+                # the current Home Assistant country would shift week
+                # boundaries (Monday-first vs Sunday-first) on unrelated
+                # edits. Only new schedules take the HA country.
+                if stored_country := self._schedule_data.get("country_code"):
+                    data["country_code"] = stored_country
+                elif country := getattr(self.hass.config, "country", None):
+                    data["country_code"] = country
+                else:
+                    _LOGGER.debug(
+                        "No country configured in Home Assistant; week "
+                        "schedules default to Monday-first weeks"
+                    )
 
                 config_yaml = user_input.get("configuration") or ""
                 config_yaml = (
@@ -594,7 +633,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     if config_dict is not None:
                         data["configuration"] = config_dict
 
-                errors.update(self._validate_week_schedule(data))
+                errors.update(await self._validate_week_schedule(data))
 
                 schedules = self._get_service_schedules()
                 # Get current schedules and validate for conflicts
@@ -604,9 +643,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     )
 
                 if not errors:
-                    new_schedules = dict(schedules)
-                    new_schedules[self._schedule_id] = data
-                    updated_options = self._update_service_schedules(new_schedules)
+                    updated_options = self._save_schedule(self._schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -651,12 +688,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "start_month", default=str(defaults.get("start_month", 1))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_month_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="month",
                 )
             ),
             vol.Required("start_week", default=start_week_display): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_occurrence_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="week_occurrence",
                 )
             ),
             vol.Optional(
@@ -674,12 +715,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "end_month", default=str(defaults.get("end_month", 12))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_month_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="month",
                 )
             ),
             vol.Required("end_week", default=end_week_display): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_occurrence_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="week_occurrence",
                 )
             ),
             vol.Optional(
@@ -695,8 +740,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
         }
 
-        schema_dict[vol.Optional("configuration", default=config_value)] = (
-            TemplateSelector()
+        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
+            TextSelectorConfig(multiline=True)
         )
 
         return self.async_show_form(
@@ -740,9 +785,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 errors.update(await self._validate_schedule_conflicts(data, schedules))
 
                 if not errors:
-                    new_schedules = dict(schedules)
-                    new_schedules[self._schedule_id] = data
-                    updated_options = self._update_service_schedules(new_schedules)
+                    updated_options = self._save_schedule(self._schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -772,21 +815,27 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "month", default=str(defaults.get("month", 1))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_month_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_month_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="month",
                 )
             ),
             vol.Required(
                 "occurrence", default=str(defaults.get("occurrence", 0))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_occurrence_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=_get_nth_day_occurrence_options(),
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="occurrence",
                 )
             ),
             vol.Required(
                 "day_of_week", default=str(defaults.get("day_of_week", 0))
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=_get_day_of_week_options(), mode=SelectSelectorMode.DROPDOWN
+                    options=[str(i) for i in range(7)],
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="day_of_week",
                 )
             ),
             vol.Required(
@@ -801,8 +850,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
         }
 
-        schema_dict[vol.Optional("configuration", default=config_value)] = (
-            TemplateSelector()
+        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
+            TextSelectorConfig(multiline=True)
         )
 
         return self.async_show_form(
@@ -827,7 +876,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         try:
             from .holiday_importer import get_supported_countries
 
-            countries = await get_supported_countries()
+            countries = await get_supported_countries(today=dt_util.now().date())
         except Exception:
             _LOGGER.exception("Failed to load holiday countries")
             return self.async_abort(reason="import_error")
@@ -878,7 +927,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         try:
             from .holiday_importer import get_available_categories
 
-            categories = await get_available_categories(str(country_code))
+            categories = await get_available_categories(
+                str(country_code), today=dt_util.now().date()
+            )
         except Exception:
             _LOGGER.exception("Failed to load holiday categories for %s", country_code)
             return self.async_abort(reason="import_error")
@@ -972,9 +1023,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     )
 
                 if not errors:
-                    new_schedules = dict(schedules)
-                    new_schedules[self._schedule_id] = data
-                    updated_options = self._update_service_schedules(new_schedules)
+                    updated_options = self._save_schedule(self._schedule_id, data)
 
                     return self.async_create_entry(title="", data=updated_options)
 
@@ -1002,6 +1051,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         available_holiday_names = {option["value"] for option in holiday_options}
         default_holiday_name = defaults.get("holiday_name")
         if default_holiday_name not in available_holiday_names:
+            # Surface a warning instead of silently preselecting a different
+            # holiday: the stored name may have been renamed or removed by
+            # the installed holidays library.
+            if user_input is None and default_holiday_name and holiday_options:
+                errors.setdefault("holiday_name", "stored_holiday_not_found")
             default_holiday_name = (
                 holiday_options[0]["value"] if holiday_options else ""
             )
@@ -1028,8 +1082,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
         }
 
-        schema_dict[vol.Optional("configuration", default=config_value)] = (
-            TemplateSelector()
+        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
+            TextSelectorConfig(multiline=True)
         )
 
         return self.async_show_form(
@@ -1143,14 +1197,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Confirm schedule removal."""
-        schedules = self._get_service_schedules()
-
         if user_input is not None:
             if user_input.get("confirm"):
-                # Remove schedule
-                new_schedules = dict(schedules)
-                new_schedules.pop(self._schedule_id, None)
-                updated_options = self._update_service_schedules(new_schedules)
+                updated_options = self._remove_schedule(self._schedule_id)
 
                 return self.async_create_entry(title="", data=updated_options)
 
@@ -1186,9 +1235,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         step_id="default_configuration",
                         data_schema=vol.Schema(
                             {
-                                vol.Optional(
-                                    "configuration", default=""
-                                ): TemplateSelector(),
+                                vol.Optional("configuration", default=""): TextSelector(
+                                    TextSelectorConfig(multiline=True)
+                                ),
                             }
                         ),
                         errors=errors,
@@ -1200,31 +1249,41 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         step_id="default_configuration",
                         data_schema=vol.Schema(
                             {
-                                vol.Optional(
-                                    "configuration", default=""
-                                ): TemplateSelector(),
+                                vol.Optional("configuration", default=""): TextSelector(
+                                    TextSelectorConfig(multiline=True)
+                                ),
                             }
                         ),
                         errors=errors,
                     )
 
+                new_configuration = config_dict if config_dict is not None else {}
                 services = entry.options.get("services", {})
-                new_services = dict(services)
+                if services:
+                    new_services = dict(services)
 
-                # Ensure service exists
-                if self._service_id not in new_services:
+                    # Ensure service exists
+                    if self._service_id not in new_services:
+                        new_services[self._service_id] = {
+                            "name": entry.title,
+                            "schedules": {},
+                            "configuration": {},
+                        }
+
                     new_services[self._service_id] = {
-                        "name": entry.title,
-                        "schedules": {},
-                        "configuration": {},
+                        **new_services[self._service_id],
+                        "configuration": new_configuration,
                     }
 
-                new_services[self._service_id] = {
-                    **new_services[self._service_id],
-                    "configuration": config_dict if config_dict is not None else {},
-                }
-
-                updated_options = {**entry.options, "services": new_services}
+                    updated_options = {**entry.options, "services": new_services}
+                else:
+                    # Legacy (pre-services) entries keep their configuration at
+                    # the options root. Writing a services dict here would hide
+                    # the root-level schedules from every reader.
+                    updated_options = {
+                        **entry.options,
+                        "configuration": new_configuration,
+                    }
 
                 return self.async_create_entry(title="", data=updated_options)
 
@@ -1239,10 +1298,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
 
-        # Get current service configuration
+        # Get current service configuration (legacy entries store it at the
+        # options root)
         entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
         services = entry.options.get("services", {}) if entry else {}
-        current_config = services.get(self._service_id, {}).get("configuration", {})
+        if services:
+            current_config = services.get(self._service_id, {}).get("configuration", {})
+        else:
+            current_config = entry.options.get("configuration", {}) if entry else {}
         config_str = yaml.dump(current_config) if current_config else ""
 
         # If re-displaying after an error, preserve what the user typed so they can correct it
@@ -1253,9 +1316,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="default_configuration",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        "configuration", default=config_str
-                    ): TemplateSelector(),
+                    vol.Optional("configuration", default=config_str): TextSelector(
+                        TextSelectorConfig(multiline=True)
+                    ),
                 }
             ),
             errors=errors,
@@ -1273,7 +1336,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         try:
             from .holiday_importer import get_supported_countries
 
-            countries = await get_supported_countries()
+            countries = await get_supported_countries(today=dt_util.now().date())
 
             if not countries:
                 return self.async_abort(reason="no_countries_available")
@@ -1314,7 +1377,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             country = self._holiday_data.get("country")
             if not country:
                 return self.async_abort(reason="import_error")
-            categories = await get_available_categories(country)
+            categories = await get_available_categories(
+                country, today=dt_util.now().date()
+            )
 
             if not categories:
                 # Skip to next step with default
@@ -1481,16 +1546,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 country, categories, today=dt_util.now().date()
             )
 
-            # Get current schedules
+            # Get current schedules (uids are backfilled by _get_service_schedules)
             schedules = self._get_service_schedules()
             new_schedules = dict(schedules)
-
-            def get_schedules_with_uids() -> list[dict[str, Any]]:
-                """Return current schedules with a fallback uid for legacy entries."""
-                return [
-                    schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
-                    for schedule_id, schedule in new_schedules.items()
-                ]
+            # Only the schedules this import adds or overwrites; merged into
+            # freshly-read options at write time so a concurrent flow's save
+            # isn't clobbered by this snapshot.
+            changed_schedules: dict[str, Any] = {}
 
             imported_count = 0
             skipped_count = 0
@@ -1528,7 +1590,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 schedule = {
                     "uid": str(uuid.uuid4()),
                     "name": schedule_name,
-                    **{k: v for k, v in pattern.items() if k != "description"},
+                    # description/variable_date are analysis metadata, not
+                    # schedule fields.
+                    **{
+                        k: v
+                        for k, v in pattern.items()
+                        if k not in ("description", "variable_date")
+                    },
                 }
 
                 # Check for existing schedule with same name
@@ -1556,17 +1624,20 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         )
                         continue
 
-                existing_schedules_list = get_schedules_with_uids()
+                existing_schedules_list = list(new_schedules.values())
                 current_year = dt_util.now().date().year
                 await async_prime_holiday_cache(
                     [schedule, *existing_schedules_list],
                     range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
                 )
-                has_overlap, conflicting_name = check_overlap(
-                    schedule,
-                    existing_schedules_list,
-                    exclude_uid=excluded_uid,
-                    today=dt_util.now().date(),
+                has_overlap, conflicting_name = await self.hass.async_add_executor_job(
+                    partial(
+                        check_overlap,
+                        schedule,
+                        existing_schedules_list,
+                        exclude_uid=excluded_uid,
+                        today=dt_util.now().date(),
+                    )
                 )
 
                 if has_overlap and skip_on_overlap:
@@ -1578,27 +1649,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
                 if existing_schedule_id and overwrite_existing:
                     new_schedules[existing_schedule_id] = schedule
+                    changed_schedules[existing_schedule_id] = schedule
                     overwritten_count += 1
                     continue
 
                 # Add the schedule (importing despite overlap when skip_on_overlap is False)
                 new_schedules[schedule["uid"]] = schedule
+                changed_schedules[schedule["uid"]] = schedule
                 imported_count += 1
 
             # Update schedules if any were imported or overwritten
             if imported_count > 0 or overwritten_count > 0:
-                updated_options = self._update_service_schedules(new_schedules)
+                merged_schedules = self._get_service_schedules()
+                merged_schedules.update(changed_schedules)
+                updated_options = self._update_service_schedules(merged_schedules)
 
-                # Create success message
-                messages = []
-                if imported_count > 0:
-                    messages.append(f"Imported {imported_count} holiday(s)")
-                if overwritten_count > 0:
-                    messages.append(
-                        f"Overwritten {overwritten_count} existing schedule(s)"
-                    )
-                if skipped_count > 0:
-                    messages.append(f"Skipped {skipped_count} holiday(s)")
+                _LOGGER.info(
+                    "Holiday import for %s: %d imported, %d overwritten, %d skipped%s",
+                    country,
+                    imported_count,
+                    overwritten_count,
+                    skipped_count,
+                    f" ({'; '.join(errors)})" if errors else "",
+                )
 
                 return self.async_create_entry(title="", data=updated_options)
             else:

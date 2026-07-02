@@ -34,6 +34,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         version = CURRENT_VERSION
         minor_version = CURRENT_MINOR_VERSION
 
+    # Same major version with an older minor: nothing structural changes,
+    # but the stored minor must be bumped or core re-offers the entry for
+    # migration on every restart.
+    if version == CURRENT_VERSION and minor_version < CURRENT_MINOR_VERSION:
+        minor_version = CURRENT_MINOR_VERSION
+
     # Update version numbers
     if version != entry.version or minor_version != entry.minor_version:
         hass.config_entries.async_update_entry(
@@ -61,8 +67,9 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
         existing_schedules = entry.options.get("schedules", {})
         existing_config = entry.options.get("configuration", {})
 
-        # Create new service-based structure
+        # Create new service-based structure, preserving any unknown keys
         new_data = {
+            **entry.data,
             "scheduler_name": entry.title,  # Use existing title as service name
         }
 

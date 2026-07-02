@@ -44,7 +44,7 @@ This guide will help you set up your development environment and run tests for t
 
 ## Prerequisites
 
-- Python 3.13
+- Python 3.14
 - Git
 - A Home Assistant installation (for manual testing)
 
@@ -332,7 +332,7 @@ This project uses GitHub Actions for CI/CD:
 - **Validate Workflow**: Validates HACS and Home Assistant compliance
 - **CodeQL**: Security analysis
 
-All workflows run on Python 3.13.
+All workflows run on Python 3.14.
 
 Check the Actions tab in GitHub to see results. Pre-commit hooks catch most issues locally before pushing.
 
@@ -373,12 +373,12 @@ Check the Actions tab in GitHub to see results. Pre-commit hooks catch most issu
 
 This project follows Home Assistant's coding standards:
 
-- Python 3.13+
+- Python 3.14+
 - Type hints required
 - Ruff for linting and formatting
 - Pytest for testing
 - American English for all text
-- Test coverage >95%
+- Test coverage at or above the 80% CI gate
 
 ## Troubleshooting
 

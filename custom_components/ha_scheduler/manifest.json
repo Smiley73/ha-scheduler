@@ -7,7 +7,7 @@
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/Smiley73/ha-scheduler/issues",
-  "quality_scale": "gold",
+  "quality_scale": "silver",
   "requirements": ["holidays>=0.95", "babel>=2.18.0"],
-  "version": "0.5.1"
+  "version": "0.5.2"
 }

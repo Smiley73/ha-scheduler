@@ -167,6 +167,9 @@ def test_no_unintended_base_class_overrides() -> None:
 
     intentional_overrides = {
         "_attr_has_entity_name",
+        "_attr_should_poll",
+        # Entity's documented extension point for recorder exclusions.
+        "_unrecorded_attributes",
         "async_added_to_hass",
         "async_will_remove_from_hass",
         "extra_state_attributes",

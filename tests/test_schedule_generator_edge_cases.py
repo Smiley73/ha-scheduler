@@ -156,16 +156,13 @@ def test_get_nth_weekday_invalid_inputs() -> None:
     assert result is None
 
 
-def test_get_nth_weekday_nonexistent_occurrence() -> None:
-    """Test _get_nth_weekday when requested occurrence doesn't exist."""
-    # Request 5th Sunday of February 2024 (likely doesn't exist)
-    result = _get_nth_weekday(2024, 2, 4, 6)  # 5th Sunday (0-indexed week 4)
-    # Should return None if it doesn't exist
-    if result is None:
-        assert True  # Expected behavior
-    else:
-        # If it does exist, verify it's actually the 5th Sunday
-        assert result.weekday() == 6  # Sunday
+def test_get_nth_weekday_last_occurrence_semantics() -> None:
+    """Occurrence 4 means "last" and resolves to concrete dates."""
+    # February 2024 has four Sundays; the last is Feb 25.
+    assert _get_nth_weekday(2024, 2, 4, 6) == date(2024, 2, 25)
+    # March 2024 has five Fridays; "last" (29th) differs from "fourth" (22nd).
+    assert _get_nth_weekday(2024, 3, 4, 4) == date(2024, 3, 29)
+    assert _get_nth_weekday(2024, 3, 3, 4) == date(2024, 3, 22)
 
 
 def test_check_overlap_edge_cases() -> None:

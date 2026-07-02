@@ -1,6 +1,6 @@
 """Comprehensive tests for holiday import functionality."""
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -10,10 +10,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_scheduler.const import DOMAIN
 from custom_components.ha_scheduler.holiday_importer import (
-    _analyze_week_pattern,
     analyze_holiday_pattern,
     calculate_occurrence,
 )
+from custom_components.ha_scheduler.schedule_generator import generate_schedule_dates
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -926,64 +926,71 @@ class TestHolidayPatternAnalysis:
         assert pattern["day_of_week"] == 0  # Monday
         assert "Last Monday of May" in pattern["description"]
 
-    def test_analyze_week_pattern_single_week(self):
-        """Test analyzing a pattern that spans multiple days in the same week."""
-        # Spring break: Monday to Friday of the first week of March
+    def test_analyze_multi_day_span_single_week(self):
+        """Test analyzing a pattern that spans multiple days each year."""
+        # Spring break: first Monday of March through the following Friday
         dates = [
-            date(2023, 3, 6),  # Monday, first occurrence
+            date(2023, 3, 6),  # Monday
             date(2023, 3, 7),  # Tuesday
             date(2023, 3, 8),  # Wednesday
             date(2023, 3, 9),  # Thursday
-            date(2023, 3, 10),  # Friday, second occurrence
-            date(2024, 3, 4),  # Monday, first occurrence
+            date(2023, 3, 10),  # Friday
+            date(2024, 3, 4),  # Monday
             date(2024, 3, 5),  # Tuesday
             date(2024, 3, 6),  # Wednesday
             date(2024, 3, 7),  # Thursday
-            date(2024, 3, 8),  # Friday, second occurrence
+            date(2024, 3, 8),  # Friday
         ]
 
-        pattern = _analyze_week_pattern(dates)
+        pattern = analyze_holiday_pattern(dates)
 
         assert pattern is not None
-        assert pattern["schedule_type"] == "week"
-        assert pattern["start_month"] == 3
-        assert pattern["start_week"] == 0  # First occurrence of Monday
-        assert pattern["start_week_type"] == "partial"
-        assert pattern["start_day_of_week"] == 0  # Monday
-        assert pattern["end_month"] == 3
-        assert pattern["end_week"] == 1  # Second occurrence of Friday
-        assert pattern["end_day_of_week"] == 4  # Friday
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["month"] == 3
+        assert pattern["occurrence"] == 0  # First Monday
+        assert pattern["day_of_week"] == 0  # Monday
+        assert pattern["start_offset"] == 0
+        assert pattern["end_offset"] == 4  # Monday through Friday
 
-    def test_analyze_week_pattern_cross_weeks(self):
-        """Test analyzing a pattern that spans across different weeks."""
-        # First Friday to First Monday (same occurrence numbers)
-        dates = [
-            date(2023, 3, 3),  # Friday, first occurrence
-            date(2023, 3, 4),  # Saturday
-            date(2023, 3, 5),  # Sunday
-            date(2023, 3, 6),  # Monday, first occurrence
-            date(2024, 3, 1),  # Friday, first occurrence
-            date(2024, 3, 2),  # Saturday
-            date(2024, 3, 3),  # Sunday
-            date(2024, 3, 4),  # Monday, first occurrence
-        ]
+    def test_analyze_multi_day_span_generates_input_dates(self):
+        """The detected pattern must regenerate the analyzed dates.
 
-        pattern = _analyze_week_pattern(dates)
+        Regression test: the former week-based pattern stored weekday
+        occurrences as calendar-week numbers, so a first-Monday/Tuesday
+        holiday generated events only in years where the month started on
+        a Monday (one in seven) — including none of the analyzed years.
+        """
+        dates = []
+        for year in range(2023, 2030):
+            # First Monday of November plus the following Tuesday
+            first_monday = next(
+                date(year, 11, day)
+                for day in range(1, 8)
+                if date(year, 11, day).weekday() == 0
+            )
+            dates.extend([first_monday, first_monday + timedelta(days=1)])
+
+        pattern = analyze_holiday_pattern(list(dates))
 
         assert pattern is not None
-        assert pattern["schedule_type"] == "week"
-        assert pattern["start_month"] == 3
-        assert pattern["start_week"] == 0  # First occurrence
-        assert pattern["start_week_type"] == "partial"
-        assert pattern["start_day_of_week"] == 4  # Friday
-        assert pattern["end_month"] == 3
-        assert pattern["end_week"] == 0  # First occurrence
-        assert pattern["end_week_type"] == "partial"
-        assert pattern["end_day_of_week"] == 0  # Monday
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["month"] == 11
+        assert pattern["occurrence"] == 0
+        assert pattern["day_of_week"] == 0
+        assert pattern["end_offset"] == 1
 
-    def test_analyze_week_pattern_inconsistent(self):
-        """Test that inconsistent patterns return None."""
-        # Dates that don't follow a consistent week pattern
+        # Every analyzed year must be covered by the generated ranges.
+        for year in range(2023, 2030):
+            ranges = generate_schedule_dates(pattern, year)
+            assert len(ranges) == 1, f"no range generated for {year}"
+            start, end = ranges[0]
+            year_dates = [d for d in dates if d.year == year]
+            assert start == year_dates[0]
+            assert end == year_dates[-1]
+
+    def test_analyze_multi_day_span_inconsistent(self):
+        """Test that inconsistent patterns return None (variable date)."""
+        # Dates that don't follow a consistent pattern across years
         dates = [
             date(2023, 3, 6),  # Monday, first week of March 2023
             date(2023, 3, 7),  # Tuesday
@@ -991,43 +998,18 @@ class TestHolidayPatternAnalysis:
             date(2024, 3, 16),  # Different week in 2024
         ]
 
-        pattern = _analyze_week_pattern(dates)
-        assert pattern is None
-
-    def test_analyze_week_pattern_insufficient_data(self):
-        """Test that insufficient data returns None."""
-        # Only one date
-        dates = [date(2023, 3, 6)]
-        pattern = _analyze_week_pattern(dates)
-        assert pattern is None
-
-        # Only one year
-        dates = [date(2023, 3, 6), date(2023, 3, 7)]
-        pattern = _analyze_week_pattern(dates)
-        assert pattern is None
-
-    def test_analyze_holiday_pattern_prefers_week_over_nth_day(self):
-        """Test that analyze_holiday_pattern can detect week patterns."""
-        # Spring break: Monday to Friday spanning first and second week occurrences
-        dates = [
-            date(2023, 3, 6),  # Monday, first occurrence
-            date(2023, 3, 7),  # Tuesday
-            date(2023, 3, 8),  # Wednesday
-            date(2023, 3, 9),  # Thursday
-            date(2023, 3, 10),  # Friday, second occurrence
-            date(2024, 3, 4),  # Monday, first occurrence
-            date(2024, 3, 5),  # Tuesday
-            date(2024, 3, 6),  # Wednesday
-            date(2024, 3, 7),  # Thursday
-            date(2024, 3, 8),  # Friday, second occurrence
-        ]
-
         pattern = analyze_holiday_pattern(dates)
-
-        # Should detect as week pattern since it spans multiple consecutive days
         assert pattern is not None
-        assert pattern["schedule_type"] == "week"
-        assert "March" in pattern["description"]
+        assert pattern["schedule_type"] == "date"
+        assert pattern.get("variable_date") is True
+
+    def test_analyze_multi_day_span_single_year_falls_back(self):
+        """A single year of multi-day data cannot establish a recurrence."""
+        dates = [date(2023, 3, 6), date(2023, 3, 7)]
+        pattern = analyze_holiday_pattern(dates)
+        assert pattern is not None
+        assert pattern["schedule_type"] == "date"
+        assert pattern.get("variable_date") is True
 
     def test_analyze_holiday_pattern_single_day_remains_nth_day(self):
         """Test that single-day holidays still use nth-day pattern."""
@@ -1045,6 +1027,49 @@ class TestHolidayPatternAnalysis:
         assert pattern["schedule_type"] == "nth-day"
         assert pattern["occurrence"] == 4  # Last
         assert pattern["day_of_week"] == 0  # Monday
+
+    def test_analyze_nth_day_occurrence_validated_across_years(self):
+        """Occurrence detection must agree with every analyzed year.
+
+        Regression test: the occurrence used to be computed from the first
+        year alone. April 2023's 4th Friday is also its last Friday, so a
+        genuine "4th Friday" holiday was misdetected as "Last Friday" and
+        generated the wrong date in five-Friday years like 2027.
+        """
+        dates = [
+            date(2023, 4, 28),  # 4th Friday (April 2023 has only 4 Fridays)
+            date(2024, 4, 26),
+            date(2025, 4, 25),
+            date(2026, 4, 24),
+            date(2027, 4, 23),  # 4th Friday; last Friday is April 30
+        ]
+
+        pattern = analyze_holiday_pattern(list(dates))
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["occurrence"] == 3  # Fourth, not last
+        for expected in dates:
+            assert generate_schedule_dates(pattern, expected.year) == [
+                (expected, expected)
+            ]
+
+    def test_analyze_nth_day_last_occurrence_detected(self):
+        """A genuine last-weekday holiday still resolves to occurrence 4."""
+        dates = [
+            date(2023, 4, 28),  # Last Friday of April 2023
+            date(2027, 4, 30),  # Last (5th) Friday of April 2027
+        ]
+
+        pattern = analyze_holiday_pattern(list(dates))
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["occurrence"] == 4  # Last
+        for expected in dates:
+            assert generate_schedule_dates(pattern, expected.year) == [
+                (expected, expected)
+            ]
 
     def test_analyze_single_date_pattern(self):
         """Test analyzing a pattern with only one date."""
