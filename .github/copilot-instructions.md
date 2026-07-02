@@ -44,7 +44,7 @@ pytest tests/ -q               # full suite (fast, ~2s)
 ruff check custom_components/ tests/ && ruff format --check custom_components/ tests/
 ```
 
-CI runs tests on Python 3.13 and 3.14 with an 80% coverage gate, ruff over
+CI runs tests on Python 3.14 with an 80% coverage gate, ruff over
 `custom_components/` and `tests/`, hassfest + HACS validation, and CodeQL.
 Dependencies are unpinned floors; a weekly scheduled test run catches
 upstream `holidays`/`babel`/`homeassistant` changes.

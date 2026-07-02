@@ -15,18 +15,14 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.14
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
 
       - name: Install dependencies
         run: |

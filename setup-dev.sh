@@ -18,10 +18,11 @@ if [ -z "$VIRTUAL_ENV" ]; then
     fi
 fi
 
-# Warn when the local Python lags CI (CI tests 3.13 and 3.14)
+# Warn when the local Python lags CI (CI runs 3.14)
 PY_MINOR=$(python -c 'import sys; print(sys.version_info.minor)')
-if [ "$PY_MINOR" -lt 13 ]; then
-    echo "⚠️  Python 3.$PY_MINOR detected; CI runs 3.13 and 3.14."
+if [ "$PY_MINOR" -lt 14 ]; then
+    echo "⚠️  Python 3.$PY_MINOR detected; CI runs 3.14. Consider rebuilding"
+    echo "   the venv on 3.14 to keep local results representative."
 fi
 
 # Install development dependencies (includes pre-commit).
