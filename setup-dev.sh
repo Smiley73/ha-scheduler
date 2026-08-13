@@ -26,8 +26,8 @@ if [ "$PY_MINOR" -lt 14 ]; then
 fi
 
 # Install development dependencies (includes pre-commit).
-# --upgrade matters: requirements are unpinned floors, and a stale venv can
-# mask bugs that only occur with the holidays/homeassistant versions users
+# --upgrade matters: runtime requirements are unpinned floors, and a stale venv
+# can mask bugs that only occur with the holidays/homeassistant versions users
 # actually run.
 echo "📚 Installing development dependencies (latest versions)..."
 pip install --upgrade -r requirements_test.txt

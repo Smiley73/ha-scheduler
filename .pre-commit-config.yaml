@@ -3,20 +3,24 @@
 # Run manually: pre-commit run --all-files
 
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+  - repo: local
     hooks:
-      # Run the linter
-      - id: ruff
-        args: [--fix]
+      # Ruff runs as a local system hook (like mypy and pytest below) so its
+      # version comes from requirements_test.txt alone. A pinned `rev:` here
+      # would be a second, independently drifting source of the ruff version,
+      # and dependabot does not watch the pre-commit ecosystem.
+      - id: ruff-check
+        name: ruff check
+        entry: python -m ruff check --fix custom_components/ tests/
+        language: system
         pass_filenames: false
         always_run: true
-        exclude: '.*\.md$'
-      # Run the formatter
       - id: ruff-format
+        name: ruff format
+        entry: python -m ruff format custom_components/ tests/
+        language: system
         pass_filenames: false
         always_run: true
-        exclude: '.*\.md$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

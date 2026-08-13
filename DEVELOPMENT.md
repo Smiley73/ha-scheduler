@@ -106,7 +106,7 @@ Now every commit will automatically:
 - Format code with Ruff
 - Remove trailing whitespace
 - Validate YAML files
-- Run tests on changed files
+- Run the full test suite
 
 **Important**: Pre-commit uses the Python environment where it was installed. Always activate your virtual environment before committing:
 ```bash
@@ -196,6 +196,11 @@ pre-commit run --all-files
 # Update pre-commit hooks
 pre-commit autoupdate
 ```
+
+`autoupdate` does not manage ruff, mypy, or pytest: those run as local
+`system` hooks against the versions installed from `requirements_test.txt`,
+so bump them there (dependabot opens those PRs) and re-run `pip install -r
+requirements_test.txt`.
 
 ## Running Home Assistant Locally
 
@@ -378,7 +383,7 @@ This project follows Home Assistant's coding standards:
 - Ruff for linting and formatting
 - Pytest for testing
 - American English for all text
-- Test coverage at or above the 80% CI gate
+- Test coverage at or above the 95% CI gate
 
 ## Troubleshooting
 

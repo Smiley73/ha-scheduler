@@ -46,8 +46,10 @@ ruff check custom_components/ tests/ && ruff format --check custom_components/ t
 
 CI runs tests on Python 3.14 with a 95% coverage gate, ruff over
 `custom_components/` and `tests/`, hassfest + HACS validation, and CodeQL.
-Dependencies are unpinned floors; a weekly scheduled test run catches
-upstream `holidays`/`babel`/`homeassistant` changes.
+Runtime dependencies are unpinned floors; a weekly scheduled test run catches
+upstream `holidays`/`babel`/`homeassistant` changes. Lint tooling (`ruff`,
+`mypy`) is bounded to a minor series instead, so a new rule cannot turn CI red
+without a commit; pre-commit runs ruff from that same install.
 
 ## Conventions and gotchas
 

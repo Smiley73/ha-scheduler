@@ -260,7 +260,7 @@ class SchedulerCalendar(CalendarEntity):
                             active_events.append((event.start, event, schedule))
                         elif schedule_start > today:
                             future_events.append((event.start, event, schedule))
-            except Exception:  # noqa: BLE001 - one bad schedule must not hide the others
+            except Exception:  # one bad schedule must not hide the others
                 _LOGGER.warning(
                     "Skipping schedule %r while determining the current event",
                     schedule.get("name", schedule.get("uid")),
@@ -355,7 +355,7 @@ class SchedulerCalendar(CalendarEntity):
                                     description="",
                                 )
                             )
-            except Exception:  # noqa: BLE001 - one bad schedule must not hide the others
+            except Exception:  # one bad schedule must not hide the others
                 _LOGGER.warning(
                     "Skipping schedule %r while listing calendar events",
                     schedule.get("name", schedule.get("uid")),
