@@ -1,7 +1,7 @@
 pytest>=9.0.0
 pytest-homeassistant-custom-component>=0.13.346
 pytest-cov>=7.1.0
-ruff>=0.15.20
+ruff>=0.15.21
 mypy>=2.1.0
 types-PyYAML
 pre-commit>=4.6.0
