@@ -25,14 +25,18 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
+      # These take the staged filenames pre-commit passes them. They must not
+      # set `pass_filenames: false` (as the ruff/mypy/pytest hooks do, since
+      # those name their own paths): with no filenames these fixers inspect
+      # nothing and report a passing no-op.
+      # --markdown-linebreak-ext preserves trailing-space hard line breaks in
+      # Markdown: a non-blank line ending in two or more spaces is normalized
+      # to exactly two, so a deliberate break survives (and a sloppy run of
+      # spaces becomes one). Everything else is stripped, blank lines included.
       - id: trailing-whitespace
-        pass_filenames: false
-        always_run: true
-        exclude: '.*\.md$'
+        # quoted: an unquoted YAML flow sequence would split this on the commas
+        args: ["--markdown-linebreak-ext=md,markdown,mdx"]
       - id: end-of-file-fixer
-        pass_filenames: false
-        always_run: true
-        exclude: '.*\.md$'
       - id: check-yaml
       - id: check-added-large-files
       - id: check-merge-conflict
