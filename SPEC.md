@@ -89,7 +89,7 @@ Define a schedule using week occurrences within months with optional week type s
 - Week type only applies to first week (occurrence 0), other weeks are always full
 - Invalid weekday/week combinations that do not produce a valid recurring date range are rejected during configuration
 
-**Examples**: 
+**Examples**:
 - First Monday of March to Last Friday of June (specific days)
 - First full week of March to Second week of June (whole weeks)
 - First week of December to First week of January (year wrapping)
@@ -140,7 +140,7 @@ The integration includes a comprehensive holiday import feature that automatical
 
 **Dynamic Country Discovery**: Countries are discovered dynamically from the holidays library using `holidays.list_supported_countries()`, ensuring the latest coverage without hardcoded lists.
 
-**Intelligent Country Naming**: 
+**Intelligent Country Naming**:
 - Uses Babel's territory data to get proper country names (e.g., "United States" instead of "US")
 - Falls back to holidays library country names when Babel unavailable
 - Graceful degradation to formatted country codes as last resort
@@ -299,7 +299,7 @@ Present menu with five options:
 ### Add Schedule Flow
 1. **Step 1**: Select schedule type
    - Radio/dropdown: By Date, By Week of Month, By Nth Day of Month, By Holiday
-   
+
 2. **Step 2**: Single-page form with all parameters for Date, Week, and Nth-Day schedules
    - Schedule name (text input, required)
    - All schedule-specific parameters (dates/weeks/occurrences)
@@ -311,7 +311,7 @@ Present menu with five options:
    - Configuration (YAML, optional, TemplateSelector)
    - Validate all inputs on this page
    - Show errors inline if validation fails
-   
+
 3. **On Submit**:
    - Generate unique UID using `str(uuid.uuid4())`
    - Validate schedule name is unique within this service (case-insensitive)
@@ -327,7 +327,7 @@ Present menu with five options:
 
 ### Edit Schedule Flow
 1. **Step 1**: Select schedule from dropdown (shows schedule names)
-   
+
 2. **Step 2**: Single-page form with all parameters pre-filled
    - Load schedule data
    - **Critical**: Convert configuration dict to YAML string using `yaml.dump(default_flow_style=False, sort_keys=False)`
@@ -335,7 +335,7 @@ Present menu with five options:
    - Configuration field uses `default` parameter (not `suggested_value`) to show existing YAML
    - Allow editing all parameters including name
    - Validate on submit
-   
+
 3. **On Submit**:
    - Allow keeping same name (exclude current schedule from uniqueness check)
    - Check for overlaps (exclude current schedule)
@@ -344,12 +344,12 @@ Present menu with five options:
 
 ### Remove Schedule Flow
 1. **Step 1**: Select schedule from dropdown (shows schedule names)
-   
+
 2. **Step 2**: Confirmation dialog
    - Show schedule name and type
    - Checkbox: "Confirm removal"
    - Only proceed if checkbox is checked
-   
+
 3. **On Confirm**:
    - Remove schedule from `config_entry.options["services"]["default"]["schedules"]` dict
    - Preserve all other schedules
@@ -407,7 +407,7 @@ Present menu with five options:
 ### Name Uniqueness
 - **Service names**: Must be unique across all scheduler services (case-insensitive)
   - Error: "Name already exists. Please choose a different name."
-  
+
 - **Schedule names**: Must be unique within each service (case-insensitive)
   - Error: "A schedule with this name already exists. Please choose a different name."
   - When editing: Allow keeping the same name (exclude current schedule from check)
@@ -452,13 +452,13 @@ Present menu with five options:
                         "uid": "uuid-string",
                         "name": "Schedule Name",
                         "schedule_type": "date",  # or "week", "nth-day"
-                        
+
                         # For schedule_type="date":
                         "start_month": 3,      # 1-12
                         "start_day": 15,       # 1-31
                         "end_month": 6,        # 1-12
                         "end_day": 20,         # 1-31
-                        
+
                         # For schedule_type="week":
                         "start_month": 3,           # 1-12
                         "start_week": 0,            # 0-4 (0=first, 4=last)
@@ -469,14 +469,14 @@ Present menu with five options:
                         "end_week_type": "partial", # "partial" or "full" (only for end_week=0)
                         "end_day_of_week": 4,       # 0-6 - optional
                         "country_code": "US",       # ISO country code for week start detection - optional
-                        
+
                         # For schedule_type="nth-day":
                         "month": 3,            # 1-12
                         "occurrence": 1,       # 0-4 (0=first, 4=last)
                         "day_of_week": 1,      # 0-6 (0=Monday)
                         "start_offset": 2,     # days before (0-30)
                         "end_offset": 3,       # days after (0-30)
-                        
+
                         # Optional for all types:
                         "configuration": {"key": "value"}  # dict or omitted
                     }
@@ -503,7 +503,7 @@ Present menu with five options:
 ### Entity Naming and IDs
 - **Entity ID Format**: `calendar.{service_name}` (clean, no duplication)
 - **has_entity_name**: Set to `True`; the default service uses a `None` entity name so the entity takes the device name without duplication
-- **Unique ID**: 
+- **Unique ID**:
   - For default service (migrated from v1): `{entry_id}` (maintains backward compatibility)
   - For additional services: `{entry_id}_{service_id}` for internal tracking
 - **Display Name**: Uses the service name directly
@@ -560,7 +560,7 @@ Present menu with five options:
 The integration automatically detects and migrates older config entries:
 
 1. **Detection**: Check `entry.version < CURRENT_VERSION` in `async_setup_entry`
-2. **Migration**: Call `async_migrate_entry(hass, entry)` 
+2. **Migration**: Call `async_migrate_entry(hass, entry)`
 3. **Transformation**: Convert helper structure to service structure
 4. **Preservation**: All existing schedules and configurations are preserved
 5. **Calendar Continuity**: Calendar entity IDs remain the same after migration
@@ -783,7 +783,7 @@ Implement comprehensive diagnostics data collection:
 ### calendar.py
 
 **Calendar Entity Requirements**:
-1. **Entity Naming**: 
+1. **Entity Naming**:
    ```python
    class SchedulerCalendar(CalendarEntity):
        _attr_has_entity_name = True
@@ -795,13 +795,13 @@ Implement comprehensive diagnostics data collection:
    ```python
    # Entity ID should be: calendar.{service_name}
    # NOT: calendar.{service_name}_{service_name}
-   
+
    # Maintain backward compatibility for unique ID
    if service_id == "default":
        self._attr_unique_id = entry.entry_id  # Original format for migration compatibility
    else:
        self._attr_unique_id = f"{entry.entry_id}_{service_id}"  # New services
-   
+
    self._attr_name = service_name  # Direct service name, no prefix
    ```
 
