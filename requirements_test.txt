@@ -1,8 +1,13 @@
 pytest>=9.0.0
 pytest-homeassistant-custom-component>=0.13.346
 pytest-cov>=7.1.0
-ruff>=0.15.21
-mypy>=2.3.0
+# Lint tooling is bounded to a minor series: ruff 0.x minors add and change
+# rules, so an open-ended floor lets a new release turn CI red with no commit.
+# 0.16 is the series that treats `logging.<level>(..., exc_info=True)` as a
+# handled blind except (see the broad catches in calendar.py), and is the
+# series Home Assistant core itself pins to.
+ruff>=0.16,<0.17
+mypy>=2.3,<3
 types-PyYAML
 pre-commit>=4.6.0
 babel>=2.18.0

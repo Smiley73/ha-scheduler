@@ -19,11 +19,24 @@ updates:
     commit-message:
       prefix: "chore"
       include: "scope"
-    # Group all patch and minor updates together
+    # Group all patch and minor updates together, except the lint tooling.
+    # ruff/mypy bumps can turn CI red on their own (new or changed rules), so
+    # they get their own group: a lint break then fails an isolated PR instead
+    # of blocking every other dependency update bundled alongside it.
     groups:
+      lint-tooling:
+        patterns:
+          - "ruff"
+          - "mypy"
+        update-types:
+          - "minor"
+          - "patch"
       python-dependencies:
         patterns:
           - "*"
+        exclude-patterns:
+          - "ruff"
+          - "mypy"
         update-types:
           - "minor"
           - "patch"
