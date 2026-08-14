@@ -32,3 +32,19 @@ jobs:
 
       - name: Run mypy (strict typing)
         run: mypy custom_components/ha_scheduler/
+
+      - name: Cache pre-commit hook environments
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-py3.14-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # ruff, mypy and pytest already run as their own steps here and in the
+      # Test workflow, so they are skipped rather than run twice. What is left
+      # is the whitespace/YAML/large-file/merge-marker hooks, which nothing
+      # else enforces: they otherwise bind only developers who ran
+      # `pre-commit install`, not web edits or a fresh clone.
+      - name: Run repo hygiene hooks
+        env:
+          SKIP: ruff-check,ruff-format,mypy,pytest-check
+        run: pre-commit run --all-files --show-diff-on-failure
