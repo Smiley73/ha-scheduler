@@ -6,7 +6,7 @@ pytest-cov>=7.1.0
 # 0.16 is the series that treats `logging.<level>(..., exc_info=True)` as a
 # handled blind except (see the broad catches in calendar.py), and is the
 # series Home Assistant core itself pins to.
-ruff>=0.16.2,<0.17
+ruff>=0.16.3,<0.17
 mypy>=2.3,<3
 types-PyYAML
 pre-commit>=4.6.2
