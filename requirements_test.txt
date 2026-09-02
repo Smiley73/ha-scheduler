@@ -7,7 +7,7 @@ pytest-cov>=7.1.0
 # handled blind except (see the broad catches in calendar.py), and is the
 # series Home Assistant core itself pins to.
 ruff>=0.16.4,<0.17
-mypy>=2.3,<3
+mypy>=2.3.1,<3
 types-PyYAML
 pre-commit>=4.6.2
 babel>=2.18.0
