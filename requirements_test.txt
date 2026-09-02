@@ -11,7 +11,7 @@ mypy>=2.3,<3
 types-PyYAML
 pre-commit>=4.6.2
 babel>=2.18.0
-holidays>=0.102
+holidays>=0.103
 # Fix for pycares/aiodns compatibility issue
 # Note: Versions must match homeassistant requirements
 pycares>=4.11.0
