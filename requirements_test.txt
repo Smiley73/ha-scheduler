@@ -1,4 +1,4 @@
-pytest>=9.0.0
+pytest>=9.1.1
 pytest-homeassistant-custom-component>=0.13.356
 pytest-cov>=7.1.0
 # Lint tooling is bounded to a minor series: ruff 0.x minors add and change
