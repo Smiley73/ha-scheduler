@@ -1,3 +1,7 @@
+# pytest's version is set by pytest-homeassistant-custom-component, which
+# pins it exactly (pytest==9.0.3 as of phacc 0.13.362). This floor only
+# documents the minimum the suite was written against — raising it above
+# phacc's pin makes the install unresolvable.
 pytest>=9.0.0
 pytest-homeassistant-custom-component>=0.13.356
 pytest-cov>=7.1.0

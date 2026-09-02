@@ -53,6 +53,14 @@ updates:
       # homeassistant is pinned intentionally — frozen at current version
       - dependency-name: "homeassistant"
         versions: [">=0.0.0"]
+      # pytest is dictated by pytest-homeassistant-custom-component, which pins
+      # it exactly (pytest==9.0.3 as of phacc 0.13.362) rather than by a floor.
+      # Any bump here is unresolvable: pip fails with ResolutionImpossible
+      # before a single test runs (see #65). phacc bumps pytest for us, so the
+      # floor below it is decorative. Drop this rule if phacc ever loosens the
+      # pin to a range we would need to raise ourselves.
+      - dependency-name: "pytest"
+        versions: [">=0.0.0"]
 
   # Monitor GitHub Actions
   - package-ecosystem: "github-actions"
