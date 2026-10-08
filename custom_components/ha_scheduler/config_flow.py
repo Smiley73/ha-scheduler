@@ -38,6 +38,17 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _form_schema(schema: dict[Any, Any]) -> Any:
+    """Build a form schema for ``async_show_form``.
+
+    Typed ``Any`` on purpose: Home Assistant 2026.10 annotates ``data_schema``
+    as ``probatio.Schema`` (accepting voluptuous schemas through its shim),
+    while the supported floor (2024.12) only knows voluptuous. A single
+    boundary keeps mypy green on both without per-call ignores.
+    """
+    return vol.Schema(schema)
+
+
 def _get_month_options() -> list[str]:
     """Get month options (values are integers 1-12, labels via translations)."""
     return [str(i) for i in range(1, 13)]
@@ -175,7 +186,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Optional("scheduler_name", default="Scheduler"): str,
                 }
@@ -435,7 +446,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="add_schedule",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(
                         "schedule_type", default=SCHEDULE_TYPE_DATE
@@ -552,7 +563,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="configure_date",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=_form_schema(schema_dict),
             errors=errors,
             description_placeholders=self._get_error_placeholders(errors),
         )
@@ -752,7 +763,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="configure_week",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=_form_schema(schema_dict),
             errors=errors,
             description_placeholders=self._get_error_placeholders(errors),
         )
@@ -865,7 +876,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="configure_nth_day",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=_form_schema(schema_dict),
             errors=errors,
             description_placeholders=self._get_error_placeholders(errors),
         )
@@ -904,7 +915,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="configure_holiday_country",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required(
                         "country_code", default=default_country
@@ -957,7 +968,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="configure_holiday_category",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required("category", default=default_category): SelectSelector(
                         SelectSelectorConfig(
@@ -1100,7 +1111,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="configure_holiday",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=_form_schema(schema_dict),
             errors=errors,
             description_placeholders=self._get_error_placeholders(errors),
         )
@@ -1146,7 +1157,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="edit_schedule",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required("schedule_id"): SelectSelector(
                         SelectSelectorConfig(
@@ -1172,7 +1183,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_show_form(
                 step_id="remove_schedule_confirm",
-                data_schema=vol.Schema(
+                data_schema=_form_schema(
                     {
                         vol.Required("confirm", default=False): bool,
                     }
@@ -1194,7 +1205,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="remove_schedule",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Required("schedule_id"): SelectSelector(
                         SelectSelectorConfig(
@@ -1248,7 +1259,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors["base"] = "entry_not_found"
                     return self.async_show_form(
                         step_id="default_configuration",
-                        data_schema=vol.Schema(
+                        data_schema=_form_schema(
                             {
                                 vol.Optional("configuration", default=""): TextSelector(
                                     TextSelectorConfig(multiline=True)
@@ -1262,7 +1273,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors["base"] = "entry_not_found"
                     return self.async_show_form(
                         step_id="default_configuration",
-                        data_schema=vol.Schema(
+                        data_schema=_form_schema(
                             {
                                 vol.Optional("configuration", default=""): TextSelector(
                                     TextSelectorConfig(multiline=True)
@@ -1329,7 +1340,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="default_configuration",
-            data_schema=vol.Schema(
+            data_schema=_form_schema(
                 {
                     vol.Optional("configuration", default=config_str): TextSelector(
                         TextSelectorConfig(multiline=True)
@@ -1363,7 +1374,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_show_form(
                 step_id="import_holidays",
-                data_schema=vol.Schema(
+                data_schema=_form_schema(
                     {
                         vol.Required("country"): SelectSelector(
                             SelectSelectorConfig(
@@ -1408,7 +1419,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
             return self.async_show_form(
                 step_id="import_holidays_categories",
-                data_schema=vol.Schema(
+                data_schema=_form_schema(
                     {
                         vol.Optional("categories", default=["public"]): SelectSelector(
                             SelectSelectorConfig(
@@ -1456,14 +1467,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=await self._get_holiday_selection_schema(),
         )
 
-    async def _get_holiday_selection_schema(self) -> vol.Schema:
+    async def _get_holiday_selection_schema(self) -> Any:
         """Get the schema for holiday selection."""
         try:
             from .holiday_importer import get_holidays_for_country
 
             # Ensure _holiday_data is initialized
             if not hasattr(self, "_holiday_data") or not self._holiday_data:
-                return vol.Schema(
+                return _form_schema(
                     {
                         vol.Optional("holidays", default=[]): SelectSelector(
                             SelectSelectorConfig(options=[], multiple=True)
@@ -1475,7 +1486,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             categories = self._holiday_data.get("categories", ["public"])
 
             if not country:
-                return vol.Schema(
+                return _form_schema(
                     {
                         vol.Optional("holidays", default=[]): SelectSelector(
                             SelectSelectorConfig(options=[], multiple=True)
@@ -1495,7 +1506,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
             if not holidays_data:
-                return vol.Schema(
+                return _form_schema(
                     {
                         vol.Optional("holidays", default=[]): SelectSelector(
                             SelectSelectorConfig(options=[], multiple=True)
@@ -1508,7 +1519,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             # Get all holiday names for default selection
             all_holiday_names = [option["value"] for option in holiday_options]
 
-            return vol.Schema(
+            return _form_schema(
                 {
                     vol.Optional("holidays", default=all_holiday_names): SelectSelector(
                         SelectSelectorConfig(
@@ -1526,7 +1537,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         except Exception:
             _LOGGER.exception("Failed to get holidays")
-            return vol.Schema(
+            return _form_schema(
                 {
                     vol.Optional("holidays", default=[]): SelectSelector(
                         SelectSelectorConfig(options=[], multiple=True)
