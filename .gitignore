@@ -76,3 +76,6 @@ test_imports.py
 .tagteam/plans/
 .tagteam/config.json
 # <<< tagteam managed <<<
+
+# Claude Code local settings
+.claude/
