@@ -13,7 +13,10 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.ha_scheduler.holiday_importer import _clear_holiday_caches
+from custom_components.ha_scheduler.holiday_importer import (
+    _get_country_holidays_sync,
+    _get_named_holiday_dates_sync,
+)
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -25,9 +28,11 @@ def clear_holiday_caches():
     The resolver warns once per cached lookup; without a reset, a lookup cached
     by an earlier test would suppress the warning a later test asserts on.
     """
-    _clear_holiday_caches()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
     yield
-    _clear_holiday_caches()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
 
 
 BROKEN_HOLIDAY_SCHEDULES = {

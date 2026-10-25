@@ -11,7 +11,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ha_scheduler.const import DOMAIN
 from custom_components.ha_scheduler.holiday_importer import (
     analyze_holiday_pattern,
-    calculate_occurrence,
 )
 from custom_components.ha_scheduler.schedule_generator import generate_schedule_dates
 
@@ -1101,40 +1100,6 @@ class TestHolidayPatternAnalysis:
         assert "Variable date" in pattern["description"]
 
 
-class TestCalculateOccurrence:
-    """Test occurrence calculation functionality."""
-
-    def test_calculate_first_occurrence(self):
-        """Test calculating first occurrence of weekday in month."""
-        # First Monday of March 2023 (March 6)
-        result = calculate_occurrence(date(2023, 3, 6))
-        assert result == 0
-
-    def test_calculate_second_occurrence(self):
-        """Test calculating second occurrence of weekday in month."""
-        # Second Monday of March 2023 (March 13)
-        result = calculate_occurrence(date(2023, 3, 13))
-        assert result == 1
-
-    def test_calculate_last_occurrence(self):
-        """Test calculating last occurrence of weekday in month."""
-        # Last Monday of May 2023 (May 29)
-        result = calculate_occurrence(date(2023, 5, 29))
-        assert result == 4  # Last occurrence is represented as 4
-
-    def test_calculate_occurrence_edge_cases(self):
-        """Test occurrence calculation edge cases."""
-        # Test various edge cases
-
-        # First day of month that's also first occurrence
-        result = calculate_occurrence(date(2023, 4, 3))  # First Monday of April 2023
-        assert result == 0
-
-        # Last day of month that's also last occurrence
-        result = calculate_occurrence(date(2023, 4, 30))  # Last Sunday of April 2023
-        assert result == 4
-
-
 class TestHolidayImportErrorHandling:
     """Test error handling in holiday import."""
 
@@ -1146,10 +1111,6 @@ class TestHolidayImportErrorHandling:
         await hass.config_entries.async_setup(mock_config_entry.entry_id)
 
         with (
-            patch(
-                "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE",
-                False,
-            ),
             patch(
                 "custom_components.ha_scheduler.holiday_importer.get_supported_countries",
                 return_value={},

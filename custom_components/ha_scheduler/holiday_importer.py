@@ -21,76 +21,45 @@ from .const import (
     SCHEDULE_TYPE_NTH_DAY,
 )
 
-# Babel imports moved inside functions to avoid blocking I/O during module import
+# Babel and holidays do blocking I/O on first use, so they are imported lazily
+# inside functions, never at module level (this module loads on the event loop).
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def format_date_localized(date_obj: date, locale_code: str | None = None) -> str:
-    """Format a date using locale-aware formatting.
-
-    Args:
-        date_obj: Date to format
-        locale_code: Optional locale code (e.g., 'en_US'). Defaults to 'en'.
-
-    Returns:
-        Formatted date string like "January 1" or "December 25"
-    """
+    """Format a date as "Month Day" (e.g. "January 1"), defaulting to English."""
     try:
-        # Lazy import to avoid blocking I/O during module import
         from babel import Locale
         from babel.dates import format_date
 
-        # Use provided locale or default to English
         locale = Locale.parse(locale_code or "en")
-        # Format as "Month Day" (e.g., "January 1", "December 25")
         return format_date(date_obj, format="MMMM d", locale=locale)
-    except ImportError as e:
-        _LOGGER.debug("Babel not available for date formatting: %s", e)
-        # Fallback to Python's strftime
-        return date_obj.strftime("%B %d")
     except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
-        # Catches UnknownLocaleError, ValueError, etc.
+        # Catches ImportError, UnknownLocaleError, ValueError, etc.
         _LOGGER.debug("Could not format date with locale %s: %s", locale_code, e)
-        # Fallback to Python's strftime
         return date_obj.strftime("%B %d")
 
 
 def get_localized_country_name(
     country_code: str, fallback_name: str | None = None
 ) -> str:
-    """Get localized country name using Babel.
-
-    Args:
-        country_code: ISO 3166-1 alpha-2 country code
-        fallback_name: Fallback name if Babel lookup fails
-
-    Returns:
-        Localized country name or fallback
-    """
+    """Get the English country name via Babel, e.g. "United States" for "US"."""
     try:
-        # Lazy import to avoid blocking I/O during module import
         from babel import Locale
 
-        # Create a locale for the country to get its display name
         locale = Locale.parse(f"en_{country_code.upper()}")
-
-        # Get the territory display name in English
-        # This provides proper country names like "United States" instead of "US"
         territory_name = locale.get_territory_name()
         if territory_name and territory_name != country_code.upper():
             return territory_name
 
-    except ImportError as e:
-        _LOGGER.debug("Babel not available for country names: %s", e)
-        return fallback_name or country_code.replace("_", " ").title()
     except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
         # Catches UnknownLocaleError, ValueError, AttributeError, etc.
         _LOGGER.debug(
             "Could not get localized name for country %s: %s", country_code, e
         )
 
-    # Try using Babel's territory data from English locale
+    # Locale.parse("en_XX") can fail for territories the English locale still names.
     try:
         from babel import Locale
 
@@ -98,16 +67,9 @@ def get_localized_country_name(
         if country_code.upper() in en_locale.territories:
             return str(en_locale.territories[country_code.upper()])
     except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
-        # Any error including ImportError
         _LOGGER.debug("Could not look up territory name: %s", e)
 
-    # Fallback to provided name or formatted country code
     return fallback_name or country_code.replace("_", " ").title()
-
-
-# Test override for holiday library availability. Runtime code leaves this as
-# None so the actual import is deferred until a sync helper runs in the executor.
-HOLIDAYS_AVAILABLE: bool | None = None
 
 
 @lru_cache(maxsize=1)
@@ -116,21 +78,10 @@ def _get_holidays_module() -> ModuleType | None:
     try:
         return importlib.import_module("holidays")
     except ImportError:
+        _LOGGER.warning(
+            "holidays library not available - holiday import feature disabled"
+        )
         return None
-
-
-def _holidays_available() -> bool:
-    """Return whether the holidays library is available."""
-    global HOLIDAYS_AVAILABLE
-
-    if HOLIDAYS_AVAILABLE is None:
-        HOLIDAYS_AVAILABLE = _get_holidays_module() is not None
-        if not HOLIDAYS_AVAILABLE:
-            _LOGGER.warning(
-                "holidays library not available - holiday import feature disabled"
-            )
-
-    return HOLIDAYS_AVAILABLE
 
 
 def get_holidays_library_version() -> str | None:
@@ -139,16 +90,6 @@ def get_holidays_library_version() -> str | None:
     if holidays_module is None:
         return None
     return getattr(holidays_module, "__version__", None)
-
-
-def _clear_holiday_caches() -> None:
-    """Clear cached holiday metadata for tests."""
-    global HOLIDAYS_AVAILABLE
-
-    HOLIDAYS_AVAILABLE = None
-    _get_holidays_module.cache_clear()
-    _get_country_holidays_sync.cache_clear()
-    _get_named_holiday_dates_sync.cache_clear()
 
 
 def _build_holiday_cache_requests(
@@ -223,9 +164,6 @@ def _get_country_holidays_sync(
     country_code: str, category: str | None, year: int
 ) -> Any | None:
     """Return the holiday provider object for one country/category/year."""
-    if not _holidays_available():
-        return None
-
     holidays_module = _get_holidays_module()
     if holidays_module is None:
         return None
@@ -266,14 +204,7 @@ def _get_named_holiday_dates_sync(
         return ()
 
     try:
-        if hasattr(country_holidays, "get_named"):
-            named_dates = country_holidays.get_named(holiday_name, lookup=lookup)
-        else:
-            named_dates = [
-                holiday_date
-                for holiday_date, current_name in country_holidays.items()
-                if str(current_name).casefold() == holiday_name.casefold()
-            ]
+        named_dates = country_holidays.get_named(holiday_name, lookup=lookup)
     except Exception as err:  # noqa: BLE001 - graceful fallback around third-party library quirks
         _LOGGER.debug(
             "Could not resolve holiday %s for %s/%s in %s: %s",
@@ -303,9 +234,8 @@ def _get_named_holiday_dates_sync(
             languages_to_try.insert(0, default_language)
 
         for lang in languages_to_try:
-            # holidays_module cannot be None here (a provider object exists),
-            # but narrow explicitly to satisfy the type checker and mirror the
-            # defensive checks elsewhere in this file.
+            # holidays_module cannot be None here (a provider object exists);
+            # narrowed explicitly to satisfy the type checker.
             if (
                 holidays_module is None
             ):  # pragma: no cover - unreachable without mutating the lru_cache mid-call; _get_holidays_module already returned non-None earlier in this call
@@ -315,14 +245,7 @@ def _get_named_holiday_dates_sync(
                 if category and category != "public":
                     kwargs["categories"] = category
                 lang_holidays = holidays_module.country_holidays(country_code, **kwargs)
-                if hasattr(lang_holidays, "get_named"):
-                    lang_dates = lang_holidays.get_named(holiday_name, lookup=lookup)
-                else:
-                    lang_dates = [
-                        holiday_date
-                        for holiday_date, current_name in lang_holidays.items()
-                        if str(current_name).casefold() == holiday_name.casefold()
-                    ]
+                lang_dates = lang_holidays.get_named(holiday_name, lookup=lookup)
                 if lang_dates:
                     named_dates = lang_dates
                     break
@@ -439,14 +362,6 @@ def generate_holiday_schedule_dates(
     return _merge_overlapping_ranges(offset_ranges)
 
 
-def _should_use_holiday_schedule_pattern(pattern: dict[str, Any] | None) -> bool:
-    """Return whether a detected pattern should use the holiday schedule type."""
-    if pattern is None:
-        return False
-
-    return bool(pattern.get("variable_date"))
-
-
 def build_holiday_schedule_pattern(
     country_code: str, category: str, holiday_name: str
 ) -> dict[str, Any]:
@@ -469,9 +384,6 @@ def _get_supported_countries_sync(today: date | None = None) -> dict[str, str]:
     ``today`` anchors the sample year used to probe each country; defaults to
     the system date.
     """
-    if not _holidays_available():
-        return {}
-
     holidays_module = _get_holidays_module()
     if holidays_module is None:
         return {}
@@ -479,36 +391,17 @@ def _get_supported_countries_sync(today: date | None = None) -> dict[str, str]:
     sample_year = (today or date.today()).year
 
     try:
-        # Get all available countries from holidays library
         country_dict = {}
 
-        # holidays library provides country codes and names
         for country_code in holidays_module.list_supported_countries():
             try:
-                # Get the country name from holidays library first
                 country_obj = holidays_module.country_holidays(
                     country_code, years=sample_year
                 )
                 holidays_name = getattr(country_obj, "country", None)
-
-                # If holidays library doesn't have a proper name, try the class
-                if not holidays_name or holidays_name == country_code:
-                    try:
-                        # Access the entity loader and get the country class
-                        entity_loader = getattr(
-                            holidays_module.registry, "EntityLoader", None
-                        )
-                        if entity_loader and hasattr(entity_loader, "get"):
-                            country_class = entity_loader.get(country_code)
-                            if hasattr(country_class, "country"):
-                                holidays_name = country_class.country
-                    except (AttributeError, KeyError, ImportError, TypeError):
-                        pass
-
-                # Use Babel to get the proper localized country name
-                # This provides better names than the holidays library fallbacks
-                country_name = get_localized_country_name(country_code, holidays_name)
-                country_dict[country_code] = country_name
+                country_dict[country_code] = get_localized_country_name(
+                    country_code, holidays_name
+                )
 
             except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
                 _LOGGER.debug("Could not get info for country %s: %s", country_code, e)
@@ -542,9 +435,6 @@ def _get_available_categories_sync(
     ``today`` anchors the sample year used to probe categories; defaults to
     the system date.
     """
-    if not _holidays_available():
-        return {"public": "Public Holidays"}
-
     holidays_module = _get_holidays_module()
     if holidays_module is None:
         return {"public": "Public Holidays"}
@@ -552,51 +442,15 @@ def _get_available_categories_sync(
     sample_year = (today or date.today()).year
 
     try:
-        # Get a sample year to inspect available categories
         country_holidays = holidays_module.country_holidays(
             country_code, years=sample_year
         )
 
-        # Different countries support different categories
-        available_categories = {}
+        available_categories = {
+            category: category.replace("_", " ").title()
+            for category in country_holidays.supported_categories
+        }
 
-        # Check what categories this country supports
-        if hasattr(country_holidays, "supported_categories"):
-            for category in country_holidays.supported_categories:
-                # Convert category code to readable name
-                category_name = category.replace("_", " ").title()
-                available_categories[category] = category_name
-        else:
-            # Try common categories and see which ones work
-            test_categories = [
-                "public",
-                "bank",
-                "school",
-                "optional",
-                "observance",
-                "government",
-                "financial",
-            ]
-
-            for category in test_categories:
-                try:
-                    # Test if this category exists by trying to create holidays with it
-                    test_holidays = holidays_module.country_holidays(
-                        country_code, categories=category, years=sample_year
-                    )
-                    if len(test_holidays) > 0:
-                        category_name = category.replace("_", " ").title()
-                        available_categories[category] = category_name
-                except Exception as e:  # noqa: BLE001 - graceful fallback around third-party library quirks
-                    _LOGGER.debug(
-                        "Category %s not supported for %s: %s",
-                        category,
-                        country_code,
-                        e,
-                    )
-                    continue
-
-        # If no categories found, default to 'public'
         if not available_categories:
             available_categories = {"public": "Public Holidays"}
 
@@ -628,9 +482,6 @@ def _get_holidays_for_country_sync(
     inside Home Assistant should pass ``dt_util.now().date()`` so the
     configured timezone is honored; defaults to the system date.
     """
-    if not _holidays_available():
-        return {}
-
     try:
         if categories is None:
             categories = list(
@@ -712,18 +563,11 @@ def _get_holidays_for_country_sync(
                     holiday_name,
                     dates,
                 )
-                # Create a fallback pattern using the first date
-                if dates:
-                    first_date = dates[0]
-                    pattern = {
-                        "schedule_type": SCHEDULE_TYPE_DATE,
-                        "start_month": first_date.month,
-                        "start_day": first_date.day,
-                        "end_month": first_date.month,
-                        "end_day": first_date.day,
-                        "description": f"Single occurrence: {format_date_localized(first_date)}",
-                    }
-            elif _should_use_holiday_schedule_pattern(pattern):
+                pattern = _build_fixed_date_pattern(
+                    dates[0],
+                    f"Single occurrence: {format_date_localized(dates[0])}",
+                )
+            elif pattern.get("variable_date"):
                 pattern = build_holiday_schedule_pattern(
                     country_code, holiday_data["category"], holiday_name
                 )
@@ -753,37 +597,35 @@ async def get_holidays_for_country(
     )
 
 
+def _build_fixed_date_pattern(
+    date_obj: date, description: str, *, variable_date: bool = False
+) -> dict[str, Any]:
+    """Build a single-day date pattern anchored on ``date_obj``."""
+    pattern: dict[str, Any] = {
+        "schedule_type": SCHEDULE_TYPE_DATE,
+        "start_month": date_obj.month,
+        "start_day": date_obj.day,
+        "end_month": date_obj.month,
+        "end_day": date_obj.day,
+        "description": description,
+    }
+    if variable_date:
+        pattern["variable_date"] = True
+    return pattern
+
+
 def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
     """Analyze holiday dates to determine schedule pattern."""
     if len(dates) < 1:
         return None
 
-    # If we only have one date, create a fixed date pattern
-    if len(dates) == 1:
-        date_obj = dates[0]
-        return {
-            "schedule_type": SCHEDULE_TYPE_DATE,
-            "start_month": date_obj.month,
-            "start_day": date_obj.day,
-            "end_month": date_obj.month,
-            "end_day": date_obj.day,
-            "description": f"Fixed date: {format_date_localized(date_obj)}",
-        }
-
-    # Sort dates to analyze pattern
     dates.sort()
 
-    # Check if it's a fixed date (same month/day every year)
+    # Same month/day every year (e.g. July 4th), or just one date
     if all(d.month == dates[0].month and d.day == dates[0].day for d in dates):
-        # Fixed date pattern (e.g., July 4th, Christmas)
-        return {
-            "schedule_type": SCHEDULE_TYPE_DATE,
-            "start_month": dates[0].month,
-            "start_day": dates[0].day,
-            "end_month": dates[0].month,
-            "end_day": dates[0].day,
-            "description": f"Fixed date: {format_date_localized(dates[0])}",
-        }
+        return _build_fixed_date_pattern(
+            dates[0], f"Fixed date: {format_date_localized(dates[0])}"
+        )
 
     first_date = dates[0]
 
@@ -812,16 +654,11 @@ def analyze_holiday_pattern(dates: list[date]) -> dict[str, Any] | None:
     if span_pattern := _analyze_multi_day_pattern(dates_by_year):
         return span_pattern
 
-    # If we can't determine a clear pattern, default to first occurrence as date
-    return {
-        "schedule_type": SCHEDULE_TYPE_DATE,
-        "start_month": first_date.month,
-        "start_day": first_date.day,
-        "end_month": first_date.month,
-        "end_day": first_date.day,
-        "variable_date": True,
-        "description": f"Variable date (using {first_date.year} date: {format_date_localized(first_date)})",
-    }
+    return _build_fixed_date_pattern(
+        first_date,
+        f"Variable date (using {first_date.year} date: {format_date_localized(first_date)})",
+        variable_date=True,
+    )
 
 
 def _build_nth_weekday_pattern(
@@ -898,36 +735,3 @@ def _analyze_multi_day_pattern(
         return None
 
     return _build_nth_weekday_pattern(anchors, span_days=spans.pop())
-
-
-def calculate_occurrence(target_date: date) -> int | None:
-    """Calculate which occurrence of weekday in month (0-4, where 4=last)."""
-    try:
-        year = target_date.year
-        month = target_date.month
-        day_of_week = target_date.weekday()
-
-        # Find all occurrences of this weekday in the month
-        first_day = date(year, month, 1)
-
-        # Calculate days until first occurrence of this weekday
-        days_until_first = (day_of_week - first_day.weekday()) % 7
-        first_occurrence = first_day + timedelta(days=days_until_first)
-
-        # Calculate which occurrence this date is
-        occurrence = (target_date - first_occurrence).days // 7
-
-        # Check if it's the last occurrence
-        try:
-            next_occurrence = first_occurrence + timedelta(weeks=occurrence + 1)
-            if next_occurrence.month != month:
-                # This is the last occurrence
-                return 4
-        except (ValueError, OverflowError) as e:
-            _LOGGER.debug("Could not calculate next occurrence: %s", e)
-            return 4
-
-        return occurrence
-
-    except Exception:  # noqa: BLE001 - graceful fallback around third-party library quirks
-        return None
