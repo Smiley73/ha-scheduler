@@ -82,14 +82,11 @@ async def test_config_flow_accessible(hass: HomeAssistant) -> None:
     assert result["step_id"] == "user"
 
 
-async def test_options_flow_accessible(hass: HomeAssistant) -> None:
+async def test_options_flow_accessible(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Smoke test: Options flow can be initiated."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry = create_service_entry()
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -98,33 +95,31 @@ async def test_options_flow_accessible(hass: HomeAssistant) -> None:
     assert "add_schedule" in result["menu_options"]
 
 
-async def test_diagnostics_accessible(hass: HomeAssistant) -> None:
-    """Smoke test: Diagnostics can be retrieved."""
+async def test_diagnostics_accessible(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Smoke test: Diagnostics report the entry's schedules."""
     from custom_components.ha_scheduler.diagnostics import (
         async_get_config_entry_diagnostics,
     )
 
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={
-            "schedules": {
-                "test_schedule": {
-                    "name": "Test Schedule",
-                    "schedule_type": "date",
-                    "uid": "test_schedule",
-                }
+    entry = create_service_entry(
+        schedules={
+            "test_schedule": {
+                "name": "Test Schedule",
+                "schedule_type": "date",
+                "uid": "test_schedule",
             }
-        },
+        }
     )
     entry.add_to_hass(hass)
 
     diagnostics = await async_get_config_entry_diagnostics(hass, entry)
 
-    assert isinstance(diagnostics, dict)
     assert "entry" in diagnostics
-    assert "services" in diagnostics
+    default = diagnostics["services"]["default"]
+    assert default["schedules"]["count"] == 1
+    assert default["schedules"]["items"][0]["id"] == "test_schedule"
 
 
 async def test_calendar_with_schedules(hass: HomeAssistant) -> None:
@@ -235,15 +230,21 @@ async def test_schedule_update_listener(hass: HomeAssistant) -> None:
 
     # Update options with new schedule
     new_options = {
-        "schedules": {
-            "new_schedule": {
-                "name": "New Schedule",
-                "schedule_type": "date",
-                "start_month": 1,
-                "start_day": 1,
-                "end_month": 1,
-                "end_day": 31,
-                "uid": "new_schedule",
+        "services": {
+            "default": {
+                "name": entry.title,
+                "schedules": {
+                    "new_schedule": {
+                        "name": "New Schedule",
+                        "schedule_type": "date",
+                        "start_month": 1,
+                        "start_day": 1,
+                        "end_month": 1,
+                        "end_day": 31,
+                        "uid": "new_schedule",
+                    }
+                },
+                "configuration": {},
             }
         }
     }

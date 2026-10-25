@@ -57,20 +57,7 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    # Handle both new service-based structure and legacy structure
     services = entry.options.get("services", {})
-
-    if not services:
-        # Legacy structure - create a default service
-        legacy_schedules = entry.options.get("schedules", {})
-        legacy_config = entry.options.get("configuration", {})
-        services = {
-            "default": {
-                "name": entry.title,
-                "schedules": legacy_schedules,
-                "configuration": legacy_config,
-            }
-        }
 
     current_year = dt_util.now().date().year
     all_schedules = [

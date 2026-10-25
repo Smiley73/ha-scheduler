@@ -230,15 +230,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if not entry:
             return {}
 
-        # Handle both new service-based structure and legacy structure
-        services = entry.options.get("services", {})
-        if services:
-            schedules = services.get(self._service_id, {}).get("schedules", {})
-        else:
-            # Legacy structure
-            schedules = entry.options.get("schedules", {})
+        schedules = (
+            entry.options.get("services", {})
+            .get(self._service_id, {})
+            .get("schedules", {})
+        )
 
-        # Backfill uid from the storage key for legacy schedules stored
+        # Backfill uid from the storage key for schedules stored
         # without one; overlap validation excludes the schedule being edited
         # by uid, and a missing uid made every edit conflict with itself.
         return {
@@ -286,29 +284,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if not entry:
             return {}
 
-        # Handle both new service-based structure and legacy structure
-        services = entry.options.get("services", {})
-        if services:
-            # New service-based structure
-            new_services = dict(services)
+        new_services = dict(entry.options.get("services", {}))
 
-            # Ensure service exists
-            if self._service_id not in new_services:
-                new_services[self._service_id] = {
-                    "name": entry.title,
-                    "schedules": {},
-                    "configuration": {},
-                }
-
+        # Ensure service exists
+        if self._service_id not in new_services:
             new_services[self._service_id] = {
-                **new_services[self._service_id],
-                "schedules": schedules,
+                "name": entry.title,
+                "schedules": {},
+                "configuration": {},
             }
 
-            return {**entry.options, "services": new_services}
-        else:
-            # Legacy structure - update directly
-            return {**entry.options, "schedules": schedules}
+        new_services[self._service_id] = {
+            **new_services[self._service_id],
+            "schedules": schedules,
+        }
+
+        return {**entry.options, "services": new_services}
 
     def _get_overlap_placeholders(
         self, errors: dict[str, str]
@@ -1284,32 +1275,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     )
 
                 new_configuration = config_dict if config_dict is not None else {}
-                services = entry.options.get("services", {})
-                if services:
-                    new_services = dict(services)
+                new_services = dict(entry.options.get("services", {}))
 
-                    # Ensure service exists
-                    if self._service_id not in new_services:
-                        new_services[self._service_id] = {
-                            "name": entry.title,
-                            "schedules": {},
-                            "configuration": {},
-                        }
-
+                # Ensure service exists
+                if self._service_id not in new_services:
                     new_services[self._service_id] = {
-                        **new_services[self._service_id],
-                        "configuration": new_configuration,
+                        "name": entry.title,
+                        "schedules": {},
+                        "configuration": {},
                     }
 
-                    updated_options = {**entry.options, "services": new_services}
-                else:
-                    # Legacy (pre-services) entries keep their configuration at
-                    # the options root. Writing a services dict here would hide
-                    # the root-level schedules from every reader.
-                    updated_options = {
-                        **entry.options,
-                        "configuration": new_configuration,
-                    }
+                new_services[self._service_id] = {
+                    **new_services[self._service_id],
+                    "configuration": new_configuration,
+                }
+
+                updated_options = {**entry.options, "services": new_services}
 
                 return self.async_create_entry(title="", data=updated_options)
 
@@ -1324,14 +1305,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected error")
                 errors["base"] = "unknown"
 
-        # Get current service configuration (legacy entries store it at the
-        # options root)
         entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
         services = entry.options.get("services", {}) if entry else {}
-        if services:
-            current_config = services.get(self._service_id, {}).get("configuration", {})
-        else:
-            current_config = entry.options.get("configuration", {}) if entry else {}
+        current_config = services.get(self._service_id, {}).get("configuration", {})
         config_str = yaml.dump(current_config) if current_config else ""
 
         # If re-displaying after an error, preserve what the user typed so they can correct it

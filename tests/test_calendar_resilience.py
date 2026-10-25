@@ -193,54 +193,6 @@ def test_no_unintended_base_class_overrides() -> None:
     )
 
 
-async def test_legacy_options_layout_still_lists_events(
-    hass: HomeAssistant,
-) -> None:
-    """An entry with the pre-services options layout still serves its events.
-
-    The setup path builds a default service for legacy options, but event
-    listing reads live options — it must fall back to the legacy keys instead
-    of returning an empty calendar.
-    """
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-    from custom_components.ha_scheduler.const import DOMAIN
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={"scheduler_name": "Test Scheduler"},
-        options={
-            "schedules": {
-                "date-schedule": {
-                    "name": "Summer Schedule",
-                    "schedule_type": "date",
-                    "start_month": 6,
-                    "start_day": 1,
-                    "end_month": 8,
-                    "end_day": 31,
-                    "uid": "date-schedule",
-                }
-            },
-            "configuration": {},
-        },
-        version=2,
-        minor_version=1,
-    )
-    entry.add_to_hass(hass)
-
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
-    start = datetime(2024, 5, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 9, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    assert len(events) == 1
-    assert events[0].summary == "Summer Schedule"
-
-
 async def test_unresolvable_holiday_logs_warning(
     hass: HomeAssistant,
     create_service_entry,
