@@ -14,7 +14,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.ha_scheduler.config_flow import (
     OptionsFlowHandler,
     _get_holiday_options,
+    _parse_optional_yaml,
     _validate_yaml_config,
+    backfill_schedule_uids,
 )
 from custom_components.ha_scheduler.const import (
     DOMAIN,
@@ -161,10 +163,11 @@ def test_validate_yaml_config_accepts_empty_list() -> None:
     assert _validate_yaml_config("[]") == []
 
 
-def test_validate_yaml_config_blank_returns_none() -> None:
-    """Blank/whitespace input returns None rather than raising."""
-    assert _validate_yaml_config("") is None
-    assert _validate_yaml_config("   \n  ") is None
+def test_parse_optional_yaml_blank_returns_none() -> None:
+    """Blank, whitespace-only and non-string input return None rather than raising."""
+    assert _parse_optional_yaml("") is None
+    assert _parse_optional_yaml("   \n  ") is None
+    assert _parse_optional_yaml(None) is None
 
 
 def test_validate_yaml_config_rejects_scalar() -> None:
@@ -809,6 +812,7 @@ async def test_configure_holiday_country_aborts_no_countries_available(
 async def test_configure_holiday_category_redirects_without_country() -> None:
     """Entering the category step without a country redirects to country."""
     flow = OptionsFlowHandler()
+    flow.hass = SimpleNamespace(config=SimpleNamespace(country="US"))
     flow._schedule_data = {}
 
     with patch(
@@ -878,6 +882,7 @@ async def test_configure_holiday_category_default_falls_back_when_stored_missing
 async def test_configure_holiday_redirects_without_country() -> None:
     """Entering the holiday step without a country redirects to country."""
     flow = OptionsFlowHandler()
+    flow.hass = SimpleNamespace(config=SimpleNamespace(country="US"))
     flow._schedule_data = {}
 
     with patch(
@@ -1090,36 +1095,10 @@ def test_get_holiday_options_skips_none_value(
     )
 
 
-async def test_service_schedule_helpers_return_empty_when_entry_missing(
-    hass: HomeAssistant, create_service_entry
-) -> None:
-    """Both schedule accessors degrade to {} if the entry can't be found.
-
-    ``self.config_entry`` itself resolves via ``async_get_entry``, so each
-    method call needs that first (property) lookup to succeed before the
-    method's own explicit lookup is made to return None.
-    """
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-
-    real_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    flow = _bare_options_flow(hass, entry)
-
-    with patch.object(
-        hass.config_entries, "async_get_entry", side_effect=[real_entry, None]
-    ):
-        assert flow._get_service_schedules() == {}
-
-    with patch.object(
-        hass.config_entries, "async_get_entry", side_effect=[real_entry, None]
-    ):
-        assert flow._update_service_schedules({"x": {}}) == {}
-
-
-async def test_update_service_schedules_creates_missing_service(
+async def test_save_schedule_creates_missing_service(
     hass: HomeAssistant,
 ) -> None:
-    """Updating schedules for an absent service id creates it."""
+    """Saving a schedule when the default service is absent creates it."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Test Scheduler",
@@ -1137,7 +1116,7 @@ async def test_update_service_schedules_creates_missing_service(
     result = await hass.config_entries.options.async_init(entry.entry_id)
     flow = hass.config_entries.options._progress[result["flow_id"]]
 
-    updated = flow._update_service_schedules({"sched-1": {"name": "S"}})
+    updated = flow._save_schedule("sched-1", {"name": "S"})
 
     assert updated["services"]["default"] == {
         "name": "Test Scheduler",
@@ -1147,50 +1126,17 @@ async def test_update_service_schedules_creates_missing_service(
     assert "other" in updated["services"]
 
 
-async def test_default_configuration_entry_not_found_when_get_entry_returns_none(
-    hass: HomeAssistant, create_service_entry
-) -> None:
-    """A vanished entry during submit re-shows the form as entry_not_found.
-
-    ``self.config_entry`` resolves via ``async_get_entry`` too, so the first
-    (property) lookup must succeed for the method's own explicit lookup
-    (the one guarded by ``if not entry:``) to be reached and return None.
-    """
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-
-    real_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    flow = _bare_options_flow(hass, entry)
-
-    with patch.object(
-        hass.config_entries, "async_get_entry", side_effect=[real_entry, None]
-    ):
-        result = await flow.async_step_default_configuration({"configuration": ""})
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["errors"]["base"] == "entry_not_found"
-
-
 async def test_default_configuration_unexpected_exception_shows_unknown_error(
     hass: HomeAssistant, create_service_entry
 ) -> None:
-    """A non-UnknownEntry exception while fetching the entry surfaces as unknown.
-
-    ``self.config_entry`` itself resolves via ``async_get_entry``, so the
-    first call (from that property, at the top of the try block) is the one
-    made to raise; the two subsequent calls (property + explicit lookup in
-    the post-exception fallback render) must succeed normally.
-    """
+    """A non-UnknownEntry failure resolving the entry on submit surfaces as unknown."""
     entry = create_service_entry()
     entry.add_to_hass(hass)
 
-    real_entry = hass.config_entries.async_get_entry(entry.entry_id)
     flow = _bare_options_flow(hass, entry)
 
     with patch.object(
-        hass.config_entries,
-        "async_get_entry",
-        side_effect=[RuntimeError("boom"), real_entry, real_entry],
+        hass.config_entries, "async_get_entry", side_effect=RuntimeError("boom")
     ):
         result = await flow.async_step_default_configuration(
             {"configuration": "mode: eco"}
@@ -1249,49 +1195,6 @@ def test_get_default_holiday_country_returns_ha_country() -> None:
     flow.hass = SimpleNamespace(config=SimpleNamespace(country="DE"))
 
     assert flow._get_default_holiday_country() == "DE"
-
-
-def test_get_default_holiday_country_swallows_attribute_error() -> None:
-    """An AttributeError while reading hass.config.country is swallowed."""
-
-    class _FlakyCountryConfig:
-        """A config stand-in whose .country raises on its second access."""
-
-        def __init__(self) -> None:
-            self._reads = 0
-
-        def __getattr__(self, name: str) -> str:
-            if name == "country":
-                self._reads += 1
-                if self._reads == 1:
-                    return "US"
-                raise AttributeError("country access failed")
-            raise AttributeError(name)
-
-    flow = OptionsFlowHandler()
-    flow.hass = SimpleNamespace(config=_FlakyCountryConfig())
-
-    assert flow._get_default_holiday_country() is None
-
-
-def test_get_overlap_placeholders_none_without_conflicting_name() -> None:
-    """No placeholders are returned when the conflicting name wasn't captured."""
-    flow = OptionsFlowHandler()
-    flow._overlap_conflicting_name = None
-
-    assert (
-        flow._get_overlap_placeholders({"base": "schedule_overlap_with_name"}) is None
-    )
-
-
-def test_get_yaml_error_placeholders_none_without_details() -> None:
-    """No placeholders are returned when YAML error details weren't captured."""
-    flow = OptionsFlowHandler()
-    flow._yaml_error_details = None
-
-    assert (
-        flow._get_yaml_error_placeholders({"base": "invalid_yaml_with_details"}) is None
-    )
 
 
 async def test_validate_week_schedule_skips_non_week_schedule() -> None:
@@ -1357,3 +1260,150 @@ async def test_add_week_schedule_defaults_country_from_hass_config(
     schedules = get_schedules_from_entry(entry)
     schedule = next(iter(schedules.values()))
     assert schedule["country_code"] == "DE"
+
+
+def test_backfill_schedule_uids_fills_only_missing_uid() -> None:
+    """A schedule without a uid gets its storage key; others are untouched."""
+    stored = {
+        "key-1": {"name": "No uid"},
+        "key-2": {"name": "Has uid", "uid": "other"},
+    }
+
+    result = backfill_schedule_uids(stored)
+
+    assert result == {
+        "key-1": {"name": "No uid", "uid": "key-1"},
+        "key-2": {"name": "Has uid", "uid": "other"},
+    }
+    assert stored["key-1"] == {"name": "No uid"}
+
+
+async def test_configure_date_saves_merge_into_concurrent_flow_save(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """A flow submitted after another flow saved keeps the other flow's schedule."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    flow_a, result = await _drive_to_configure_step(hass, entry, SCHEDULE_TYPE_DATE)
+    assert result["step_id"] == "configure_date"
+
+    flow_b, result = await _drive_to_configure_step(hass, entry, SCHEDULE_TYPE_DATE)
+    result = await hass.config_entries.options.async_configure(
+        flow_b,
+        {
+            **_BASE_VALID_INPUT[SCHEDULE_TYPE_DATE],
+            "name": "From B",
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    result = await hass.config_entries.options.async_configure(
+        flow_a,
+        {
+            "name": "From A",
+            "start_month": "12",
+            "start_day": 1,
+            "end_month": "12",
+            "end_day": 10,
+            "configuration": "",
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    schedules = result["data"]["services"]["default"]["schedules"]
+    assert sorted(s["name"] for s in schedules.values()) == ["From A", "From B"]
+
+
+async def test_default_configuration_form_renders_sorted_yaml(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Default configuration is dumped sorted; a schedule's own is kept in order."""
+    stored_config = {"b": 1, "a": 2}
+    entry = create_service_entry(
+        schedules={
+            "date-1": {
+                "uid": "date-1",
+                "name": "Summer",
+                "schedule_type": "date",
+                "start_month": 6,
+                "start_day": 1,
+                "end_month": 8,
+                "end_day": 31,
+                "configuration": stored_config,
+            }
+        },
+        configuration=stored_config,
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = result["flow_id"]
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "default_configuration"}
+    )
+    config_key = next(
+        k for k in result["data_schema"].schema if str(k) == "configuration"
+    )
+    assert config_key.default() == "a: 2\nb: 1\n"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = result["flow_id"]
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "edit_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"schedule_id": "date-1"}
+    )
+    config_key = next(
+        k for k in result["data_schema"].schema if str(k) == "configuration"
+    )
+    assert config_key.default() == "b: 1\na: 2"
+
+
+async def test_edit_week_schedule_round_trips_first_week_type(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Week 0 shows as "0_<type>" and saves its type; other weeks save none."""
+    entry = create_service_entry(
+        schedules={
+            "week-1": {
+                "uid": "week-1",
+                "name": "Weeks",
+                "schedule_type": "week",
+                "start_month": 3,
+                "start_week": 0,
+                "start_week_type": "full",
+                "end_month": 6,
+                "end_week": 3,
+                "country_code": "US",
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    flow_id = result["flow_id"]
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"next_step_id": "edit_schedule"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        flow_id, {"schedule_id": "week-1"}
+    )
+    assert result["step_id"] == "configure_week"
+
+    defaults = {str(k): k.default() for k in result["data_schema"].schema}
+    assert defaults["start_week"] == "0_full"
+    assert defaults["end_week"] == "3"
+
+    result = await hass.config_entries.options.async_configure(flow_id, defaults)
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+    saved = result["data"]["services"]["default"]["schedules"]["week-1"]
+    assert saved["start_week"] == 0
+    assert saved["start_week_type"] == "full"
+    assert saved["end_week"] == 3
+    assert "end_week_type" not in saved
