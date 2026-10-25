@@ -37,6 +37,7 @@ from .const import (
     SCHEDULE_TYPE_WEEK,
     WEEK_OCCURRENCE_OPTIONS,
 )
+from .migrations import backfill_schedule_uids
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,21 +135,6 @@ def _parse_week_value(value: str) -> tuple[int, str]:
 def _format_week_value(week: int | str, week_type: str) -> str:
     """Inverse of ``_parse_week_value`` for form defaults."""
     return f"{week}_{week_type}" if week == 0 else str(week)
-
-
-def backfill_schedule_uids(schedules: dict[str, Any]) -> dict[str, Any]:
-    """Return ``schedules`` with each missing ``uid`` set to its storage key.
-
-    Overlap validation excludes the schedule being edited by uid, and a
-    missing uid made every edit conflict with itself. Schedules migrated
-    from v1 are stored without one.
-    """
-    return {
-        schedule_id: (
-            schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
-        )
-        for schedule_id, schedule in schedules.items()
-    }
 
 
 def _get_schedule_type_display(schedule_type: str) -> str:
