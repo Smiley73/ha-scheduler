@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 from functools import partial
 from typing import Any
 
@@ -25,6 +26,7 @@ from homeassistant.helpers.selector import (
 )
 from homeassistant.util import dt as dt_util
 
+from . import holiday_importer, schedule_generator
 from .const import (
     DAY_NAMES,
     DOMAIN,
@@ -33,9 +35,12 @@ from .const import (
     SCHEDULE_TYPE_HOLIDAY,
     SCHEDULE_TYPE_NTH_DAY,
     SCHEDULE_TYPE_WEEK,
+    WEEK_OCCURRENCE_OPTIONS,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_SERVICE_ID = "default"
 
 
 def _form_schema(schema: dict[Any, Any]) -> Any:
@@ -49,39 +54,101 @@ def _form_schema(schema: dict[Any, Any]) -> Any:
     return vol.Schema(schema)
 
 
-def _get_month_options() -> list[str]:
-    """Get month options (values are integers 1-12, labels via translations)."""
-    return [str(i) for i in range(1, 13)]
+def _month_selector() -> SelectSelector:
+    """Month dropdown (values are integers 1-12, labels via translations)."""
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[str(i) for i in range(1, 13)],
+            mode=SelectSelectorMode.DROPDOWN,
+            translation_key="month",
+        )
+    )
 
 
-def _get_day_of_week_options() -> list[SelectOptionDict]:
-    """Get day of week options (values are integers 0-6)."""
-    return [
-        SelectOptionDict(value=str(i), label=DAY_NAMES[i].capitalize())
-        for i in range(7)
+def _offset_selector() -> NumberSelector:
+    """Day offset input (0-30)."""
+    return NumberSelector(
+        NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
+    )
+
+
+def _week_occurrence_selector() -> SelectSelector:
+    """Week occurrence dropdown (labels via the week_occurrence translations)."""
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[value for value, _label in WEEK_OCCURRENCE_OPTIONS],
+            mode=SelectSelectorMode.DROPDOWN,
+            translation_key="week_occurrence",
+        )
+    )
+
+
+def _week_day_selector() -> SelectSelector:
+    """Day-of-week dropdown with a "Whole week" choice (values are 0-6)."""
+    return SelectSelector(
+        SelectSelectorConfig(
+            options=[
+                SelectOptionDict(value="", label="Whole week"),
+                *(
+                    SelectOptionDict(value=str(i), label=DAY_NAMES[i].capitalize())
+                    for i in range(7)
+                ),
+            ],
+            mode=SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+def _configuration_field(default: str = "") -> dict[vol.Marker, Any]:
+    """Multiline YAML ``configuration`` form field."""
+    return {
+        vol.Optional("configuration", default=default): TextSelector(
+            TextSelectorConfig(multiline=True)
+        )
+    }
+
+
+def _schedule_picker_schema(schedules: dict[str, Any]) -> Any:
+    """Schema for picking one schedule, sorted by name."""
+    schedule_options = [
+        SelectOptionDict(value=sid, label=sdata["name"])
+        for sid, sdata in sorted(schedules.items(), key=lambda x: x[1]["name"].lower())
     ]
+    return _form_schema(
+        {
+            vol.Required("schedule_id"): SelectSelector(
+                SelectSelectorConfig(
+                    options=schedule_options, mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+        }
+    )
 
 
-def _get_occurrence_options() -> list[str]:
-    """Get week occurrence options (labels via the week_occurrence translations)."""
-    from .const import WEEK_OCCURRENCE_OPTIONS
-
-    return [value for value, _label in WEEK_OCCURRENCE_OPTIONS]
-
-
-def _get_nth_day_occurrence_options() -> list[str]:
-    """Get occurrence options for nth-day schedules (values are integers 0-4)."""
-    return [str(i) for i in range(len(OCCURRENCE_NAMES))]
+def _parse_week_value(value: str) -> tuple[int, str]:
+    """Split a combined ``"N"`` / ``"0_type"`` value into week and week type."""
+    week, separator, week_type = value.partition("_")
+    return int(week), week_type if separator else "partial"
 
 
-def _get_schedule_type_options() -> list[str]:
-    """Get options for schedule type selection (labels via translations)."""
-    return [
-        SCHEDULE_TYPE_DATE,
-        SCHEDULE_TYPE_WEEK,
-        SCHEDULE_TYPE_NTH_DAY,
-        SCHEDULE_TYPE_HOLIDAY,
-    ]
+def _format_week_value(week: int | str, week_type: str) -> str:
+    """Inverse of ``_parse_week_value`` for form defaults."""
+    return f"{week}_{week_type}" if week == 0 else str(week)
+
+
+def backfill_schedule_uids(schedules: dict[str, Any]) -> dict[str, Any]:
+    """Return ``schedules`` with each missing ``uid`` set to its storage key.
+
+    Overlap validation excludes the schedule being edited by uid, and a
+    missing uid made every edit conflict with itself. Schedules migrated
+    from v1 are stored without one.
+    """
+    return {
+        schedule_id: (
+            schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
+        )
+        for schedule_id, schedule in schedules.items()
+    }
 
 
 def _get_schedule_type_display(schedule_type: str) -> str:
@@ -95,15 +162,12 @@ def _get_schedule_type_display(schedule_type: str) -> str:
     return display_names.get(schedule_type, schedule_type)
 
 
-def _validate_yaml_config(yaml_str: str) -> dict[str, Any] | list[Any] | None:
+def _validate_yaml_config(yaml_str: str) -> dict[str, Any] | list[Any]:
     """Validate YAML configuration string.
 
-    Returns the parsed structure (dict or list) if valid, ``None`` for an
-    empty string, and raises ``ValueError`` if invalid.
+    Returns the parsed structure (dict or list) if valid and raises
+    ``ValueError`` if invalid.
     """
-    if not yaml_str or not yaml_str.strip():
-        return None
-
     try:
         parsed = yaml.safe_load(yaml_str)
         if not isinstance(parsed, (dict, list)):
@@ -114,6 +178,12 @@ def _validate_yaml_config(yaml_str: str) -> dict[str, Any] | list[Any] | None:
         return parsed
     except yaml.YAMLError as err:
         raise ValueError(f"Invalid YAML: {err}") from err
+
+
+def _parse_optional_yaml(value: Any) -> dict[str, Any] | list[Any] | None:
+    """Parse a submitted ``configuration`` value; ``None`` when blank."""
+    text = value.strip() if isinstance(value, str) else ""
+    return _validate_yaml_config(text) if text else None
 
 
 def _get_holiday_options(
@@ -208,56 +278,38 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     def __init__(self) -> None:
         """Initialize options flow."""
-        self._schedule_id: str | None = (
-            None  # UUID of the schedule being added or edited
-        )
-        self._schedule_data: dict[
-            str, Any
-        ] = {}  # Form defaults for the active schedule step
-        self._service_id: str = "default"  # Default service for now
-        self._holiday_data: dict[
-            str, Any
-        ] = {}  # State carried across the multi-step holiday import flow
-        # Populated by _validate_schedule_conflicts to carry the conflicting schedule's
-        # name into the error placeholder shown to the user.
-        self._overlap_conflicting_name: str | None = None
-        # Populated when YAML parsing fails so the error message can include details.
-        self._yaml_error_details: str | None = None
+        self._schedule_id: str | None = None
+        self._schedule_data: dict[str, Any] = {}
+        self._holiday_data: dict[str, Any] = {}
+        self._overlap_conflicting_name = ""
+        self._yaml_error_details = ""
 
     def _get_service_schedules(self) -> dict[str, Any]:
         """Get schedules for the current service."""
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        if not entry:
-            return {}
-
         schedules = (
-            entry.options.get("services", {})
-            .get(self._service_id, {})
+            self.config_entry.options.get("services", {})
+            .get(_SERVICE_ID, {})
             .get("schedules", {})
         )
-
-        # Backfill uid from the storage key for schedules stored
-        # without one; overlap validation excludes the schedule being edited
-        # by uid, and a missing uid made every edit conflict with itself.
-        return {
-            schedule_id: (
-                schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
-            )
-            for schedule_id, schedule in schedules.items()
-        }
+        return backfill_schedule_uids(schedules)
 
     def _get_default_holiday_country(self) -> str | None:
         """Return the default country for holiday schedules."""
         if country_code := self._schedule_data.get("country_code"):
             return str(country_code)
 
-        try:
-            if hasattr(self.hass.config, "country") and self.hass.config.country:
-                return str(self.hass.config.country)
-        except AttributeError:
-            pass
+        country = self.hass.config.country
+        return str(country) if country else None
 
-        return None
+    def _set_service_field(self, field: str, value: Any) -> dict[str, Any]:
+        """Return the entry options with one field of the service replaced."""
+        entry = self.config_entry
+        services = dict(entry.options.get("services", {}))
+        service = services.get(
+            _SERVICE_ID, {"name": entry.title, "schedules": {}, "configuration": {}}
+        )
+        services[_SERVICE_ID] = {**service, field: value}
+        return {**entry.options, "services": services}
 
     def _save_schedule(
         self, schedule_id: str, schedule: dict[str, Any]
@@ -270,65 +322,93 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """
         schedules = self._get_service_schedules()
         schedules[schedule_id] = schedule
-        return self._update_service_schedules(schedules)
+        return self._set_service_field("schedules", schedules)
 
     def _remove_schedule(self, schedule_id: str) -> dict[str, Any]:
         """Remove one schedule from freshly-read options and return them."""
         schedules = self._get_service_schedules()
         schedules.pop(schedule_id, None)
-        return self._update_service_schedules(schedules)
+        return self._set_service_field("schedules", schedules)
 
-    def _update_service_schedules(self, schedules: dict[str, Any]) -> dict[str, Any]:
-        """Update schedules for the current service and return updated options."""
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        if not entry:
-            return {}
+    def _error_placeholders(self, errors: dict[str, str]) -> dict[str, str] | None:
+        """Return description placeholders for the current error state."""
+        if errors.get("base") == "schedule_overlap_with_name":
+            return {"conflicting_schedule": self._overlap_conflicting_name}
+        if errors.get("base") == "invalid_yaml_with_details":
+            return {"details": self._yaml_error_details}
+        return None
 
-        new_services = dict(entry.options.get("services", {}))
+    def _set_submit_error(self, err: Exception, errors: dict[str, str]) -> None:
+        """Map an exception raised while handling a submit to a form error."""
+        if isinstance(err, ValueError):
+            _LOGGER.warning("Validation error: %s", err)
+            self._yaml_error_details = str(err).strip()
+            errors["base"] = (
+                "invalid_yaml_with_details"
+                if self._yaml_error_details
+                else "invalid_yaml"
+            )
+        else:
+            _LOGGER.exception("Unexpected error")
+            errors["base"] = "unknown"
 
-        # Ensure service exists
-        if self._service_id not in new_services:
-            new_services[self._service_id] = {
-                "name": entry.title,
-                "schedules": {},
-                "configuration": {},
-            }
+    def _form_defaults(
+        self, user_input: dict[str, Any] | None, errors: dict[str, str]
+    ) -> tuple[dict[str, Any], str]:
+        """Return form defaults and the YAML text for the configuration field.
 
-        new_services[self._service_id] = {
-            **new_services[self._service_id],
-            "schedules": schedules,
-        }
+        After an error the user's own input is redisplayed; otherwise the
+        stored schedule data is.
+        """
+        defaults = user_input if user_input and errors else self._schedule_data
+        config_value = defaults.get("configuration", "")
+        if isinstance(config_value, (dict, list)):
+            config_value = yaml.dump(
+                config_value, default_flow_style=False, sort_keys=False
+            ).strip()
+        return defaults, config_value
 
-        return {**entry.options, "services": new_services}
+    def _show_configure_form(
+        self,
+        step_id: str,
+        fields: dict[vol.Marker, Any],
+        config_value: str,
+        errors: dict[str, str],
+    ) -> ConfigFlowResult:
+        """Show a form of ``fields`` followed by the configuration field."""
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=_form_schema({**fields, **_configuration_field(config_value)}),
+            errors=errors,
+            description_placeholders=self._error_placeholders(errors),
+        )
 
-    def _get_overlap_placeholders(
-        self, errors: dict[str, str]
-    ) -> dict[str, str] | None:
-        """Return placeholders for overlap errors when available."""
-        if errors.get("base") != "schedule_overlap_with_name":
-            return None
-        if not self._overlap_conflicting_name:
-            return None
-        return {"conflicting_schedule": self._overlap_conflicting_name}
-
-    def _get_yaml_error_placeholders(
-        self, errors: dict[str, str]
-    ) -> dict[str, str] | None:
-        """Return placeholders for YAML validation errors when available."""
-        if errors.get("base") != "invalid_yaml_with_details":
-            return None
-        if not self._yaml_error_details:
-            return None
-        return {"details": self._yaml_error_details}
-
-    def _get_error_placeholders(self, errors: dict[str, str]) -> dict[str, str] | None:
-        """Return placeholders for the current error state when available."""
-        placeholders: dict[str, str] = {}
-        if overlap_placeholders := self._get_overlap_placeholders(errors):
-            placeholders.update(overlap_placeholders)
-        if yaml_placeholders := self._get_yaml_error_placeholders(errors):
-            placeholders.update(yaml_placeholders)
-        return placeholders or None
+    async def _check_overlap(
+        self,
+        schedule: dict[str, Any],
+        existing: list[dict[str, Any]],
+        exclude_uid: str | None,
+    ) -> tuple[bool, str | None]:
+        """Prime the holiday cache, then run the overlap check in the executor."""
+        current_year = dt_util.now().date().year
+        await holiday_importer.async_prime_holiday_cache(
+            [schedule, *existing],
+            range(
+                current_year,
+                current_year + schedule_generator.HOLIDAY_OVERLAP_HORIZON + 1,
+            ),
+        )
+        # Overlap validation generates schedules across a 400-year cycle;
+        # run it in the executor to keep the event loop responsive.
+        return await self.hass.async_add_executor_job(
+            partial(
+                schedule_generator.check_overlap,
+                schedule,
+                existing,
+                exclude_uid=exclude_uid,
+                today=dt_util.now().date(),
+            )
+        )
 
     async def _validate_schedule_conflicts(
         self, data: dict[str, Any], schedules: dict[str, Any]
@@ -337,56 +417,31 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         Returns an errors dict (empty when there are no conflicts).
         """
-        from .holiday_importer import async_prime_holiday_cache
-        from .schedule_generator import HOLIDAY_OVERLAP_HORIZON, check_overlap
-
-        errors: dict[str, str] = {}
-        self._overlap_conflicting_name = None
-
-        current_year = dt_util.now().date().year
-        await async_prime_holiday_cache(
-            [data, *schedules.values()],
-            range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
-        )
-
-        # Check for duplicate schedule names
         schedule_name = data["name"].strip().lower()
         for sid, schedule in schedules.items():
             if (
                 sid != self._schedule_id
                 and schedule["name"].strip().lower() == schedule_name
             ):
-                errors["name"] = "duplicate_name"
-                break
+                return {"name": "duplicate_name"}
 
-        if not errors:
-            # Overlap validation generates schedules across a 400-year cycle;
-            # run it in the executor to keep the event loop responsive.
-            has_overlap, conflicting_name = await self.hass.async_add_executor_job(
-                partial(
-                    check_overlap,
-                    data,
-                    list(schedules.values()),
-                    # When editing, exclude the current schedule so it doesn't conflict with itself.
-                    # When adding, _schedule_id is a new UUID not yet in schedules, so exclude_uid=None.
-                    exclude_uid=self._schedule_id
-                    if self._schedule_id in schedules
-                    else None,
-                    today=dt_util.now().date(),
-                )
-            )
+        has_overlap, conflicting_name = await self._check_overlap(
+            data,
+            list(schedules.values()),
+            # When editing, exclude the current schedule so it doesn't conflict with itself.
+            # When adding, _schedule_id is a new UUID not yet in schedules, so exclude_uid=None.
+            self._schedule_id if self._schedule_id in schedules else None,
+        )
+        if not has_overlap:
+            return {}
 
-            if has_overlap:
-                _LOGGER.debug(
-                    "Schedule overlaps with existing schedule: %s", conflicting_name
-                )
-                self._overlap_conflicting_name = conflicting_name
-                if conflicting_name:
-                    errors["base"] = "schedule_overlap_with_name"
-                else:
-                    errors["base"] = "schedule_overlap"
-
-        return errors
+        _LOGGER.debug("Schedule overlaps with existing schedule: %s", conflicting_name)
+        self._overlap_conflicting_name = conflicting_name or ""
+        return {
+            "base": "schedule_overlap_with_name"
+            if conflicting_name
+            else "schedule_overlap"
+        }
 
     async def _validate_week_schedule(self, data: dict[str, Any]) -> dict[str, str]:
         """Validate that a week schedule produces a valid recurring range.
@@ -397,12 +452,59 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if data.get("schedule_type") != SCHEDULE_TYPE_WEEK:
             return {}
 
-        from .schedule_generator import week_schedule_has_valid_ranges
-
-        if await self.hass.async_add_executor_job(week_schedule_has_valid_ranges, data):
+        if await self.hass.async_add_executor_job(
+            schedule_generator.week_schedule_has_valid_ranges, data
+        ):
             return {}
 
         return {"base": "invalid_week_schedule"}
+
+    async def _submit_schedule(
+        self,
+        user_input: dict[str, Any],
+        errors: dict[str, str],
+        build: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> ConfigFlowResult | None:
+        """Build, validate and save the schedule submitted from a configure step.
+
+        Returns the flow result once the schedule is saved (or the flow aborts).
+        Returns ``None`` with ``errors`` filled in when the form should be shown
+        again.
+        """
+        try:
+            data = build(user_input)
+            config = _parse_optional_yaml(user_input.get("configuration"))
+            if config is not None:
+                data["configuration"] = config
+
+            errors.update(await self._validate_week_schedule(data))
+            if not errors:
+                errors.update(
+                    await self._validate_schedule_conflicts(
+                        data, self._get_service_schedules()
+                    )
+                )
+
+            if not errors:
+                schedule_id = self._schedule_id
+                if schedule_id is None:
+                    return self.async_abort(reason="unknown")
+                return self.async_create_entry(
+                    title="", data=self._save_schedule(schedule_id, data)
+                )
+        except Exception as err:  # noqa: BLE001 - surfaced as the form's unknown error
+            self._set_submit_error(err, errors)
+        return None
+
+    async def _configure_schedule_type(self, schedule_type: str) -> ConfigFlowResult:
+        """Continue to the first configure step for ``schedule_type``."""
+        if schedule_type == SCHEDULE_TYPE_DATE:
+            return await self.async_step_configure_date()
+        if schedule_type == SCHEDULE_TYPE_WEEK:
+            return await self.async_step_configure_week()
+        if schedule_type == SCHEDULE_TYPE_HOLIDAY:
+            return await self.async_step_configure_holiday_country()
+        return await self.async_step_configure_nth_day()
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -426,14 +528,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             self._schedule_data = {"schedule_type": user_input["schedule_type"]}
             self._schedule_id = str(uuid.uuid4())
-
-            if user_input["schedule_type"] == SCHEDULE_TYPE_DATE:
-                return await self.async_step_configure_date()
-            if user_input["schedule_type"] == SCHEDULE_TYPE_WEEK:
-                return await self.async_step_configure_week()
-            if user_input["schedule_type"] == SCHEDULE_TYPE_HOLIDAY:
-                return await self.async_step_configure_holiday_country()
-            return await self.async_step_configure_nth_day()
+            return await self._configure_schedule_type(user_input["schedule_type"])
 
         return self.async_show_form(
             step_id="add_schedule",
@@ -443,7 +538,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         "schedule_type", default=SCHEDULE_TYPE_DATE
                     ): SelectSelector(
                         SelectSelectorConfig(
-                            options=_get_schedule_type_options(),
+                            options=[
+                                SCHEDULE_TYPE_DATE,
+                                SCHEDULE_TYPE_WEEK,
+                                SCHEDULE_TYPE_NTH_DAY,
+                                SCHEDULE_TYPE_HOLIDAY,
+                            ],
                             mode=SelectSelectorMode.DROPDOWN,
                             translation_key="schedule_type",
                         )
@@ -452,424 +552,202 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
         )
 
+    def _build_date(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "name": user_input["name"],
+            "schedule_type": SCHEDULE_TYPE_DATE,
+            "start_month": int(user_input["start_month"]),
+            "start_day": int(user_input["start_day"]),
+            "end_month": int(user_input["end_month"]),
+            "end_day": int(user_input["end_day"]),
+            "uid": self._schedule_id,
+        }
+
     async def async_step_configure_date(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure date-based schedule (single page)."""
-        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            try:
-                # Convert string values to integers
-                data = {
-                    "name": user_input["name"],
-                    "schedule_type": SCHEDULE_TYPE_DATE,
-                    "start_month": int(user_input["start_month"]),
-                    "start_day": int(user_input["start_day"]),
-                    "end_month": int(user_input["end_month"]),
-                    "end_day": int(user_input["end_day"]),
-                    "uid": self._schedule_id,
-                }
+            if result := await self._submit_schedule(
+                user_input, errors, self._build_date
+            ):
+                return result
 
-                # Validate and parse configuration
-                config_yaml = user_input.get("configuration") or ""
-                config_yaml = (
-                    config_yaml.strip() if isinstance(config_yaml, str) else ""
-                )
-                if config_yaml:
-                    config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict is not None:
-                        data["configuration"] = config_dict
+        defaults, config_value = self._form_defaults(user_input, errors)
+        return self._show_configure_form(
+            "configure_date",
+            {
+                vol.Required("name", default=defaults.get("name", "My Schedule")): str,
+                vol.Required(
+                    "start_month", default=str(defaults.get("start_month", 1))
+                ): _month_selector(),
+                vol.Required(
+                    "start_day", default=defaults.get("start_day", 1)
+                ): NumberSelector(
+                    NumberSelectorConfig(min=1, max=31, mode=NumberSelectorMode.BOX)
+                ),
+                vol.Required(
+                    "end_month", default=str(defaults.get("end_month", 12))
+                ): _month_selector(),
+                vol.Required(
+                    "end_day", default=defaults.get("end_day", 31)
+                ): NumberSelector(
+                    NumberSelectorConfig(min=1, max=31, mode=NumberSelectorMode.BOX)
+                ),
+            },
+            config_value,
+            errors,
+        )
 
-                # Get current schedules and validate for conflicts
-                schedules = self._get_service_schedules()
-                errors.update(await self._validate_schedule_conflicts(data, schedules))
+    def _build_week(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        start_week, start_week_type = _parse_week_value(user_input["start_week"])
+        end_week, end_week_type = _parse_week_value(user_input["end_week"])
 
-                if not errors:
-                    schedule_id = self._schedule_id
-                    if schedule_id is None:
-                        return self.async_abort(reason="unknown")
-                    updated_options = self._save_schedule(schedule_id, data)
-
-                    return self.async_create_entry(title="", data=updated_options)
-
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                details = str(err).strip()
-                self._yaml_error_details = details or None
-                errors["base"] = (
-                    "invalid_yaml_with_details" if details else "invalid_yaml"
-                )
-            except Exception:
-                _LOGGER.exception("Unexpected error")
-                errors["base"] = "unknown"
-
-        # Use user_input for defaults if available (when re-displaying after error), otherwise use stored schedule data
-        defaults = user_input if user_input and errors else self._schedule_data
-        # Convert configuration dict back to YAML string for display
-        config_value = defaults.get("configuration", "")
-        if isinstance(config_value, (dict, list)):
-            config_value = yaml.dump(
-                config_value, default_flow_style=False, sort_keys=False
-            ).strip()
-
-        # Only use config_value as placeholder, not as default (to allow clearing)
-        schema_dict: dict[vol.Marker, Any] = {
-            vol.Required("name", default=defaults.get("name", "My Schedule")): str,
-            vol.Required(
-                "start_month", default=str(defaults.get("start_month", 1))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_month_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="month",
-                )
-            ),
-            vol.Required(
-                "start_day", default=defaults.get("start_day", 1)
-            ): NumberSelector(
-                NumberSelectorConfig(min=1, max=31, mode=NumberSelectorMode.BOX)
-            ),
-            vol.Required(
-                "end_month", default=str(defaults.get("end_month", 12))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_month_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="month",
-                )
-            ),
-            vol.Required(
-                "end_day", default=defaults.get("end_day", 31)
-            ): NumberSelector(
-                NumberSelectorConfig(min=1, max=31, mode=NumberSelectorMode.BOX)
-            ),
+        data: dict[str, Any] = {
+            "name": user_input["name"],
+            "schedule_type": SCHEDULE_TYPE_WEEK,
+            "start_month": int(user_input["start_month"]),
+            "start_week": start_week,
+            "end_month": int(user_input["end_month"]),
+            "end_week": end_week,
+            "uid": self._schedule_id,
         }
 
-        # Add configuration field with default value
-        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
-            TextSelectorConfig(multiline=True)
-        )
+        # The week type only applies to the first week (occurrence 0)
+        if start_week == 0:
+            data["start_week_type"] = start_week_type
+        if end_week == 0:
+            data["end_week_type"] = end_week_type
 
-        return self.async_show_form(
-            step_id="configure_date",
-            data_schema=_form_schema(schema_dict),
-            errors=errors,
-            description_placeholders=self._get_error_placeholders(errors),
-        )
+        for key in ("start_day_of_week", "end_day_of_week"):
+            if user_input.get(key):
+                data[key] = int(user_input[key])
+
+        # Preserve the stored country when editing: silently adopting
+        # the current Home Assistant country would shift week
+        # boundaries (Monday-first vs Sunday-first) on unrelated
+        # edits. Only new schedules take the HA country.
+        if stored_country := self._schedule_data.get("country_code"):
+            data["country_code"] = stored_country
+        elif country := self.hass.config.country:
+            data["country_code"] = country
+        else:
+            _LOGGER.debug(
+                "No country configured in Home Assistant; week "
+                "schedules default to Monday-first weeks"
+            )
+        return data
 
     async def async_step_configure_week(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure week-based schedule (single page)."""
-        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            try:
-                # Parse start week (may include type for first week)
-                start_week_value = user_input["start_week"]
-                if "_" in start_week_value:
-                    start_week, start_week_type = start_week_value.split("_", 1)
-                    start_week = int(start_week)
-                else:
-                    start_week = int(start_week_value)
-                    start_week_type = "partial"  # Default for non-first weeks
+            if result := await self._submit_schedule(
+                user_input, errors, self._build_week
+            ):
+                return result
 
-                # Parse end week (may include type for first week)
-                end_week_value = user_input["end_week"]
-                if "_" in end_week_value:
-                    end_week, end_week_type = end_week_value.split("_", 1)
-                    end_week = int(end_week)
-                else:
-                    end_week = int(end_week_value)
-                    end_week_type = "partial"  # Default for non-first weeks
+        defaults, config_value = self._form_defaults(user_input, errors)
+        return self._show_configure_form(
+            "configure_week",
+            {
+                vol.Required("name", default=defaults.get("name", "My Schedule")): str,
+                vol.Required(
+                    "start_month", default=str(defaults.get("start_month", 1))
+                ): _month_selector(),
+                vol.Required(
+                    "start_week",
+                    default=_format_week_value(
+                        defaults.get("start_week", 0),
+                        defaults.get("start_week_type", "partial"),
+                    ),
+                ): _week_occurrence_selector(),
+                vol.Optional(
+                    "start_day_of_week",
+                    default=str(defaults.get("start_day_of_week", "")),
+                ): _week_day_selector(),
+                vol.Required(
+                    "end_month", default=str(defaults.get("end_month", 12))
+                ): _month_selector(),
+                vol.Required(
+                    "end_week",
+                    default=_format_week_value(
+                        defaults.get("end_week", 4),
+                        defaults.get("end_week_type", "partial"),
+                    ),
+                ): _week_occurrence_selector(),
+                vol.Optional(
+                    "end_day_of_week", default=str(defaults.get("end_day_of_week", ""))
+                ): _week_day_selector(),
+            },
+            config_value,
+            errors,
+        )
 
-                data = {
-                    "name": user_input["name"],
-                    "schedule_type": SCHEDULE_TYPE_WEEK,
-                    "start_month": int(user_input["start_month"]),
-                    "start_week": start_week,
-                    "end_month": int(user_input["end_month"]),
-                    "end_week": end_week,
-                    "uid": self._schedule_id,
-                }
-
-                # Add week types if they're for first week (occurrence 0)
-                if start_week == 0:
-                    data["start_week_type"] = start_week_type
-                if end_week == 0:
-                    data["end_week_type"] = end_week_type
-
-                # Add day of week fields only if they are specified (not empty)
-                if (
-                    user_input.get("start_day_of_week")
-                    and user_input["start_day_of_week"] != ""
-                ):
-                    data["start_day_of_week"] = int(user_input["start_day_of_week"])
-
-                if (
-                    user_input.get("end_day_of_week")
-                    and user_input["end_day_of_week"] != ""
-                ):
-                    data["end_day_of_week"] = int(user_input["end_day_of_week"])
-
-                # Preserve the stored country when editing: silently adopting
-                # the current Home Assistant country would shift week
-                # boundaries (Monday-first vs Sunday-first) on unrelated
-                # edits. Only new schedules take the HA country.
-                if stored_country := self._schedule_data.get("country_code"):
-                    data["country_code"] = stored_country
-                elif country := getattr(self.hass.config, "country", None):
-                    data["country_code"] = country
-                else:
-                    _LOGGER.debug(
-                        "No country configured in Home Assistant; week "
-                        "schedules default to Monday-first weeks"
-                    )
-
-                config_yaml = user_input.get("configuration") or ""
-                config_yaml = (
-                    config_yaml.strip() if isinstance(config_yaml, str) else ""
-                )
-                if config_yaml:
-                    config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict is not None:
-                        data["configuration"] = config_dict
-
-                errors.update(await self._validate_week_schedule(data))
-
-                schedules = self._get_service_schedules()
-                # Get current schedules and validate for conflicts
-                if not errors:
-                    errors.update(
-                        await self._validate_schedule_conflicts(data, schedules)
-                    )
-
-                if not errors:
-                    schedule_id = self._schedule_id
-                    if schedule_id is None:
-                        return self.async_abort(reason="unknown")
-                    updated_options = self._save_schedule(schedule_id, data)
-
-                    return self.async_create_entry(title="", data=updated_options)
-
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                details = str(err).strip()
-                self._yaml_error_details = details or None
-                errors["base"] = (
-                    "invalid_yaml_with_details" if details else "invalid_yaml"
-                )
-            except Exception:
-                _LOGGER.exception("Unexpected error")
-                errors["base"] = "unknown"
-
-        # Use user_input for defaults if available (when re-displaying after error), otherwise use stored schedule data
-        defaults = user_input if user_input and errors else self._schedule_data
-        # Convert configuration dict back to YAML string for display
-        config_value = defaults.get("configuration", "")
-        if isinstance(config_value, (dict, list)):
-            config_value = yaml.dump(
-                config_value, default_flow_style=False, sort_keys=False
-            ).strip()
-
-        # Convert stored week values back to combined format for display
-        start_week_default = defaults.get("start_week", 0)
-        start_week_type = defaults.get("start_week_type", "partial")
-        if start_week_default == 0:
-            start_week_display = f"{start_week_default}_{start_week_type}"
-        else:
-            start_week_display = str(start_week_default)
-
-        end_week_default = defaults.get("end_week", 4)
-        end_week_type = defaults.get("end_week_type", "partial")
-        if end_week_default == 0:
-            end_week_display = f"{end_week_default}_{end_week_type}"
-        else:
-            end_week_display = str(end_week_default)
-
-        schema_dict: dict[vol.Marker, Any] = {
-            vol.Required("name", default=defaults.get("name", "My Schedule")): str,
-            vol.Required(
-                "start_month", default=str(defaults.get("start_month", 1))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_month_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="month",
-                )
-            ),
-            vol.Required("start_week", default=start_week_display): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_occurrence_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="week_occurrence",
-                )
-            ),
-            vol.Optional(
-                "start_day_of_week", default=str(defaults.get("start_day_of_week", ""))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(value="", label="Whole week"),
-                        *_get_day_of_week_options(),
-                    ],
-                    mode=SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            vol.Required(
-                "end_month", default=str(defaults.get("end_month", 12))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_month_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="month",
-                )
-            ),
-            vol.Required("end_week", default=end_week_display): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_occurrence_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="week_occurrence",
-                )
-            ),
-            vol.Optional(
-                "end_day_of_week", default=str(defaults.get("end_day_of_week", ""))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(value="", label="Whole week"),
-                        *_get_day_of_week_options(),
-                    ],
-                    mode=SelectSelectorMode.DROPDOWN,
-                )
-            ),
+    def _build_nth_day(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "name": user_input["name"],
+            "schedule_type": SCHEDULE_TYPE_NTH_DAY,
+            "month": int(user_input["month"]),
+            "occurrence": int(user_input["occurrence"]),
+            "day_of_week": int(user_input["day_of_week"]),
+            "start_offset": int(user_input["start_offset"]),
+            "end_offset": int(user_input["end_offset"]),
+            "uid": self._schedule_id,
         }
-
-        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
-            TextSelectorConfig(multiline=True)
-        )
-
-        return self.async_show_form(
-            step_id="configure_week",
-            data_schema=_form_schema(schema_dict),
-            errors=errors,
-            description_placeholders=self._get_error_placeholders(errors),
-        )
 
     async def async_step_configure_nth_day(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure nth-day schedule (single page)."""
-        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            try:
-                data = {
-                    "name": user_input["name"],
-                    "schedule_type": SCHEDULE_TYPE_NTH_DAY,
-                    "month": int(user_input["month"]),
-                    "occurrence": int(user_input["occurrence"]),
-                    "day_of_week": int(user_input["day_of_week"]),
-                    "start_offset": int(user_input["start_offset"]),
-                    "end_offset": int(user_input["end_offset"]),
-                    "uid": self._schedule_id,
-                }
+            if result := await self._submit_schedule(
+                user_input, errors, self._build_nth_day
+            ):
+                return result
 
-                config_yaml = user_input.get("configuration") or ""
-                config_yaml = (
-                    config_yaml.strip() if isinstance(config_yaml, str) else ""
-                )
-                if config_yaml:
-                    config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict is not None:
-                        data["configuration"] = config_dict
-
-                # Get current schedules and validate for conflicts
-                schedules = self._get_service_schedules()
-                errors.update(await self._validate_schedule_conflicts(data, schedules))
-
-                if not errors:
-                    schedule_id = self._schedule_id
-                    if schedule_id is None:
-                        return self.async_abort(reason="unknown")
-                    updated_options = self._save_schedule(schedule_id, data)
-
-                    return self.async_create_entry(title="", data=updated_options)
-
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                details = str(err).strip()
-                self._yaml_error_details = details or None
-                errors["base"] = (
-                    "invalid_yaml_with_details" if details else "invalid_yaml"
-                )
-            except Exception:
-                _LOGGER.exception("Unexpected error")
-                errors["base"] = "unknown"
-
-        # Use user_input for defaults if available (when re-displaying after error), otherwise use stored schedule data
-        defaults = user_input if user_input and errors else self._schedule_data
-        # Convert configuration dict back to YAML string for display
-        config_value = defaults.get("configuration", "")
-        if isinstance(config_value, (dict, list)):
-            config_value = yaml.dump(
-                config_value, default_flow_style=False, sort_keys=False
-            ).strip()
-
-        schema_dict: dict[vol.Marker, Any] = {
-            vol.Required("name", default=defaults.get("name", "My Schedule")): str,
-            vol.Required(
-                "month", default=str(defaults.get("month", 1))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_month_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="month",
-                )
-            ),
-            vol.Required(
-                "occurrence", default=str(defaults.get("occurrence", 0))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=_get_nth_day_occurrence_options(),
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="occurrence",
-                )
-            ),
-            vol.Required(
-                "day_of_week", default=str(defaults.get("day_of_week", 0))
-            ): SelectSelector(
-                SelectSelectorConfig(
-                    options=[str(i) for i in range(7)],
-                    mode=SelectSelectorMode.DROPDOWN,
-                    translation_key="day_of_week",
-                )
-            ),
-            vol.Required(
-                "start_offset", default=defaults.get("start_offset", 0)
-            ): NumberSelector(
-                NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
-            ),
-            vol.Required(
-                "end_offset", default=defaults.get("end_offset", 0)
-            ): NumberSelector(
-                NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
-            ),
-        }
-
-        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
-            TextSelectorConfig(multiline=True)
-        )
-
-        return self.async_show_form(
-            step_id="configure_nth_day",
-            data_schema=_form_schema(schema_dict),
-            errors=errors,
-            description_placeholders=self._get_error_placeholders(errors),
+        defaults, config_value = self._form_defaults(user_input, errors)
+        return self._show_configure_form(
+            "configure_nth_day",
+            {
+                vol.Required("name", default=defaults.get("name", "My Schedule")): str,
+                vol.Required(
+                    "month", default=str(defaults.get("month", 1))
+                ): _month_selector(),
+                vol.Required(
+                    "occurrence", default=str(defaults.get("occurrence", 0))
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[str(i) for i in range(len(OCCURRENCE_NAMES))],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="occurrence",
+                    )
+                ),
+                vol.Required(
+                    "day_of_week", default=str(defaults.get("day_of_week", 0))
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[str(i) for i in range(7)],
+                        mode=SelectSelectorMode.DROPDOWN,
+                        translation_key="day_of_week",
+                    )
+                ),
+                vol.Required(
+                    "start_offset", default=defaults.get("start_offset", 0)
+                ): _offset_selector(),
+                vol.Required(
+                    "end_offset", default=defaults.get("end_offset", 0)
+                ): _offset_selector(),
+            },
+            config_value,
+            errors,
         )
 
     async def async_step_configure_holiday_country(
@@ -885,9 +763,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return await self.async_step_configure_holiday_category()
 
         try:
-            from .holiday_importer import get_supported_countries
-
-            countries = await get_supported_countries(today=dt_util.now().date())
+            countries = await holiday_importer.get_supported_countries(
+                today=dt_util.now().date()
+            )
         except Exception:
             _LOGGER.exception("Failed to load holiday countries")
             return self.async_abort(reason="import_error")
@@ -936,9 +814,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return await self.async_step_configure_holiday()
 
         try:
-            from .holiday_importer import get_available_categories
-
-            categories = await get_available_categories(
+            categories = await holiday_importer.get_available_categories(
                 str(country_code), today=dt_util.now().date()
             )
         except Exception:
@@ -975,7 +851,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure a holiday-backed schedule."""
-        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         country_code = self._schedule_data.get("country_code")
@@ -987,9 +862,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         holidays_data: dict[str, dict[str, Any]] = {}
         try:
-            from .holiday_importer import get_holidays_for_country
-
-            holidays_data = await get_holidays_for_country(
+            holidays_data = await holiday_importer.get_holidays_for_country(
                 str(country_code), [category], today=dt_util.now().date()
             )
         except Exception:
@@ -1001,66 +874,30 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         holiday_options = _get_holiday_options(holidays_data)
 
         if user_input is not None:
-            try:
-                holiday_name = user_input["holiday_name"]
+
+            def build(form: dict[str, Any]) -> dict[str, Any]:
+                holiday_name = form["holiday_name"]
                 if holiday_name not in holidays_data:
                     errors["holiday_name"] = "invalid_holiday_selection"
-
-                data = {
-                    "name": user_input["name"],
+                return {
+                    "name": form["name"],
                     "schedule_type": SCHEDULE_TYPE_HOLIDAY,
                     "country_code": str(country_code),
                     "category": str(category),
                     "holiday_name": holiday_name,
                     "name_lookup": "iexact",
-                    "start_offset": int(user_input["start_offset"]),
-                    "end_offset": int(user_input["end_offset"]),
+                    "start_offset": int(form["start_offset"]),
+                    "end_offset": int(form["end_offset"]),
                     "uid": self._schedule_id,
                 }
 
-                config_yaml = user_input.get("configuration") or ""
-                config_yaml = (
-                    config_yaml.strip() if isinstance(config_yaml, str) else ""
-                )
-                if config_yaml:
-                    config_dict = _validate_yaml_config(config_yaml)
-                    if config_dict is not None:
-                        data["configuration"] = config_dict
-
-                schedules = self._get_service_schedules()
-                if not errors:
-                    errors.update(
-                        await self._validate_schedule_conflicts(data, schedules)
-                    )
-
-                if not errors:
-                    schedule_id = self._schedule_id
-                    if schedule_id is None:
-                        return self.async_abort(reason="unknown")
-                    updated_options = self._save_schedule(schedule_id, data)
-
-                    return self.async_create_entry(title="", data=updated_options)
-
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                details = str(err).strip()
-                self._yaml_error_details = details or None
-                errors["base"] = (
-                    "invalid_yaml_with_details" if details else "invalid_yaml"
-                )
-            except Exception:
-                _LOGGER.exception("Unexpected error")
-                errors["base"] = "unknown"
+            if result := await self._submit_schedule(user_input, errors, build):
+                return result
 
         if not holiday_options and "base" not in errors:
             errors["base"] = "no_holidays_available"
 
-        defaults = user_input if user_input and errors else self._schedule_data
-        config_value = defaults.get("configuration", "")
-        if isinstance(config_value, (dict, list)):
-            config_value = yaml.dump(
-                config_value, default_flow_style=False, sort_keys=False
-            ).strip()
+        defaults, config_value = self._form_defaults(user_input, errors)
 
         available_holiday_names = {option["value"] for option in holiday_options}
         default_holiday_name = defaults.get("holiday_name")
@@ -1074,37 +911,29 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 holiday_options[0]["value"] if holiday_options else ""
             )
 
-        schema_dict: dict[vol.Marker, Any] = {
-            vol.Required(
-                "name", default=defaults.get("name", "My Holiday Schedule")
-            ): str,
-            vol.Required("holiday_name", default=default_holiday_name): SelectSelector(
-                SelectSelectorConfig(
-                    options=holiday_options,
-                    mode=SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            vol.Required(
-                "start_offset", default=defaults.get("start_offset", 0)
-            ): NumberSelector(
-                NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
-            ),
-            vol.Required(
-                "end_offset", default=defaults.get("end_offset", 0)
-            ): NumberSelector(
-                NumberSelectorConfig(min=0, max=30, mode=NumberSelectorMode.BOX)
-            ),
-        }
-
-        schema_dict[vol.Optional("configuration", default=config_value)] = TextSelector(
-            TextSelectorConfig(multiline=True)
-        )
-
-        return self.async_show_form(
-            step_id="configure_holiday",
-            data_schema=_form_schema(schema_dict),
-            errors=errors,
-            description_placeholders=self._get_error_placeholders(errors),
+        return self._show_configure_form(
+            "configure_holiday",
+            {
+                vol.Required(
+                    "name", default=defaults.get("name", "My Holiday Schedule")
+                ): str,
+                vol.Required(
+                    "holiday_name", default=default_holiday_name
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=holiday_options,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    "start_offset", default=defaults.get("start_offset", 0)
+                ): _offset_selector(),
+                vol.Required(
+                    "end_offset", default=defaults.get("end_offset", 0)
+                ): _offset_selector(),
+            },
+            config_value,
+            errors,
         )
 
     async def async_step_edit_schedule(
@@ -1120,43 +949,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self._schedule_id = user_input["schedule_id"]
             schedule = schedules[self._schedule_id]
             self._schedule_data = dict(schedule)
-
-            # Convert configuration dict to YAML string for editing
-            if "configuration" in self._schedule_data and isinstance(
-                self._schedule_data["configuration"], dict
-            ):
-                self._schedule_data["configuration"] = yaml.dump(
-                    self._schedule_data["configuration"],
-                    default_flow_style=False,
-                    sort_keys=False,
-                ).strip()
-
-            if schedule["schedule_type"] == SCHEDULE_TYPE_DATE:
-                return await self.async_step_configure_date()
-            if schedule["schedule_type"] == SCHEDULE_TYPE_WEEK:
-                return await self.async_step_configure_week()
-            if schedule["schedule_type"] == SCHEDULE_TYPE_HOLIDAY:
-                return await self.async_step_configure_holiday_country()
-            return await self.async_step_configure_nth_day()
-
-        schedule_options = [
-            SelectOptionDict(value=sid, label=sdata["name"])
-            for sid, sdata in sorted(
-                schedules.items(), key=lambda x: x[1]["name"].lower()
-            )
-        ]
+            return await self._configure_schedule_type(schedule["schedule_type"])
 
         return self.async_show_form(
-            step_id="edit_schedule",
-            data_schema=_form_schema(
-                {
-                    vol.Required("schedule_id"): SelectSelector(
-                        SelectSelectorConfig(
-                            options=schedule_options, mode=SelectSelectorMode.DROPDOWN
-                        )
-                    ),
-                }
-            ),
+            step_id="edit_schedule", data_schema=_schedule_picker_schema(schedules)
         )
 
     async def async_step_remove_schedule(
@@ -1187,24 +983,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 },
             )
 
-        schedule_options = [
-            SelectOptionDict(value=sid, label=sdata["name"])
-            for sid, sdata in sorted(
-                schedules.items(), key=lambda x: x[1]["name"].lower()
-            )
-        ]
-
         return self.async_show_form(
-            step_id="remove_schedule",
-            data_schema=_form_schema(
-                {
-                    vol.Required("schedule_id"): SelectSelector(
-                        SelectSelectorConfig(
-                            options=schedule_options, mode=SelectSelectorMode.DROPDOWN
-                        )
-                    ),
-                }
-            ),
+            step_id="remove_schedule", data_schema=_schedule_picker_schema(schedules)
         )
 
     async def async_step_remove_schedule_confirm(
@@ -1229,102 +1009,38 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Configure default configuration."""
-        self._yaml_error_details = None
         errors: dict[str, str] = {}
 
         if user_input is not None:
             try:
-                config_yaml = user_input.get("configuration") or ""
-                config_yaml = (
-                    config_yaml.strip() if isinstance(config_yaml, str) else ""
-                )
-                config_dict = None
-                if config_yaml:
-                    config_dict = _validate_yaml_config(config_yaml)
-
-                # Get fresh entry before update
-                try:
-                    entry_id = self.config_entry.entry_id
-                    entry = self.hass.config_entries.async_get_entry(entry_id)
-                except UnknownEntry:
-                    errors["base"] = "entry_not_found"
-                    return self.async_show_form(
-                        step_id="default_configuration",
-                        data_schema=_form_schema(
-                            {
-                                vol.Optional("configuration", default=""): TextSelector(
-                                    TextSelectorConfig(multiline=True)
-                                ),
-                            }
-                        ),
-                        errors=errors,
-                    )
-
-                if not entry:
-                    errors["base"] = "entry_not_found"
-                    return self.async_show_form(
-                        step_id="default_configuration",
-                        data_schema=_form_schema(
-                            {
-                                vol.Optional("configuration", default=""): TextSelector(
-                                    TextSelectorConfig(multiline=True)
-                                ),
-                            }
-                        ),
-                        errors=errors,
-                    )
-
-                new_configuration = config_dict if config_dict is not None else {}
-                new_services = dict(entry.options.get("services", {}))
-
-                # Ensure service exists
-                if self._service_id not in new_services:
-                    new_services[self._service_id] = {
-                        "name": entry.title,
-                        "schedules": {},
-                        "configuration": {},
-                    }
-
-                new_services[self._service_id] = {
-                    **new_services[self._service_id],
-                    "configuration": new_configuration,
-                }
-
-                updated_options = {**entry.options, "services": new_services}
-
-                return self.async_create_entry(title="", data=updated_options)
-
-            except ValueError as err:
-                _LOGGER.warning("Validation error: %s", err)
-                details = str(err).strip()
-                self._yaml_error_details = details or None
-                errors["base"] = (
-                    "invalid_yaml_with_details" if details else "invalid_yaml"
-                )
-            except Exception:
-                _LOGGER.exception("Unexpected error")
-                errors["base"] = "unknown"
-
-        entry = self.hass.config_entries.async_get_entry(self.config_entry.entry_id)
-        services = entry.options.get("services", {}) if entry else {}
-        current_config = services.get(self._service_id, {}).get("configuration", {})
-        config_str = yaml.dump(current_config) if current_config else ""
-
-        # If re-displaying after an error, preserve what the user typed so they can correct it
-        if user_input is not None and errors:
-            config_str = user_input.get("configuration") or ""
-
-        return self.async_show_form(
-            step_id="default_configuration",
-            data_schema=_form_schema(
-                {
-                    vol.Optional("configuration", default=config_str): TextSelector(
-                        TextSelectorConfig(multiline=True)
+                config_dict = _parse_optional_yaml(user_input.get("configuration"))
+                return self.async_create_entry(
+                    title="",
+                    data=self._set_service_field(
+                        "configuration", {} if config_dict is None else config_dict
                     ),
-                }
-            ),
-            errors=errors,
-            description_placeholders=self._get_error_placeholders(errors),
+                )
+            except UnknownEntry:
+                errors["base"] = "entry_not_found"
+                return self._show_configure_form(
+                    "default_configuration", {}, "", errors
+                )
+            except Exception as err:  # noqa: BLE001 - surfaced as the form's unknown error
+                self._set_submit_error(err, errors)
+
+        if user_input is not None and errors:
+            # Preserve what the user typed so they can correct it
+            config_str = user_input.get("configuration") or ""
+        else:
+            current_config = (
+                self.config_entry.options.get("services", {})
+                .get(_SERVICE_ID, {})
+                .get("configuration", {})
+            )
+            config_str = yaml.dump(current_config) if current_config else ""
+
+        return self._show_configure_form(
+            "default_configuration", {}, config_str, errors
         )
 
     async def async_step_import_holidays(
@@ -1336,9 +1052,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return await self.async_step_import_holidays_categories()
 
         try:
-            from .holiday_importer import get_supported_countries
-
-            countries = await get_supported_countries(today=dt_util.now().date())
+            countries = await holiday_importer.get_supported_countries(
+                today=dt_util.now().date()
+            )
 
             if not countries:
                 return self.async_abort(reason="no_countries_available")
@@ -1374,12 +1090,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             return await self.async_step_import_holidays_select()
 
         try:
-            from .holiday_importer import get_available_categories
-
             country = self._holiday_data.get("country")
             if not country:
                 return self.async_abort(reason="import_error")
-            categories = await get_available_categories(
+            categories = await holiday_importer.get_available_categories(
                 country, today=dt_util.now().date()
             )
 
@@ -1445,32 +1159,22 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
     async def _get_holiday_selection_schema(self) -> Any:
         """Get the schema for holiday selection."""
+        empty_schema = _form_schema(
+            {
+                vol.Optional("holidays", default=[]): SelectSelector(
+                    SelectSelectorConfig(options=[], multiple=True)
+                ),
+            }
+        )
+
         try:
-            from .holiday_importer import get_holidays_for_country
-
-            # Ensure _holiday_data is initialized
-            if not hasattr(self, "_holiday_data") or not self._holiday_data:
-                return _form_schema(
-                    {
-                        vol.Optional("holidays", default=[]): SelectSelector(
-                            SelectSelectorConfig(options=[], multiple=True)
-                        ),
-                    }
-                )
-
             country = self._holiday_data.get("country")
             categories = self._holiday_data.get("categories", ["public"])
 
             if not country:
-                return _form_schema(
-                    {
-                        vol.Optional("holidays", default=[]): SelectSelector(
-                            SelectSelectorConfig(options=[], multiple=True)
-                        ),
-                    }
-                )
+                return empty_schema
 
-            holidays_data = await get_holidays_for_country(
+            holidays_data = await holiday_importer.get_holidays_for_country(
                 country, categories, today=dt_util.now().date()
             )
 
@@ -1482,17 +1186,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             )
 
             if not holidays_data:
-                return _form_schema(
-                    {
-                        vol.Optional("holidays", default=[]): SelectSelector(
-                            SelectSelectorConfig(options=[], multiple=True)
-                        ),
-                    }
-                )
+                return empty_schema
 
             holiday_options = _get_holiday_options(holidays_data)
-
-            # Get all holiday names for default selection
             all_holiday_names = [option["value"] for option in holiday_options]
 
             return _form_schema(
@@ -1513,13 +1209,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 
         except Exception:
             _LOGGER.exception("Failed to get holidays")
-            return _form_schema(
-                {
-                    vol.Optional("holidays", default=[]): SelectSelector(
-                        SelectSelectorConfig(options=[], multiple=True)
-                    ),
-                }
-            )
+            return empty_schema
 
     async def _import_selected_holidays(
         self,
@@ -1531,24 +1221,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     ) -> ConfigFlowResult:
         """Import the selected holidays as schedules."""
         try:
-            from .holiday_importer import (
-                async_prime_holiday_cache,
-                build_holiday_schedule_pattern,
-                get_holidays_for_country,
-            )
-            from .schedule_generator import HOLIDAY_OVERLAP_HORIZON, check_overlap
-
             country = self._holiday_data.get("country")
             categories = self._holiday_data.get("categories", ["public"])
 
             if not country:
                 return self.async_abort(reason="import_error")
 
-            all_holidays = await get_holidays_for_country(
+            all_holidays = await holiday_importer.get_holidays_for_country(
                 country, categories, today=dt_util.now().date()
             )
 
-            # Get current schedules (uids are backfilled by _get_service_schedules)
             schedules = self._get_service_schedules()
             new_schedules = dict(schedules)
             # Only the schedules this import adds or overwrites; merged into
@@ -1574,7 +1256,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         holiday_info.get("category")
                         or (categories[0] if categories else "public")
                     )
-                    pattern = build_holiday_schedule_pattern(
+                    pattern = holiday_importer.build_holiday_schedule_pattern(
                         str(country), holiday_category, holiday_name
                     )
 
@@ -1582,7 +1264,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     errors.append(f"Could not determine pattern for '{holiday_name}'")
                     continue
 
-                # Create schedule from pattern
                 if include_country_name:
                     schedule_name = f"{holiday_name} ({country})"
                 else:
@@ -1601,7 +1282,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     },
                 }
 
-                # Check for existing schedule with same name
                 existing_schedule_id = None
                 for sid, existing_schedule in new_schedules.items():
                     if (
@@ -1619,27 +1299,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         schedule["uid"] = existing_schedule_id
                         excluded_uid = existing_schedule_id
                     else:
-                        # Skip existing
                         skipped_count += 1
                         errors.append(
                             f"Schedule '{schedule_name}' already exists (skipped)"
                         )
                         continue
 
-                existing_schedules_list = list(new_schedules.values())
-                current_year = dt_util.now().date().year
-                await async_prime_holiday_cache(
-                    [schedule, *existing_schedules_list],
-                    range(current_year, current_year + HOLIDAY_OVERLAP_HORIZON + 1),
-                )
-                has_overlap, conflicting_name = await self.hass.async_add_executor_job(
-                    partial(
-                        check_overlap,
-                        schedule,
-                        existing_schedules_list,
-                        exclude_uid=excluded_uid,
-                        today=dt_util.now().date(),
-                    )
+                has_overlap, conflicting_name = await self._check_overlap(
+                    schedule, list(new_schedules.values()), excluded_uid
                 )
 
                 if has_overlap and skip_on_overlap:
@@ -1660,11 +1327,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 changed_schedules[schedule["uid"]] = schedule
                 imported_count += 1
 
-            # Update schedules if any were imported or overwritten
             if imported_count > 0 or overwritten_count > 0:
                 merged_schedules = self._get_service_schedules()
                 merged_schedules.update(changed_schedules)
-                updated_options = self._update_service_schedules(merged_schedules)
+                updated_options = self._set_service_field("schedules", merged_schedules)
 
                 _LOGGER.info(
                     "Holiday import for %s: %d imported, %d overwritten, %d skipped%s",
