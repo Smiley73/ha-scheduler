@@ -68,17 +68,7 @@ async def test_complete_add_date_schedule_flow(hass: HomeAssistant) -> None:
 
     print(f"\nEntry options after add: {updated_entry.options}")
 
-    # Check both legacy and new structure
-    legacy_schedules = updated_entry.options.get("schedules", {})
-    services = updated_entry.options.get("services", {})
-
-    if services:
-        # New service-based structure
-        default_service = services.get("default", {})
-        schedules = default_service.get("schedules", {})
-    else:
-        # Legacy structure
-        schedules = legacy_schedules
+    schedules = updated_entry.options["services"]["default"]["schedules"]
 
     print(f"Schedules after add: {schedules}")
     print(f"Number of schedules: {len(schedules)}")

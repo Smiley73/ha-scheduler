@@ -40,28 +40,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Scheduler calendar from a config entry."""
-    # Handle both new service-based structure and legacy structure
     services = entry.options.get("services", {})
     calendars = []
     all_schedules: list[dict[str, Any]] = []
 
-    if services:
-        # New service-based structure
-        for service_id, service_data in services.items():
-            all_schedules.extend(service_data.get("schedules", {}).values())
-            calendars.append(SchedulerCalendar(entry, service_id, service_data))
-    else:
-        # Legacy structure - create a default service
-        legacy_schedules = entry.options.get("schedules", {})
-        legacy_config = entry.options.get("configuration", {})
-        all_schedules.extend(legacy_schedules.values())
-
-        default_service_data = {
-            "name": entry.title,
-            "schedules": legacy_schedules,
-            "configuration": legacy_config,
-        }
-        calendars.append(SchedulerCalendar(entry, "default", default_service_data))
+    for service_id, service_data in services.items():
+        all_schedules.extend(service_data.get("schedules", {}).values())
+        calendars.append(SchedulerCalendar(entry, service_id, service_data))
 
     current_year = dt_util.now().date().year
     await async_prime_holiday_cache(
@@ -189,18 +174,10 @@ class SchedulerCalendar(CalendarEntity):
         self.async_write_ha_state()
 
     def _get_service_data(self) -> dict[str, Any]:
-        """Return live service data, handling both new and legacy layouts."""
+        """Return live service data from the entry options."""
         services = self._entry.options.get("services", {})
-        if services:
-            service: dict[str, Any] = services.get(self._service_id, {})
-            return service
-
-        # Legacy (pre-services) entries store schedules at the options root.
-        return {
-            "name": self._entry.title,
-            "schedules": self._entry.options.get("schedules", {}),
-            "configuration": self._entry.options.get("configuration", {}),
-        }
+        service: dict[str, Any] = services.get(self._service_id, {})
+        return service
 
     def _get_schedules(self) -> list[dict[str, Any]]:
         """Get schedules from config entry options for this service."""

@@ -12,17 +12,12 @@ from custom_components.ha_scheduler.const import DOMAIN
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
-async def test_calendar_updates_when_schedule_added(hass: HomeAssistant) -> None:
+async def test_calendar_updates_when_schedule_added(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test that calendar updates when a schedule is added via options flow."""
     # Create entry with no schedules
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-        version=2,  # Set to current version to avoid migration
-        minor_version=1,
-    )
+    entry = create_service_entry()
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

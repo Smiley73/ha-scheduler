@@ -67,16 +67,17 @@ without a commit; pre-commit runs ruff from that same install.
   `CalendarEntity` owns that name (HA 2026.6+) and shadowing it breaks
   dashboards; a resilience test guards this.
 - **Schedule dicts**: every schedule carries a `uid` (backfilled from its
-  storage key for legacy entries). Overlap checks exclude the edited
+  storage key for schedules stored without one, e.g. migrated ones). Overlap checks exclude the edited
   schedule by uid.
 - **Options writes**: use `_save_schedule`/`_remove_schedule` in the options
   flow (merge-on-write against a fresh read); do not write a stale snapshot.
 - **Translations**: `strings.json` and `translations/en.json` must stay
   byte-for-byte identical. Selector option labels live under `selector` and
   are keyed by option *values*.
-- **Legacy layout**: entries may store `schedules`/`configuration` at the
-  options root (pre-services). Every reader/writer must handle both shapes
-  or migrate deliberately — no half-support.
+- **Options layout**: options live under `services`. v1 root-layout entries
+  are converted by `migrations.py` before setup, so readers and writers
+  handle only the services layout, with a plain `.get("services", {})`
+  default. A layout change needs a migration, not reader fallbacks.
 - **Versioning**: bump `manifest.json` version for every user-visible change;
   keep `SPEC.md` in sync. Config entry migrations live in `migrations.py`
   with `CURRENT_VERSION`/`CURRENT_MINOR_VERSION`.

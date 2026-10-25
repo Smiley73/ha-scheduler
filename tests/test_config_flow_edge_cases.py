@@ -179,15 +179,12 @@ def test_validate_yaml_config_rejects_invalid_yaml() -> None:
         _validate_yaml_config("invalid: yaml: [")
 
 
-async def test_config_flow_duplicate_name(hass: HomeAssistant) -> None:
+async def test_config_flow_duplicate_name(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test config flow rejects duplicate integration names."""
     # Create first entry
-    entry1 = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry1 = create_service_entry()
     entry1.add_to_hass(hass)
 
     # Try to create second entry with same name
@@ -204,21 +201,18 @@ async def test_config_flow_duplicate_name(hass: HomeAssistant) -> None:
     assert result["errors"] == {"scheduler_name": "duplicate_scheduler_name"}
 
 
-async def test_options_flow_with_corrupted_data(hass: HomeAssistant) -> None:
+async def test_options_flow_with_corrupted_data(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test options flow handles corrupted schedule data."""
     # Entry with malformed schedules data
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={
-            "schedules": {
-                "bad_schedule": {
-                    # Missing required fields like 'name', 'schedule_type'
-                    "uid": "bad_schedule",
-                }
+    entry = create_service_entry(
+        schedules={
+            "bad_schedule": {
+                # Missing required fields like 'name', 'schedule_type'
+                "uid": "bad_schedule",
             }
-        },
+        }
     )
     entry.add_to_hass(hass)
 
@@ -228,14 +222,11 @@ async def test_options_flow_with_corrupted_data(hass: HomeAssistant) -> None:
     assert "add_schedule" in result["menu_options"]
 
 
-async def test_edit_schedule_nonexistent_schedule(hass: HomeAssistant) -> None:
+async def test_edit_schedule_nonexistent_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test editing a schedule that doesn't exist."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry = create_service_entry()
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -251,14 +242,11 @@ async def test_edit_schedule_nonexistent_schedule(hass: HomeAssistant) -> None:
     assert result["reason"] == "no_schedules"
 
 
-async def test_remove_schedule_nonexistent_schedule(hass: HomeAssistant) -> None:
+async def test_remove_schedule_nonexistent_schedule(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test removing a schedule that doesn't exist."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry = create_service_entry()
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -274,7 +262,9 @@ async def test_remove_schedule_nonexistent_schedule(hass: HomeAssistant) -> None
     assert result["reason"] == "no_schedules"
 
 
-async def test_schedule_sorting_with_unicode_names(hass: HomeAssistant) -> None:
+async def test_schedule_sorting_with_unicode_names(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test schedule sorting with Unicode characters."""
     schedules = {
         "schedule_1": {
@@ -299,12 +289,7 @@ async def test_schedule_sorting_with_unicode_names(hass: HomeAssistant) -> None:
         },
     }
 
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": schedules},
-    )
+    entry = create_service_entry(schedules=schedules)
     entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
@@ -331,14 +316,11 @@ async def test_schedule_sorting_with_unicode_names(hass: HomeAssistant) -> None:
     assert "Beijing 北京" in names
 
 
-async def test_concurrent_options_flows(hass: HomeAssistant) -> None:
+async def test_concurrent_options_flows(
+    hass: HomeAssistant, create_service_entry
+) -> None:
     """Test multiple concurrent options flows (edge case)."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
+    entry = create_service_entry()
     entry.add_to_hass(hass)
 
     # Start first flow
@@ -411,35 +393,22 @@ async def test_edit_schedule_without_stored_uid_does_not_self_conflict(
     assert schedules[schedule_id]["name"] == "Summer"
 
 
-async def test_default_configuration_preserves_legacy_schedules(
-    hass: HomeAssistant,
+async def test_default_configuration_preserves_existing_schedules(
+    hass: HomeAssistant, create_service_entry
 ) -> None:
-    """Setting the default configuration must not strand legacy schedules.
-
-    Regression test: the step used to write a services dict unconditionally,
-    creating an empty services.default.schedules that hid the root-level
-    schedules of legacy-shaped entries from every reader.
-    """
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Legacy Scheduler",
-        data={},
-        options={
-            "schedules": {
-                "legacy-1": {
-                    "uid": "legacy-1",
-                    "name": "Winter",
-                    "schedule_type": "date",
-                    "start_month": 12,
-                    "start_day": 1,
-                    "end_month": 2,
-                    "end_day": 28,
-                }
-            },
-            "configuration": {},
-        },
-        version=2,
-        minor_version=1,
+    """Setting the default configuration must not drop the existing schedules."""
+    entry = create_service_entry(
+        schedules={
+            "winter-1": {
+                "uid": "winter-1",
+                "name": "Winter",
+                "schedule_type": "date",
+                "start_month": 12,
+                "start_day": 1,
+                "end_month": 2,
+                "end_day": 28,
+            }
+        }
     )
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
@@ -458,11 +427,9 @@ async def test_default_configuration_preserves_legacy_schedules(
     await hass.async_block_till_done()
 
     updated_entry = hass.config_entries.async_get_entry(entry.entry_id)
-    # Legacy layout is preserved: schedules stay at the options root and no
-    # competing (empty) services structure is created.
-    assert "services" not in updated_entry.options
-    assert updated_entry.options["configuration"] == {"mode": "eco"}
-    assert "legacy-1" in updated_entry.options["schedules"]
+    default_service = updated_entry.options["services"]["default"]
+    assert default_service["configuration"] == {"mode": "eco"}
+    assert default_service["schedules"]["winter-1"]["name"] == "Winter"
 
 
 async def test_edit_week_schedule_preserves_country_code(
@@ -1178,27 +1145,6 @@ async def test_update_service_schedules_creates_missing_service(
         "configuration": {},
     }
     assert "other" in updated["services"]
-
-
-async def test_update_service_schedules_legacy_writes_root_schedules(
-    hass: HomeAssistant,
-) -> None:
-    """Legacy (pre-services) entries keep their schedules at the options root."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Legacy Scheduler",
-        data={},
-        options={"schedules": {}},
-    )
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    flow = hass.config_entries.options._progress[result["flow_id"]]
-
-    updated = flow._update_service_schedules({"sched-1": {"name": "S"}})
-
-    assert "services" not in updated
-    assert updated["schedules"] == {"sched-1": {"name": "S"}}
 
 
 async def test_default_configuration_entry_not_found_when_get_entry_returns_none(
