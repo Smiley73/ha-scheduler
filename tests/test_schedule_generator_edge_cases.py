@@ -1,6 +1,5 @@
 """Test edge cases and error handling in schedule generator."""
 
-import sys
 from datetime import date
 from unittest.mock import patch
 
@@ -8,19 +7,14 @@ import pytest
 
 from custom_components.ha_scheduler.schedule_generator import (
     _generate_by_date,
-    _generate_by_holiday,
     _generate_by_nth_day,
     _generate_by_week,
     _generate_overlap_ranges,
     _get_nth_weekday,
-    _get_overlap_signature,
     _get_overlap_years,
     _get_week_end,
     _get_week_start,
     _get_weekday_in_week,
-    _schedule_from_signature,
-    _uses_deterministic_overlap_cycle,
-    _week_schedule_has_valid_ranges,
     check_overlap,
     generate_schedule_dates,
     get_country_first_weekday,
@@ -412,11 +406,11 @@ def test_check_overlap_accepts_today_reference_date() -> None:
         ("ZZ", 0),
     ],
 )
-def test_get_country_first_weekday_babel_import_error(
+def test_get_country_first_weekday_without_babel_locale_data(
     country_code: str, expected: int
 ) -> None:
-    """When babel can't be imported, the fallback table (or its default) is used."""
-    with patch.dict(sys.modules, {"babel": None}):
+    """When Babel can't parse any locale, the fallback table (or its default) is used."""
+    with patch("babel.Locale.parse", side_effect=ValueError("no locale data")):
         assert get_country_first_weekday(country_code) == expected
 
 
@@ -452,15 +446,7 @@ def test_generate_by_date_invalid_month_raises_and_is_swallowed() -> None:
 
 
 def test_generate_by_week_non_int_day_of_week_returns_empty() -> None:
-    """A day_of_week that can't be coerced to int hits the outer except clause.
-
-    Both start_day_of_week and end_day_of_week are provided (so the "both
-    days specified" branch is taken), and start_day_of_week is a
-    non-numeric string. That branch does ``int(start_day_of_week)``, which
-    raises ValueError from inside _generate_by_week's own try block (not the
-    inner helper's), so it's the outer except (not an inner None-guard) that
-    produces the empty result.
-    """
+    """A day_of_week that can't be coerced to int is swallowed and returns []."""
     schedule = {
         "start_month": 1,
         "start_week": 0,
@@ -485,13 +471,29 @@ def test_generate_by_nth_day_invalid_offset_returns_empty() -> None:
     assert _generate_by_nth_day(schedule, 2024) == []
 
 
-def test_generate_by_holiday_import_failure_returns_empty() -> None:
-    """If the lazy holiday_importer import fails, _generate_by_holiday returns []."""
-    with patch.dict(
-        sys.modules,
-        {"custom_components.ha_scheduler.holiday_importer": None},
-    ):
-        assert _generate_by_holiday({"schedule_type": "holiday"}, 2024) == []
+@pytest.mark.parametrize(
+    "start_day_of_week, expected_start",
+    [
+        # Last Wednesday of December 2024.
+        (2, date(2024, 12, 25)),
+        # No start day: the last week of December 2024 starts on Monday.
+        (None, date(2024, 12, 30)),
+    ],
+)
+def test_generate_by_week_year_wrap_with_day_of_week_bounds(
+    start_day_of_week: int | None, expected_start: date
+) -> None:
+    """The end bound of a Dec-to-Jan week schedule lands in the next year."""
+    schedule = _week_schedule(
+        start_month=12, start_week=4, end_month=1, end_week=0, end_day_of_week=4
+    )
+    if start_day_of_week is not None:
+        schedule["start_day_of_week"] = start_day_of_week
+
+    # Friday of the partial first week of January 2025.
+    assert generate_schedule_dates(schedule, 2024) == [
+        (expected_start, date(2025, 1, 3))
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -581,9 +583,45 @@ def test_week_schedule_has_valid_ranges_non_week_schedule() -> None:
     assert week_schedule_has_valid_ranges({"schedule_type": "date"}) is False
 
 
-def test_week_schedule_has_valid_ranges_empty_signature() -> None:
-    """An empty signature can't be reconstructed into a schedule."""
-    assert _week_schedule_has_valid_ranges(()) is False
+def _week_schedule(**fields: int | str) -> dict[str, int | str]:
+    return {"schedule_type": "week", **fields}
+
+
+@pytest.mark.parametrize(
+    "schedule, expected",
+    [
+        # Whole week schedule: a range exists in every year of the cycle.
+        (_week_schedule(start_month=3, start_week=1, end_month=3, end_week=1), True),
+        # Monday-first partial week 0 has no Monday in most years.
+        (
+            _week_schedule(
+                start_month=3,
+                start_week=0,
+                start_day_of_week=0,
+                end_month=3,
+                end_week=1,
+            ),
+            False,
+        ),
+        # Friday-to-Monday within one week is inverted in every year.
+        (
+            _week_schedule(
+                start_month=3,
+                start_week=1,
+                start_day_of_week=4,
+                end_month=3,
+                end_week=1,
+                end_day_of_week=0,
+            ),
+            False,
+        ),
+    ],
+)
+def test_week_schedule_has_valid_ranges_requires_range_every_year(
+    schedule: dict[str, int | str], expected: bool
+) -> None:
+    """Only a schedule that yields a range in every year of the cycle is valid."""
+    assert week_schedule_has_valid_ranges(schedule) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -699,68 +737,57 @@ def test_get_overlap_years_two_date_schedules_uses_full_cycle() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Signature round-trip unit tests
+# Overlap cache
 # ---------------------------------------------------------------------------
 
 
-def test_get_overlap_signature_unknown_type_returns_one_tuple() -> None:
-    """An unrecognized schedule_type falls through to a bare 1-tuple."""
-    assert _get_overlap_signature({"schedule_type": "unknown"}) == ("unknown",)
+def test_overlap_cache_is_shared_and_keyed_on_date_fields_only() -> None:
+    """Validation and overlap checks share one cache entry per equal schedule."""
+    schedule = _week_schedule(
+        start_month=3,
+        start_week=1,
+        end_month=3,
+        end_week=1,
+        country_code="US",
+        uid="a",
+        name="A",
+    )
+    _generate_overlap_ranges.cache_clear()
+
+    assert week_schedule_has_valid_ranges(schedule) is True
+    info = _generate_overlap_ranges.cache_info()
+    assert (info.hits, info.misses) == (0, 1)
+
+    # Same date fields in a different dict, with another uid and name.
+    equal = {**schedule, "uid": "b", "name": "B"}
+    assert check_overlap(equal, [schedule]) == (True, "A")
+    info = _generate_overlap_ranges.cache_info()
+    assert (info.hits, info.misses) == (2, 1)
+
+    # country_code is upper-cased in the key.
+    check_overlap({**schedule, "country_code": "us"}, [schedule])
+    info = _generate_overlap_ranges.cache_info()
+    assert (info.hits, info.misses) == (4, 1)
+
+    # A different date field is a different entry.
+    check_overlap({**schedule, "start_week": 2, "end_week": 2}, [])
+    assert _generate_overlap_ranges.cache_info().misses == 2
 
 
-def test_schedule_from_signature_empty_returns_none() -> None:
-    """An empty signature can't be reconstructed into a schedule dict."""
-    assert _schedule_from_signature(()) is None
-
-
-def test_schedule_from_signature_holiday_round_trip_with_category() -> None:
-    """A holiday signature (with a category) rebuilds into a matching dict."""
-    holiday_schedule = {
-        "schedule_type": "holiday",
-        "country_code": "us",
-        "category": "public",
-        "holiday_name": "Christmas",
-        "name_lookup": "iexact",
-        "start_offset": 1,
-        "end_offset": 2,
+def test_check_overlap_compares_typeless_existing_schedule_as_date() -> None:
+    """A migrated schedule without schedule_type is compared as a date schedule."""
+    new_schedule = {
+        "schedule_type": "date",
+        "start_month": 1,
+        "start_day": 15,
+        "end_month": 1,
+        "end_day": 31,
     }
-    signature = _get_overlap_signature(holiday_schedule)
-    rebuilt = _schedule_from_signature(signature)
-    assert rebuilt == {
-        "schedule_type": "holiday",
-        "country_code": "US",
-        "holiday_name": "Christmas",
-        "name_lookup": "iexact",
-        "start_offset": 1,
-        "end_offset": 2,
-        "category": "public",
+    legacy = {
+        "name": "Legacy",
+        "start_month": 1,
+        "start_day": 10,
+        "end_month": 1,
+        "end_day": 20,
     }
-
-
-def test_schedule_from_signature_holiday_round_trip_without_category() -> None:
-    """A holiday signature without a category omits it from the rebuild."""
-    holiday_schedule = {
-        "schedule_type": "holiday",
-        "country_code": "us",
-        "holiday_name": "Christmas",
-    }
-    signature = _get_overlap_signature(holiday_schedule)
-    rebuilt = _schedule_from_signature(signature)
-    assert rebuilt is not None
-    assert "category" not in rebuilt
-    assert rebuilt["country_code"] == "US"
-
-
-def test_schedule_from_signature_unknown_type_returns_none() -> None:
-    """An unrecognized signature type can't be reconstructed."""
-    assert _schedule_from_signature(("bogus",)) is None
-
-
-def test_generate_overlap_ranges_unreconstructable_signature_returns_empty() -> None:
-    """If the signature can't be turned back into a schedule, no ranges exist."""
-    assert _generate_overlap_ranges(("bogus",)) == ()
-
-
-def test_uses_deterministic_overlap_cycle_empty_signature() -> None:
-    """An empty signature never qualifies for the deterministic cache."""
-    assert _uses_deterministic_overlap_cycle(()) is False
+    assert check_overlap(new_schedule, [legacy]) == (True, "Legacy")
