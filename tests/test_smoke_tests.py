@@ -230,15 +230,21 @@ async def test_schedule_update_listener(hass: HomeAssistant) -> None:
 
     # Update options with new schedule
     new_options = {
-        "schedules": {
-            "new_schedule": {
-                "name": "New Schedule",
-                "schedule_type": "date",
-                "start_month": 1,
-                "start_day": 1,
-                "end_month": 1,
-                "end_day": 31,
-                "uid": "new_schedule",
+        "services": {
+            "default": {
+                "name": entry.title,
+                "schedules": {
+                    "new_schedule": {
+                        "name": "New Schedule",
+                        "schedule_type": "date",
+                        "start_month": 1,
+                        "start_day": 1,
+                        "end_month": 1,
+                        "end_day": 31,
+                        "uid": "new_schedule",
+                    }
+                },
+                "configuration": {},
             }
         }
     }
