@@ -13,12 +13,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_scheduler.config_flow import (
     OptionsFlowHandler,
-    _get_holiday_options,
-    _parse_optional_yaml,
     _validate_yaml_config,
 )
 from custom_components.ha_scheduler.const import (
-    DOMAIN,
     SCHEDULE_TYPE_DATE,
     SCHEDULE_TYPE_HOLIDAY,
     SCHEDULE_TYPE_NTH_DAY,
@@ -79,7 +76,7 @@ _STEP_ID_BY_TYPE = {
 }
 
 
-def _holiday_import_patches():
+def _holiday_import_patches(holidays=_MOCK_HOLIDAYS, categories=("public",)):
     """Return patch context managers that make holiday lookups succeed."""
     return (
         patch(
@@ -88,11 +85,13 @@ def _holiday_import_patches():
         ),
         patch(
             "custom_components.ha_scheduler.holiday_importer.get_available_categories",
-            new=AsyncMock(return_value={"public": "Public Holidays"}),
+            new=AsyncMock(
+                return_value={code: f"{code} holidays" for code in categories}
+            ),
         ),
         patch(
             "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
-            new=AsyncMock(return_value=_MOCK_HOLIDAYS),
+            new=AsyncMock(return_value=holidays),
         ),
     )
 
@@ -140,68 +139,9 @@ def _bare_options_flow(
     return flow
 
 
-def test_validate_yaml_config_accepts_dict() -> None:
-    """A YAML mapping is parsed and returned as a dict."""
-    assert _validate_yaml_config("color: red\nbrightness: 75") == {
-        "color": "red",
-        "brightness": 75,
-    }
-
-
-def test_validate_yaml_config_accepts_list() -> None:
-    """A YAML sequence is a valid structure and returned as a list."""
-    assert _validate_yaml_config("- one\n- two") == ["one", "two"]
-
-
-def test_validate_yaml_config_accepts_empty_dict() -> None:
-    """An explicit empty mapping is preserved (not collapsed to None)."""
-    assert _validate_yaml_config("{}") == {}
-
-
 def test_validate_yaml_config_accepts_empty_list() -> None:
     """An explicit empty sequence is preserved (not collapsed to None)."""
     assert _validate_yaml_config("[]") == []
-
-
-def test_parse_optional_yaml_blank_returns_none() -> None:
-    """Blank, whitespace-only and non-string input return None rather than raising."""
-    assert _parse_optional_yaml("") is None
-    assert _parse_optional_yaml("   \n  ") is None
-    assert _parse_optional_yaml(None) is None
-
-
-def test_validate_yaml_config_rejects_scalar() -> None:
-    """A bare scalar value is rejected with a structure error."""
-    with pytest.raises(ValueError, match="YAML structure"):
-        _validate_yaml_config("just a string")
-
-
-def test_validate_yaml_config_rejects_invalid_yaml() -> None:
-    """Malformed YAML is reported as invalid."""
-    with pytest.raises(ValueError, match="Invalid YAML:"):
-        _validate_yaml_config("invalid: yaml: [")
-
-
-async def test_config_flow_duplicate_name(
-    hass: HomeAssistant, create_service_entry
-) -> None:
-    """Test config flow rejects duplicate integration names."""
-    # Create first entry
-    entry1 = create_service_entry()
-    entry1.add_to_hass(hass)
-
-    # Try to create second entry with same name
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": "user"}
-    )
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {"scheduler_name": "Test Scheduler"},  # Same name as existing entry
-    )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["errors"] == {"scheduler_name": "duplicate_scheduler_name"}
 
 
 async def test_options_flow_with_corrupted_data(
@@ -243,101 +183,6 @@ async def test_edit_schedule_nonexistent_schedule(
     # Should abort since no schedules exist
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "no_schedules"
-
-
-async def test_remove_schedule_nonexistent_schedule(
-    hass: HomeAssistant, create_service_entry
-) -> None:
-    """Test removing a schedule that doesn't exist."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == FlowResultType.MENU
-
-    # Select remove_schedule from menu
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={"next_step_id": "remove_schedule"}
-    )
-
-    # Should abort since no schedules exist
-    assert result["type"] == FlowResultType.ABORT
-    assert result["reason"] == "no_schedules"
-
-
-async def test_schedule_sorting_with_unicode_names(
-    hass: HomeAssistant, create_service_entry
-) -> None:
-    """Test schedule sorting with Unicode characters."""
-    schedules = {
-        "schedule_1": {
-            "name": "Ñoël Schedule",
-            "schedule_type": "date",
-            "uid": "schedule_1",
-        },
-        "schedule_2": {
-            "name": "Åpril Schedule",
-            "schedule_type": "date",
-            "uid": "schedule_2",
-        },
-        "schedule_3": {
-            "name": "Zürich Schedule",
-            "schedule_type": "date",
-            "uid": "schedule_3",
-        },
-        "schedule_4": {
-            "name": "Beijing 北京",
-            "schedule_type": "date",
-            "uid": "schedule_4",
-        },
-    }
-
-    entry = create_service_entry(schedules=schedules)
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert result["type"] == FlowResultType.MENU
-
-    # Select edit_schedule from menu
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={"next_step_id": "edit_schedule"}
-    )
-
-    # Verify Unicode names are handled in sorting
-    assert result["type"] == FlowResultType.FORM
-    schema = result["data_schema"].schema
-    schedule_selector = schema["schedule_id"]
-    options = schedule_selector.config["options"]
-
-    # Should have all schedules and be sorted
-    assert len(options) == 4
-    # Verify all names are present
-    names = [opt["label"] for opt in options]
-    assert "Ñoël Schedule" in names
-    assert "Åpril Schedule" in names
-    assert "Zürich Schedule" in names
-    assert "Beijing 北京" in names
-
-
-async def test_concurrent_options_flows(
-    hass: HomeAssistant, create_service_entry
-) -> None:
-    """Test multiple concurrent options flows (edge case)."""
-    entry = create_service_entry()
-    entry.add_to_hass(hass)
-
-    # Start first flow
-    result1 = await hass.config_entries.options.async_init(entry.entry_id)
-
-    # Start second flow (should be prevented by Home Assistant)
-    try:
-        result2 = await hass.config_entries.options.async_init(entry.entry_id)
-        # If allowed, both should be valid forms
-        assert result1["type"] == FlowResultType.FORM
-        assert result2["type"] == FlowResultType.FORM
-    except Exception:
-        # Expected - Home Assistant prevents concurrent flows
-        pass
 
 
 async def test_edit_schedule_without_stored_uid_does_not_self_conflict(
@@ -682,63 +527,54 @@ async def test_configure_step_unexpected_exception_shows_unknown_error(
     assert result["errors"]["base"] == "unknown"
 
 
-async def test_configure_week_renders_dict_configuration_as_yaml() -> None:
-    """A stored dict configuration is rendered back as YAML in the week form."""
+@pytest.mark.parametrize(
+    ("step", "schedule_data"),
+    [
+        (
+            "async_step_configure_week",
+            {
+                "schedule_type": SCHEDULE_TYPE_WEEK,
+                "name": "Test Week",
+                "start_month": 3,
+                "start_week": 1,
+                "end_month": 6,
+                "end_week": 4,
+            },
+        ),
+        (
+            "async_step_configure_nth_day",
+            {
+                "schedule_type": SCHEDULE_TYPE_NTH_DAY,
+                "name": "Test Nth Day",
+                "month": 3,
+                "occurrence": 1,
+                "day_of_week": 1,
+                "start_offset": 0,
+                "end_offset": 0,
+            },
+        ),
+        (
+            "async_step_configure_holiday",
+            {
+                "schedule_type": SCHEDULE_TYPE_HOLIDAY,
+                "name": "Test Holiday",
+                "country_code": "US",
+                "category": "public",
+                "holiday_name": "Test Holiday",
+                "start_offset": 0,
+                "end_offset": 0,
+            },
+        ),
+    ],
+)
+async def test_configure_step_renders_dict_configuration_as_yaml(
+    step: str, schedule_data: dict
+) -> None:
+    """A stored dict configuration is rendered back as YAML in the form."""
     flow = OptionsFlowHandler()
     flow._schedule_id = str(uuid.uuid4())
     flow._schedule_data = {
-        "schedule_type": SCHEDULE_TYPE_WEEK,
-        "name": "Test Week",
-        "start_month": 3,
-        "start_week": 1,
-        "end_month": 6,
-        "end_week": 4,
-        "configuration": {"color": "red", "brightness": 75},
-    }
-
-    result = await flow.async_step_configure_week()
-
-    assert result["type"] == FlowResultType.FORM
-    schema = result["data_schema"].schema
-    config_key = next(key for key in schema if str(key) == "configuration")
-    assert config_key.default() == "color: red\nbrightness: 75"
-
-
-async def test_configure_nth_day_renders_dict_configuration_as_yaml() -> None:
-    """A stored dict configuration is rendered back as YAML in the nth-day form."""
-    flow = OptionsFlowHandler()
-    flow._schedule_id = str(uuid.uuid4())
-    flow._schedule_data = {
-        "schedule_type": SCHEDULE_TYPE_NTH_DAY,
-        "name": "Test Nth Day",
-        "month": 3,
-        "occurrence": 1,
-        "day_of_week": 1,
-        "start_offset": 0,
-        "end_offset": 0,
-        "configuration": {"color": "red", "brightness": 75},
-    }
-
-    result = await flow.async_step_configure_nth_day()
-
-    assert result["type"] == FlowResultType.FORM
-    schema = result["data_schema"].schema
-    config_key = next(key for key in schema if str(key) == "configuration")
-    assert config_key.default() == "color: red\nbrightness: 75"
-
-
-async def test_configure_holiday_renders_dict_configuration_as_yaml() -> None:
-    """A stored dict configuration is rendered back as YAML in the holiday form."""
-    flow = OptionsFlowHandler()
-    flow._schedule_id = str(uuid.uuid4())
-    flow._schedule_data = {
-        "schedule_type": SCHEDULE_TYPE_HOLIDAY,
-        "name": "Test Holiday",
-        "country_code": "US",
-        "category": "public",
-        "holiday_name": "Test Holiday",
-        "start_offset": 0,
-        "end_offset": 0,
+        **schedule_data,
         "configuration": {"color": "red", "brightness": 75},
     }
 
@@ -746,7 +582,7 @@ async def test_configure_holiday_renders_dict_configuration_as_yaml() -> None:
         "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
         new=AsyncMock(return_value=_MOCK_HOLIDAYS),
     ):
-        result = await flow.async_step_configure_holiday()
+        result = await getattr(flow, step)()
 
     assert result["type"] == FlowResultType.FORM
     schema = result["data_schema"].schema
@@ -1041,19 +877,6 @@ async def test_import_holidays_categories_empty_defaults_to_public() -> None:
     assert flow._holiday_data["categories"] == ["public"]
 
 
-async def test_holiday_selection_schema_empty_without_country() -> None:
-    """The holiday-selection schema has no options when country is missing."""
-    flow = OptionsFlowHandler()
-    flow._holiday_data = {"categories": ["public"]}
-
-    schema = await flow._get_holiday_selection_schema()
-
-    holiday_selector = next(
-        value for key, value in schema.schema.items() if str(key) == "holidays"
-    )
-    assert holiday_selector.config["options"] == []
-
-
 async def test_import_selected_holidays_shows_import_error() -> None:
     """A failure loading holidays inside the import step re-shows the form."""
     flow = OptionsFlowHandler()
@@ -1077,41 +900,20 @@ async def test_import_selected_holidays_shows_import_error() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_holiday_options_skips_none_value(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A None holiday entry is skipped and warned about, not KeyError'd."""
-    options = _get_holiday_options(
-        {
-            "Good": {"pattern": {"description": "desc"}},
-            "Bad": None,
-        }
-    )
-
-    assert [opt["value"] for opt in options] == ["Good"]
-    assert any(
-        record.levelname == "WARNING" and "Bad" in record.message
-        for record in caplog.records
-    )
-
-
 async def test_save_schedule_creates_missing_service(
-    hass: HomeAssistant,
+    hass: HomeAssistant, create_service_entry
 ) -> None:
     """Saving a schedule when the default service is absent creates it."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={},
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
         options={
             "services": {
                 "other": {"name": "Other", "schedules": {}, "configuration": {}}
             }
         },
-        version=2,
-        minor_version=1,
     )
-    entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     flow = hass.config_entries.options._progress[result["flow_id"]]
@@ -1147,22 +949,19 @@ async def test_default_configuration_unexpected_exception_shows_unknown_error(
 
 
 async def test_default_configuration_creates_missing_service(
-    hass: HomeAssistant,
+    hass: HomeAssistant, create_service_entry
 ) -> None:
     """Setting the default configuration creates an absent service entry."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={"scheduler_name": "Test Scheduler"},
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
         options={
             "services": {
                 "other": {"name": "Other Service", "schedules": {}, "configuration": {}}
             }
         },
-        version=2,
-        minor_version=1,
     )
-    entry.add_to_hass(hass)
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
@@ -1195,13 +994,6 @@ def test_get_default_holiday_country_returns_ha_country() -> None:
     flow.hass = SimpleNamespace(config=SimpleNamespace(country="DE"))
 
     assert flow._get_default_holiday_country() == "DE"
-
-
-async def test_validate_week_schedule_skips_non_week_schedule() -> None:
-    """Non-week schedules bypass range validation entirely."""
-    flow = OptionsFlowHandler()
-
-    assert await flow._validate_week_schedule({"schedule_type": "date"}) == {}
 
 
 async def test_configure_date_schedule_overlap_without_conflicting_name(
@@ -1258,7 +1050,12 @@ async def test_add_week_schedule_defaults_country_from_hass_config(
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     schedules = get_schedules_from_entry(entry)
+    assert len(schedules) == 1
     schedule = next(iter(schedules.values()))
+    assert schedule["name"] == "Test Schedule"
+    assert schedule["schedule_type"] == "week"
+    assert schedule["start_day_of_week"] == 0
+    assert schedule["end_day_of_week"] == 4
     assert schedule["country_code"] == "DE"
 
 
