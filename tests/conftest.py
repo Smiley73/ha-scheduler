@@ -1,7 +1,7 @@
 """Shared fixtures and helpers for ha-scheduler tests.
 
-New tests should use the fixtures defined here instead of defining their own
-local helpers. Existing tests retain local helpers for backwards compatibility.
+Tests use these fixtures instead of building entries by hand. The multi-service
+tests build their own entry because ``create_service_entry`` is single-service.
 """
 
 from __future__ import annotations

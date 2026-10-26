@@ -1,22 +1,80 @@
 """Tests for the config entry migration system.
 
-Covers the failure path of the v1->v2 migration (helper raises, migration
-aborts and logs) and the 0.5.2 minor-only version bump (same major version,
-stale minor gets bumped without touching data/options).
+Covers a v1 entry migrating through setup and still rendering its events, the
+failure path of the v1->v2 migration (helper raises, migration aborts and
+logs) and the 0.5.2 minor-only version bump (same major version, stale minor
+gets bumped without touching data/options).
 """
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.ha_scheduler.const import DOMAIN
 from custom_components.ha_scheduler.migrations import async_migrate_entry
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+async def test_v1_entry_migrates_on_setup_and_still_renders(
+    hass: HomeAssistant,
+) -> None:
+    """A v1 entry is migrated by setup and its uid-less schedule still renders.
+
+    Migrated schedules carry no uid; the calendar backfills it from the
+    storage key, so a regression there leaves the migrated calendar empty.
+    """
+    schedule = {
+        "name": "Old Schedule",
+        "schedule_type": "date",
+        "start_month": 6,
+        "start_day": 1,
+        "end_month": 8,
+        "end_day": 31,
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Legacy Scheduler",
+        data={},
+        options={
+            "schedules": {"old_schedule": schedule},
+            "configuration": {"brightness": 50},
+        },
+        version=1,
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert (entry.version, entry.minor_version) == (2, 1)
+    assert entry.options["services"]["default"]["schedules"] == {
+        "old_schedule": schedule
+    }
+    assert entry.options["services"]["default"]["configuration"] == {"brightness": 50}
+
+    entity = er.async_get(hass).async_get("calendar.legacy_scheduler")
+    assert entity is not None
+    assert entity.unique_id == entry.entry_id
+
+    calendar = hass.data["calendar"].get_entity("calendar.legacy_scheduler")
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2024, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert [(e.summary, e.start, e.end) for e in events] == [
+        ("Old Schedule", date(2024, 6, 1), date(2024, 9, 1))
+    ]
 
 
 async def test_v1_to_v2_migration_failure_logs_and_returns_false(

@@ -7,8 +7,6 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.ha_scheduler.const import CALENDAR_YEAR_LOOKAROUND
-
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
@@ -424,6 +422,209 @@ async def test_calendar_year_wrapping_schedule(
     assert events[0].end == date(2024, 1, 16)  # January 15 + 1 day
 
 
+async def test_calendar_leap_day_schedule_clamps_in_non_leap_year(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """A Feb 29 start is kept in leap years and clamped to Feb 28 otherwise."""
+    schedules = {
+        "leap-day": {
+            "name": "Leap Day Schedule",
+            "schedule_type": "date",
+            "start_month": 2,
+            "start_day": 29,
+            "end_month": 3,
+            "end_day": 1,
+            "uid": "leap-day",
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2024, 2, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2024, 3, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert [(e.start, e.end) for e in events] == [(date(2024, 2, 29), date(2024, 3, 2))]
+
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2023, 2, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2023, 3, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert [(e.start, e.end) for e in events] == [(date(2023, 2, 28), date(2023, 3, 2))]
+
+
+async def test_calendar_active_schedule_wins_over_later_one(
+    hass: HomeAssistant, create_service_entry, freezer
+) -> None:
+    """The active schedule is the current event even when a later one exists."""
+    freezer.move_to("2024-03-15 12:00:00")
+    schedules = {
+        "current": {
+            "name": "Current Schedule",
+            "schedule_type": "date",
+            "start_month": 1,
+            "start_day": 1,
+            "end_month": 12,
+            "end_day": 31,
+            "uid": "current",
+        },
+        "future": {
+            "name": "Future Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "future",
+        },
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    assert calendar.event.summary == "Current Schedule"
+
+
+async def test_calendar_overlapping_schedules_both_listed(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Overlapping schedules each produce their own event."""
+    schedules = {
+        "overlap_1": {
+            "name": "Overlap Schedule 1",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "overlap_1",
+        },
+        "overlap_2": {
+            "name": "Overlap Schedule 2",
+            "schedule_type": "date",
+            "start_month": 7,
+            "start_day": 1,
+            "end_month": 9,
+            "end_day": 30,
+            "uid": "overlap_2",
+        },
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2024, 6, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2024, 9, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+
+    assert [e.summary for e in events] == ["Overlap Schedule 1", "Overlap Schedule 2"]
+
+
+async def test_calendar_event_description_ignores_configuration(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """Configuration is exposed as attributes, never in the event description."""
+    schedules = {
+        "with_config": {
+            "name": "Schedule With Config",
+            "schedule_type": "date",
+            "start_month": 1,
+            "start_day": 1,
+            "end_month": 1,
+            "end_day": 31,
+            "uid": "with_config",
+            "configuration": {"description": "schedule value"},
+        },
+        "without_config": {
+            "name": "Schedule Without Config",
+            "schedule_type": "date",
+            "start_month": 2,
+            "start_day": 1,
+            "end_month": 2,
+            "end_day": 28,
+            "uid": "without_config",
+        },
+    }
+    entry = create_service_entry(
+        schedules=schedules, configuration={"description": "default value"}
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2024, 2, 29, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+
+    assert len(events) == 2
+    assert [e.description for e in events] == ["", ""]
+
+
+async def test_calendar_updates_when_schedule_added(
+    hass: HomeAssistant, create_service_entry
+) -> None:
+    """An options update makes the entity return the new schedule's events."""
+    entry = create_service_entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    start = datetime(2024, 6, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    end = datetime(2024, 6, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    assert await calendar.async_get_events(hass, start, end) == []
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            "services": {
+                "default": {
+                    "name": "Test Scheduler",
+                    "schedules": {
+                        "test-schedule-1": {
+                            "name": "Summer Schedule",
+                            "schedule_type": "date",
+                            "start_month": 6,
+                            "start_day": 1,
+                            "end_month": 6,
+                            "end_day": 30,
+                            "uid": "test-schedule-1",
+                        }
+                    },
+                    "configuration": {},
+                }
+            }
+        },
+    )
+    await hass.async_block_till_done()
+
+    events = await calendar.async_get_events(hass, start, end)
+    assert [e.summary for e in events] == ["Summer Schedule"]
+    # The options listener also rewrites entity state, not just the live read.
+    assert hass.states.get("calendar.test_scheduler").attributes["name"] == (
+        "Summer Schedule"
+    )
+
+
 async def test_calendar_no_schedules(hass: HomeAssistant, create_service_entry) -> None:
     """Test calendar entity with no schedules."""
     entry = create_service_entry()  # Empty schedules
@@ -445,6 +646,7 @@ async def test_calendar_no_schedules(hass: HomeAssistant, create_service_entry) 
     events = await calendar.async_get_events(hass, start, end)
 
     assert len(events) == 0
+    assert calendar.event is None
 
 
 async def test_calendar_entity_attributes_no_active_event(
@@ -500,17 +702,11 @@ async def test_calendar_entity_attributes_no_active_event(
     assert attrs["default_configuration"]["summary"] == "Default Event"
 
 
-def test_calendar_year_lookaround_constant() -> None:
-    """Verify CALENDAR_YEAR_LOOKAROUND is set to 3 for a ±3-year event window."""
-    assert CALENDAR_YEAR_LOOKAROUND == 3
-
-
-async def test_calendar_event_window_spans_lookaround_years(
+async def test_calendar_event_window_spans_seven_years(
     hass: HomeAssistant, create_service_entry
 ) -> None:
-    """Test async_get_events returns exactly 2*CALENDAR_YEAR_LOOKAROUND+1 annual events."""
-    today = date.today()
-    current_year = today.year
+    """An annual schedule yields one event per year over current year +/- 3."""
+    current_year = date.today().year
 
     schedules = {
         "annual": {
@@ -530,31 +726,51 @@ async def test_calendar_event_window_spans_lookaround_years(
 
     calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
 
-    # Request events across the full ±CALENDAR_YEAR_LOOKAROUND window
-    start = datetime(
-        current_year - CALENDAR_YEAR_LOOKAROUND, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE
-    )
-    end = datetime(
-        current_year + CALENDAR_YEAR_LOOKAROUND,
-        12,
-        31,
-        tzinfo=dt_util.DEFAULT_TIME_ZONE,
-    )
+    start = datetime(current_year - 3, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    end = datetime(current_year + 3, 12, 31, tzinfo=dt_util.DEFAULT_TIME_ZONE)
 
     events = await calendar.async_get_events(hass, start, end)
 
-    # One event per year for 2*CALENDAR_YEAR_LOOKAROUND+1 years (7 total with default of 3)
-    expected_count = CALENDAR_YEAR_LOOKAROUND * 2 + 1
-    assert len(events) == expected_count
-
-    event_years = {e.start.year for e in events}
-    expected_years = set(
-        range(
-            current_year - CALENDAR_YEAR_LOOKAROUND,
-            current_year + CALENDAR_YEAR_LOOKAROUND + 1,
-        )
+    assert len(events) == 7
+    assert {e.start.year for e in events} == set(
+        range(current_year - 3, current_year + 4)
     )
-    assert event_years == expected_years
+
+
+@pytest.mark.parametrize(
+    ("year", "expected_start"), [(2029, date(2029, 1, 1)), (2030, None)]
+)
+async def test_current_event_looks_three_years_ahead(
+    hass: HomeAssistant,
+    create_service_entry,
+    freezer,
+    year: int,
+    expected_start: date | None,
+) -> None:
+    """The upcoming event is found three years out, but not four."""
+    freezer.move_to("2026-07-02 12:00:00")
+    entry = create_service_entry(
+        schedules={"s": {"uid": "s", "name": "S", "schedule_type": "date"}}
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    def generate(schedule: dict, generated_year: int) -> list:
+        if generated_year == year:
+            return [(date(year, 1, 1), date(year, 1, 2))]
+        return []
+
+    calendar._event_cache = None
+    with patch(
+        "custom_components.ha_scheduler.calendar.generate_schedule_dates",
+        side_effect=generate,
+    ):
+        event = calendar.event
+
+    assert (event.start if event else None) == expected_start
 
 
 async def test_configuration_attributes_excluded_from_recorder() -> None:
