@@ -1,5 +1,6 @@
 """Test diagnostics for Scheduler integration."""
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -328,13 +329,9 @@ async def test_diagnostics_includes_future_dates(
 
     # Each year should have the expected structure
     for year_data in future_dates["years"].values():
-        if "error" not in year_data:
-            assert "start_date" in year_data
-            assert "end_date" in year_data
-            assert "duration_days" in year_data
-
-            # For this date schedule, duration should be 92 days (June 1 - Aug 31)
-            assert year_data["duration_days"] == 92
+        assert "error" not in year_data
+        # June 1 - Aug 31
+        assert year_data["duration_days"] == 92
 
 
 async def test_diagnostics_day_names_week_schedule(
@@ -560,3 +557,252 @@ def test_check_year_overlaps_error_for_current_schedule(
         and "Failed to check overlaps for year 2026" in record.message
         for record in caplog.records
     )
+
+
+def _conflict(
+    other_id: str,
+    name: str,
+    start: str,
+    end: str,
+    overlap_start: str,
+    overlap_end: str,
+) -> dict:
+    """Return the overlaps entry for a single conflicting schedule."""
+    return {
+        "status": "conflicts_found",
+        "conflicting_schedules": [
+            {
+                "id": other_id,
+                "name": name,
+                "start_date": start,
+                "end_date": end,
+                "overlap_start": overlap_start,
+                "overlap_end": overlap_end,
+            }
+        ],
+        "conflict_count": 1,
+    }
+
+
+def _year(start: str, end: str, days: int, overlaps: dict | None = None) -> dict:
+    """Return a future_dates year entry; no overlaps means no conflicts."""
+    return {
+        "start_date": start,
+        "end_date": end,
+        "duration_days": days,
+        "overlaps": overlaps
+        or {
+            "status": "no_conflicts",
+            "conflicting_schedules": [],
+            "conflict_count": 0,
+        },
+    }
+
+
+async def test_diagnostics_full_output(
+    hass: HomeAssistant, create_service_entry, freezer
+) -> None:
+    """Pin the complete diagnostics dict, including key order."""
+    freezer.move_to("2026-07-02 10:00:00")
+    schedules = {
+        "week": {
+            "name": "Week Schedule",
+            "schedule_type": "week",
+            "start_month": 1,
+            "start_week": 0,
+            "start_week_type": "full",
+            "start_day_of_week": 0,
+            "end_month": 1,
+            "end_week": 1,
+            "end_day_of_week": None,
+            "country_code": "DE",
+            "uid": "week",
+        },
+        "summer": {
+            "name": "Summer",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+            "uid": "summer",
+        },
+        "august": {
+            "name": "August",
+            "schedule_type": "date",
+            "start_month": 8,
+            "start_day": 15,
+            "end_month": 9,
+            "end_day": 15,
+            "uid": "august",
+            "configuration": {"token": "abc", "note": "x"},
+        },
+        "empty": {
+            "name": "Empty Year",
+            "schedule_type": "date",
+            "start_month": 3,
+            "start_day": 1,
+            "end_month": 3,
+            "end_day": 2,
+            "uid": "empty",
+        },
+    }
+    entry = create_service_entry(schedules=schedules, configuration={"key": "k"})
+    entry.add_to_hass(hass)
+
+    def generate(schedule: dict, year: int) -> list:
+        if schedule["uid"] == "empty" and year == 2027:
+            return []
+        return real_generate_schedule_dates(schedule, year)
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.diagnostics.generate_schedule_dates",
+            side_effect=generate,
+        ),
+        patch(
+            "custom_components.ha_scheduler.diagnostics.get_holidays_library_version",
+            return_value="1.2.3",
+        ),
+    ):
+        diagnostics = await async_get_config_entry_diagnostics(hass, entry)
+
+    expected = {
+        "entry": {
+            "title": "Test Scheduler",
+            "entry_id": entry.entry_id,
+            "scheduler_name": "Test Scheduler",
+        },
+        "environment": {"holidays_version": "1.2.3"},
+        "services": {
+            "default": {
+                "name": "Test Scheduler",
+                "schedules": {
+                    "count": 4,
+                    "items": [
+                        {
+                            "id": "week",
+                            "name": "Week Schedule",
+                            "type": "week",
+                            "start_month": 1,
+                            "start_week": 0,
+                            "start_week_type": "full",
+                            "start_week_type_display": (
+                                "First full week (entirely within month)"
+                            ),
+                            "start_day_of_week": 0,
+                            "start_day_name": "Monday",
+                            "end_month": 1,
+                            "end_week": 1,
+                            "end_week_type": "partial",
+                            "end_week_type_display": (
+                                "First week (may start in previous month)"
+                            ),
+                            "end_day_of_week": None,
+                            "end_day_name": "Whole week",
+                            "country_code": "DE",
+                            "has_configuration": False,
+                            "future_dates": {
+                                "years": {
+                                    "2026": _year("2026-01-05", "2026-01-18", 14),
+                                    "2027": _year("2027-01-04", "2027-01-17", 14),
+                                    "2028": _year("2028-01-03", "2028-01-16", 14),
+                                },
+                                "warnings": [],
+                            },
+                        },
+                        {
+                            "id": "summer",
+                            "name": "Summer",
+                            "type": "date",
+                            "start_month": 6,
+                            "start_day": 1,
+                            "end_month": 8,
+                            "end_day": 31,
+                            "has_configuration": False,
+                            "future_dates": {
+                                "years": {
+                                    str(year): _year(
+                                        f"{year}-06-01",
+                                        f"{year}-08-31",
+                                        92,
+                                        _conflict(
+                                            "august",
+                                            "August",
+                                            f"{year}-08-15",
+                                            f"{year}-09-15",
+                                            f"{year}-08-15",
+                                            f"{year}-08-31",
+                                        ),
+                                    )
+                                    for year in (2026, 2027, 2028)
+                                },
+                                "warnings": [],
+                            },
+                        },
+                        {
+                            "id": "august",
+                            "name": "August",
+                            "type": "date",
+                            "start_month": 8,
+                            "start_day": 15,
+                            "end_month": 9,
+                            "end_day": 15,
+                            "has_configuration": True,
+                            "configuration": {"token": "**REDACTED**", "note": "x"},
+                            "future_dates": {
+                                "years": {
+                                    str(year): _year(
+                                        f"{year}-08-15",
+                                        f"{year}-09-15",
+                                        32,
+                                        _conflict(
+                                            "summer",
+                                            "Summer",
+                                            f"{year}-06-01",
+                                            f"{year}-08-31",
+                                            f"{year}-08-15",
+                                            f"{year}-08-31",
+                                        ),
+                                    )
+                                    for year in (2026, 2027, 2028)
+                                },
+                                "warnings": [],
+                            },
+                        },
+                        {
+                            "id": "empty",
+                            "name": "Empty Year",
+                            "type": "date",
+                            "start_month": 3,
+                            "start_day": 1,
+                            "end_month": 3,
+                            "end_day": 2,
+                            "has_configuration": False,
+                            "future_dates": {
+                                "years": {
+                                    "2026": _year("2026-03-01", "2026-03-02", 2),
+                                    "2027": {
+                                        "error": "No valid dates generated",
+                                        "start_date": None,
+                                        "end_date": None,
+                                        "duration_days": None,
+                                    },
+                                    "2028": _year("2028-03-01", "2028-03-02", 2),
+                                },
+                                "warnings": ["No valid dates generated for year 2027"],
+                            },
+                        },
+                    ],
+                },
+                "default_configuration": {
+                    "has_configuration": True,
+                    "configuration": {"key": "**REDACTED**"},
+                },
+            }
+        },
+        "summary": {"total_services": 1, "total_schedules": 4},
+    }
+    assert diagnostics == expected
+    # Dict equality ignores key order, which is part of the output contract.
+    assert json.dumps(diagnostics) == json.dumps(expected)

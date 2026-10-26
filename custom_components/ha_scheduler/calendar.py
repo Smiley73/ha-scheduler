@@ -14,13 +14,36 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_change
 
-from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN
+from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN, SCHEDULE_TYPE_WEEK
 from .holiday_importer import async_prime_holiday_cache
+from .migrations import backfill_schedule_uids
 from .schedule_generator import generate_schedule_dates, get_country_first_weekday
 
 PARALLEL_UPDATES = 0
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _lookaround_years(year: int) -> range:
+    """Return the years around ``year`` that calendar events are generated for."""
+    return range(year - CALENDAR_YEAR_LOOKAROUND, year + CALENDAR_YEAR_LOOKAROUND + 1)
+
+
+def _build_event(
+    schedule: dict[str, Any], schedule_start: date, schedule_end: date
+) -> CalendarEvent:
+    """Build the all-day event for one generated date range of a schedule."""
+    # All-day events use date objects; CalendarEvent.end is exclusive, so add
+    # one day to include the end date. The uid is keyed on the start date:
+    # holiday schedules can produce several ranges per generation year, and
+    # uids must stay unique across them.
+    return CalendarEvent(
+        start=schedule_start,
+        end=schedule_end + timedelta(days=1),
+        summary=schedule["name"],
+        uid=f"{schedule['uid']}_{schedule_start.isoformat()}",
+        description="",
+    )
 
 
 def _prime_locale_cache(schedules: list[dict[str, Any]]) -> None:
@@ -30,8 +53,18 @@ def _prime_locale_cache(schedules: list[dict[str, Any]]) -> None:
     country once here lets later event-loop lookups hit Babel's in-memory cache.
     """
     for schedule in schedules:
-        if schedule.get("schedule_type") == "week":
+        if schedule.get("schedule_type") == SCHEDULE_TYPE_WEEK:
             get_country_first_weekday(schedule.get("country_code"))
+
+
+async def _async_prime_caches(
+    hass: HomeAssistant, schedules: list[dict[str, Any]]
+) -> None:
+    """Prime holiday and locale caches off the event loop for the lookaround window."""
+    await async_prime_holiday_cache(
+        schedules, _lookaround_years(dt_util.now().date().year)
+    )
+    await hass.async_add_executor_job(_prime_locale_cache, schedules)
 
 
 async def async_setup_entry(
@@ -40,38 +73,15 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Scheduler calendar from a config entry."""
-    # Handle both new service-based structure and legacy structure
     services = entry.options.get("services", {})
     calendars = []
     all_schedules: list[dict[str, Any]] = []
 
-    if services:
-        # New service-based structure
-        for service_id, service_data in services.items():
-            all_schedules.extend(service_data.get("schedules", {}).values())
-            calendars.append(SchedulerCalendar(entry, service_id, service_data))
-    else:
-        # Legacy structure - create a default service
-        legacy_schedules = entry.options.get("schedules", {})
-        legacy_config = entry.options.get("configuration", {})
-        all_schedules.extend(legacy_schedules.values())
+    for service_id, service_data in services.items():
+        all_schedules.extend(service_data.get("schedules", {}).values())
+        calendars.append(SchedulerCalendar(entry, service_id, service_data))
 
-        default_service_data = {
-            "name": entry.title,
-            "schedules": legacy_schedules,
-            "configuration": legacy_config,
-        }
-        calendars.append(SchedulerCalendar(entry, "default", default_service_data))
-
-    current_year = dt_util.now().date().year
-    await async_prime_holiday_cache(
-        all_schedules,
-        range(
-            current_year - CALENDAR_YEAR_LOOKAROUND,
-            current_year + CALENDAR_YEAR_LOOKAROUND + 1,
-        ),
-    )
-    await hass.async_add_executor_job(_prime_locale_cache, all_schedules)
+    await _async_prime_caches(hass, all_schedules)
 
     async_add_entities(calendars, True)
 
@@ -107,8 +117,6 @@ class SchedulerCalendar(CalendarEntity):
             tuple[date, tuple[CalendarEvent, dict[str, Any]] | None] | None
         ) = None
 
-        # For single service (default), use the entry title as calendar name
-        # For multiple services, use service name
         service_name = service_data.get("name", entry.title)
 
         # Maintain backward compatibility for unique ID
@@ -125,7 +133,6 @@ class SchedulerCalendar(CalendarEntity):
         # device name ("<scheduler title> <service name>").
         self._attr_name = None if service_name == entry.title else service_name
 
-        # Set device info to group calendars under the scheduler service
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
@@ -170,16 +177,7 @@ class SchedulerCalendar(CalendarEntity):
 
     async def _async_refresh(self) -> None:
         """Re-prime lookup caches, drop the event memo and write state."""
-        current_year = dt_util.now().date().year
-        schedules = self._get_schedules()
-        await async_prime_holiday_cache(
-            schedules,
-            range(
-                current_year - CALENDAR_YEAR_LOOKAROUND,
-                current_year + CALENDAR_YEAR_LOOKAROUND + 1,
-            ),
-        )
-        await self.hass.async_add_executor_job(_prime_locale_cache, schedules)
+        await _async_prime_caches(self.hass, self._get_schedules())
         # The await above can outlive this entity: if the entity was removed
         # meanwhile, writing state would re-arm the calendar component's
         # event-transition timers with nothing left to cancel them.
@@ -189,26 +187,15 @@ class SchedulerCalendar(CalendarEntity):
         self.async_write_ha_state()
 
     def _get_service_data(self) -> dict[str, Any]:
-        """Return live service data, handling both new and legacy layouts."""
+        """Return live service data from the entry options."""
         services = self._entry.options.get("services", {})
-        if services:
-            service: dict[str, Any] = services.get(self._service_id, {})
-            return service
-
-        # Legacy (pre-services) entries store schedules at the options root.
-        return {
-            "name": self._entry.title,
-            "schedules": self._entry.options.get("schedules", {}),
-            "configuration": self._entry.options.get("configuration", {}),
-        }
+        service: dict[str, Any] = services.get(self._service_id, {})
+        return service
 
     def _get_schedules(self) -> list[dict[str, Any]]:
         """Get schedules from config entry options for this service."""
-        schedules_dict = self._get_service_data().get("schedules", {})
-        return [
-            schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
-            for schedule_id, schedule in schedules_dict.items()
-        ]
+        schedules = self._get_service_data().get("schedules", {})
+        return list(backfill_schedule_uids(schedules).values())
 
     def _get_current_or_upcoming_event(
         self,
@@ -230,32 +217,17 @@ class SchedulerCalendar(CalendarEntity):
         self, today: date
     ) -> tuple[CalendarEvent, dict[str, Any]] | None:
         """Compute the active event, or the next upcoming event when idle."""
-        current_year = today.year
         active_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
         future_events: list[tuple[date, CalendarEvent, dict[str, Any]]] = []
 
         for schedule in self._get_schedules():
             try:
                 # Check surrounding years to catch schedules that wrap across year boundaries
-                for year in range(
-                    current_year - CALENDAR_YEAR_LOOKAROUND,
-                    current_year + CALENDAR_YEAR_LOOKAROUND + 1,
-                ):
+                for year in _lookaround_years(today.year):
                     date_ranges = generate_schedule_dates(schedule, year)
 
                     for schedule_start, schedule_end in date_ranges:
-                        # All-day events use date objects; CalendarEvent.end is
-                        # exclusive, so add one day to include the end date.
-                        # The uid is keyed on the start date: holiday schedules
-                        # can produce several ranges per generation year, and
-                        # uids must stay unique across them.
-                        event = CalendarEvent(
-                            start=schedule_start,
-                            end=schedule_end + timedelta(days=1),
-                            summary=schedule["name"],
-                            uid=f"{schedule['uid']}_{schedule_start.isoformat()}",
-                            description="",
-                        )
+                        event = _build_event(schedule, schedule_start, schedule_end)
                         if schedule_start <= today <= schedule_end:
                             active_events.append((event.start, event, schedule))
                         elif schedule_start > today:
@@ -292,7 +264,6 @@ class SchedulerCalendar(CalendarEntity):
                 "default_configuration": default_config,
             }
 
-        # No event available, return only the default configuration.
         return {
             "configuration": default_config,
             "name": None,
@@ -328,7 +299,6 @@ class SchedulerCalendar(CalendarEntity):
 
         for schedule in schedules:
             try:
-                # Include previous year to catch year-wrapping schedules
                 for year in range(start_year - 1, end_year + 1):
                     date_ranges = generate_schedule_dates(schedule, year)
 
@@ -341,19 +311,8 @@ class SchedulerCalendar(CalendarEntity):
                             schedule_end + timedelta(days=1)
                         )
                         if event_start_dt < end_date and event_end_dt > start_date:
-                            # All-day events use date objects; CalendarEvent.end is
-                            # exclusive, so add one day to include the end date.
-                            # The uid is keyed on the start date: holiday schedules
-                            # can produce several ranges per generation year, and
-                            # uids must stay unique across them.
                             events.append(
-                                CalendarEvent(
-                                    start=schedule_start,
-                                    end=schedule_end + timedelta(days=1),
-                                    summary=schedule["name"],
-                                    uid=f"{schedule['uid']}_{schedule_start.isoformat()}",
-                                    description="",
-                                )
+                                _build_event(schedule, schedule_start, schedule_end)
                             )
             except Exception:  # one bad schedule must not hide the others
                 _LOGGER.warning(

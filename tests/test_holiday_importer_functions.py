@@ -5,7 +5,7 @@ import importlib
 import logging
 import sys
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,44 +15,51 @@ from custom_components.ha_scheduler.holiday_importer import (
     _analyze_multi_day_pattern,
     _build_holiday_cache_requests,
     _build_nth_weekday_pattern,
-    _clear_holiday_caches,
     _get_available_categories_sync,
     _get_country_holidays_sync,
     _get_holidays_for_country_sync,
     _get_named_holiday_dates_sync,
     _get_supported_countries_sync,
-    _merge_contiguous_dates,
     _prime_holiday_cache_sync,
-    _should_use_holiday_schedule_pattern,
     analyze_holiday_pattern,
     async_prime_holiday_cache,
-    calculate_occurrence,
     format_date_localized,
     generate_holiday_schedule_dates,
     get_holidays_for_country,
     get_holidays_library_version,
     get_localized_country_name,
 )
+from custom_components.ha_scheduler.schedule_generator import generate_schedule_dates
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
 @contextmanager
 def _patched_holidays_module(module_or_none):
-    """Patch HOLIDAYS_AVAILABLE=True and _get_holidays_module's return value.
+    """Control what _get_holidays_module() resolves to (a fake module or None)."""
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
+        return_value=module_or_none,
+    ):
+        yield
 
-    Several tests need the holidays library to appear available while
-    controlling exactly what _get_holidays_module() resolves to (a fake
-    module or None); this collapses that identical two-patch idiom.
+
+@contextmanager
+def _holidays_import_fails():
+    """Make the real _get_holidays_module() hit its ImportError branch.
+
+    The result is lru_cached, so the cache is cleared on both sides to keep
+    the failed import from leaking into later tests.
     """
     with patch(
-        "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+        "custom_components.ha_scheduler.holiday_importer.importlib.import_module",
+        side_effect=ImportError("no holidays"),
     ):
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer._get_holidays_module",
-            return_value=module_or_none,
-        ):
+        holiday_importer._get_holidays_module.cache_clear()
+        try:
             yield
+        finally:
+            holiday_importer._get_holidays_module.cache_clear()
 
 
 def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
@@ -75,71 +82,44 @@ def test_holiday_importer_defers_holidays_import_until_runtime(monkeypatch):
         monkeypatch.setattr(builtins, "__import__", original_import)
         sys.modules[module_name] = original_module
 
-    assert reloaded_module.HOLIDAYS_AVAILABLE is None
+    assert reloaded_module is not original_module
 
 
 @pytest.fixture(autouse=True)
 def clear_holiday_caches():
     """Reset holiday resolver caches between tests."""
-    _clear_holiday_caches()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
     yield
-    _clear_holiday_caches()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
 
 
-class TestFormatDateLocalized:
-    """Test date formatting with localization."""
-
-    def test_format_date_with_english_locale(self):
-        """Test date formatting with English locale."""
-        test_date = date(2024, 7, 4)
-        result = format_date_localized(test_date, "en")
-        # Should format as "July 4"
-        assert "July" in result
-        assert "4" in result
-
-    def test_format_date_default_locale(self):
-        """Test date formatting with default locale."""
-        test_date = date(2024, 12, 25)
-        result = format_date_localized(test_date)
-        # Should format as "December 25"
-        assert "December" in result
-        assert "25" in result
-
-    def test_format_date_different_months(self):
-        """Test date formatting for various months."""
-        test_dates = [
-            (date(2024, 1, 15), "January", "15"),
-            (date(2024, 6, 1), "June", "1"),
-            (date(2024, 11, 30), "November", "30"),
-        ]
-        for test_date, expected_month, expected_day in test_dates:
-            result = format_date_localized(test_date)
-            assert expected_month in result
-            assert expected_day in result
+@pytest.mark.parametrize(
+    ("test_date", "locale", "expected"),
+    [
+        (date(2024, 7, 4), "en", "July 4"),
+        (date(2024, 12, 25), None, "December 25"),
+        (date(2024, 6, 1), None, "June 1"),
+    ],
+)
+def test_format_date_localized(test_date, locale, expected):
+    """Dates are formatted as "Month Day" without zero padding, English by default."""
+    assert format_date_localized(test_date, locale) == expected
 
 
-class TestGetLocalizedCountryName:
-    """Test country name localization."""
-
-    def test_get_country_name_with_fallback(self):
-        """Test getting country name with fallback."""
-        result = get_localized_country_name("US", "United States")
-        # Should return proper country name
-        assert "United States" in result
-
-    def test_get_country_name_common_countries(self):
-        """Test getting names for common countries."""
-        test_cases = [
-            ("US", "United States"),
-            ("CA", "Canada"),
-            ("GB", "United Kingdom"),
-            ("DE", "Germany"),
-        ]
-        for country_code, fallback_name in test_cases:
-            result = get_localized_country_name(country_code, fallback_name)
-            # Should return a proper country name (not just code)
-            assert len(result) > 2  # More than just country code
-            assert result != country_code  # Should be localized, not just code
+@pytest.mark.parametrize(
+    ("country_code", "expected"),
+    [
+        ("US", "United States"),
+        ("CA", "Canada"),
+        ("GB", "United Kingdom"),
+        ("DE", "Germany"),
+    ],
+)
+def test_get_localized_country_name(country_code, expected):
+    """The English territory name comes from Babel, not from the fallback."""
+    assert get_localized_country_name(country_code, "unused fallback") == expected
 
 
 class TestGetSupportedCountriesSync:
@@ -149,71 +129,48 @@ class TestGetSupportedCountriesSync:
         """Test getting supported countries."""
         mock_countries = ["US", "CA", "GB"]
 
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "holidays.list_supported_countries", return_value=mock_countries
-            ):
-                with patch("holidays.country_holidays") as mock_holiday:
-                    # Mock country objects
-                    mock_us = MagicMock()
-                    mock_us.country = "United States"
-                    mock_ca = MagicMock()
-                    mock_ca.country = "Canada"
-                    mock_gb = MagicMock()
-                    mock_gb.country = "United Kingdom"
+        with patch("holidays.list_supported_countries", return_value=mock_countries):
+            with patch("holidays.country_holidays") as mock_holiday:
+                # Mock country objects
+                mock_us = MagicMock()
+                mock_us.country = "United States"
+                mock_ca = MagicMock()
+                mock_ca.country = "Canada"
+                mock_gb = MagicMock()
+                mock_gb.country = "United Kingdom"
 
-                    mock_holiday.side_effect = [mock_us, mock_ca, mock_gb]
+                mock_holiday.side_effect = [mock_us, mock_ca, mock_gb]
 
-                    result = _get_supported_countries_sync()
+                result = _get_supported_countries_sync()
 
-                    assert isinstance(result, dict)
-                    assert len(result) >= 3
-
-    def test_get_supported_countries_holidays_unavailable(self):
-        """Test getting countries when holidays library is unavailable."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", False
-        ):
-            result = _get_supported_countries_sync()
-            assert result == {}
+                assert isinstance(result, dict)
+                assert len(result) >= 3
 
     def test_get_supported_countries_error_handling(self):
         """Test error handling in country discovery."""
         mock_countries = ["US", "INVALID"]
 
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "holidays.list_supported_countries", return_value=mock_countries
-            ):
-                with patch("holidays.country_holidays") as mock_holiday:
-                    # First call succeeds, second fails
-                    mock_us = MagicMock()
-                    mock_us.country = "United States"
-                    mock_holiday.side_effect = [mock_us, Exception("Invalid country")]
+        with patch("holidays.list_supported_countries", return_value=mock_countries):
+            with patch("holidays.country_holidays") as mock_holiday:
+                # First call succeeds, second fails
+                mock_us = MagicMock()
+                mock_us.country = "United States"
+                mock_holiday.side_effect = [mock_us, Exception("Invalid country")]
 
-                    result = _get_supported_countries_sync()
+                result = _get_supported_countries_sync()
 
-                    # Should still return the successful country
-                    assert isinstance(result, dict)
-                    assert "US" in result
+                # Should still return the successful country
+                assert isinstance(result, dict)
+                assert "US" in result
 
     def test_get_supported_countries_fallback_on_total_failure(self):
         """Test fallback when all country discovery fails."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "holidays.list_supported_countries", side_effect=Exception("Error")
-            ):
-                result = _get_supported_countries_sync()
-                # Should return fallback list
-                assert isinstance(result, dict)
-                # Should have at least some common countries as fallback
-                assert len(result) > 0
+        with patch("holidays.list_supported_countries", side_effect=Exception("Error")):
+            result = _get_supported_countries_sync()
+            # Should return fallback list
+            assert isinstance(result, dict)
+            # Should have at least some common countries as fallback
+            assert len(result) > 0
 
 
 class TestGetAvailableCategoriesSync:
@@ -221,61 +178,26 @@ class TestGetAvailableCategoriesSync:
 
     def test_get_categories_success(self):
         """Test getting available categories for a country."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch("holidays.country_holidays") as mock_holidays:
-                # Mock successful category tests
-                mock_holidays.return_value = MagicMock()
+        with patch("holidays.country_holidays") as mock_holidays:
+            # Mock successful category tests
+            mock_holidays.return_value = MagicMock()
 
-                result = _get_available_categories_sync("US")
-
-                assert isinstance(result, dict)
-                # Should at least have public category
-                assert "public" in result
-
-    def test_get_categories_holidays_unavailable(self):
-        """Test getting categories when holidays library unavailable."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", False
-        ):
             result = _get_available_categories_sync("US")
-            # Should return default
-            assert result == {"public": "Public Holidays"}
+
+            assert isinstance(result, dict)
+            # Should at least have public category
+            assert "public" in result
 
     def test_get_categories_error_handling(self):
         """Test error handling in category discovery."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch("holidays.country_holidays", side_effect=Exception("Error")):
-                result = _get_available_categories_sync("INVALID")
-                # Should return default public category
-                assert result == {"public": "Public Holidays"}
+        with patch("holidays.country_holidays", side_effect=Exception("Error")):
+            result = _get_available_categories_sync("INVALID")
+            # Should return default public category
+            assert result == {"public": "Public Holidays"}
 
 
 class TestGetHolidaysForCountrySync:
     """Test synchronous holiday retrieval."""
-
-    def test_get_holidays_success(self):
-        """Test getting holidays for a country."""
-        mock_holidays_obj = {
-            date(2024, 7, 4): "Independence Day",
-            date(2024, 12, 25): "Christmas Day",
-        }
-
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch("holidays.country_holidays", return_value=mock_holidays_obj):
-                with patch(
-                    "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
-                    return_value={"public": "Public Holidays"},
-                ):
-                    result = _get_holidays_for_country_sync("US", ["public"])
-
-                    assert isinstance(result, dict)
-                    assert len(result) > 0
 
     def test_get_holidays_multiple_years(self):
         """Test that holidays are collected across multiple years."""
@@ -293,60 +215,36 @@ class TestGetHolidaysForCountrySync:
             else:
                 return {date(2025, 7, 4): "Independence Day"}
 
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
-                with patch(
-                    "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
-                    return_value={"public": "Public Holidays"},
-                ):
-                    result = _get_holidays_for_country_sync("US", ["public"])
+        with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
+            with patch(
+                "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
+                return_value={"public": "Public Holidays"},
+            ):
+                result = _get_holidays_for_country_sync("US", ["public"])
 
-                    # Should have collected "Independence Day" from multiple years
-                    assert "Independence Day" in result
-                    holiday_data = result["Independence Day"]
-                    assert "dates" in holiday_data
-                    assert isinstance(holiday_data["dates"], list)
-                    # Collected from ≥2 distinct years
-                    assert len(holiday_data["dates"]) >= 2
+                # Should have collected "Independence Day" from multiple years
+                assert "Independence Day" in result
+                holiday_data = result["Independence Day"]
+                assert "dates" in holiday_data
+                assert isinstance(holiday_data["dates"], list)
+                # Collected from ≥2 distinct years
+                assert len(holiday_data["dates"]) >= 2
 
     def test_get_holidays_holidays_unavailable(self):
         """Test getting holidays when library unavailable."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", False
-        ):
+        with _patched_holidays_module(None):
             result = _get_holidays_for_country_sync("US")
             assert result == {}
-
-    def test_get_holidays_category_error(self):
-        """Test error handling when a category fails."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch(
-                "holidays.country_holidays", side_effect=Exception("Category error")
-            ):
-                with patch(
-                    "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
-                    return_value={"public": "Public Holidays"},
-                ):
-                    result = _get_holidays_for_country_sync("US", ["public"])
-                    # Should return empty dict on error, not crash
-                    assert isinstance(result, dict)
 
     def test_get_holidays_total_failure(self):
         """Test total failure in holiday retrieval."""
         with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+            "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
+            side_effect=Exception("Total failure"),
         ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
-                side_effect=Exception("Total failure"),
-            ):
-                result = _get_holidays_for_country_sync("US")
-                # Should return empty dict, not crash
-                assert result == {}
+            result = _get_holidays_for_country_sync("US")
+            # Should return empty dict, not crash
+            assert result == {}
 
     def test_get_holidays_variable_dates_use_holiday_schedule(self):
         """Test variable movable holidays use the holiday-backed schedule type."""
@@ -367,11 +265,8 @@ class TestGetHolidaysForCountrySync:
 
             return {movable_dates[year]: "Good Friday"}
 
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
-        ):
-            with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
-                result = _get_holidays_for_country_sync("DE", ["public"])
+        with patch("holidays.country_holidays", side_effect=mock_holiday_factory):
+            result = _get_holidays_for_country_sync("DE", ["public"])
 
         pattern = result["Good Friday"]["pattern"]
         assert pattern["schedule_type"] == "holiday"
@@ -409,18 +304,15 @@ class TestGetHolidaysForCountrySync:
             return {}
 
         with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", True
+            "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
+            side_effect=fake_get_country_holidays_sync,
         ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
-                side_effect=fake_get_country_holidays_sync,
-            ):
-                # "bank" is last in the list, so a bug that reuses the loop
-                # variable instead of the holiday's own category would tag
-                # "Good Friday" (collected under "public") as "bank".
-                result = _get_holidays_for_country_sync(
-                    "US", ["public", "bank"], today=date(2026, 6, 15)
-                )
+            # "bank" is last in the list, so a bug that reuses the loop
+            # variable instead of the holiday's own category would tag
+            # "Good Friday" (collected under "public") as "bank".
+            result = _get_holidays_for_country_sync(
+                "US", ["public", "bank"], today=date(2026, 6, 15)
+            )
 
         pattern = result["Good Friday"]["pattern"]
         assert result["Good Friday"]["category"] == "public"
@@ -489,30 +381,6 @@ class TestHolidayScheduleResolution:
             "Good Friday", lookup="iexact"
         )
 
-    def test_generate_holiday_schedule_dates_merges_contiguous_dates(self):
-        """Test contiguous holiday dates collapse into a single range."""
-        schedule = {
-            "schedule_type": "holiday",
-            "country_code": "TR",
-            "category": "public",
-            "holiday_name": "Ramazan Bayrami",
-            "name_lookup": "iexact",
-            "start_offset": 0,
-            "end_offset": 0,
-        }
-
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
-            return_value=(
-                date(2026, 3, 20),
-                date(2026, 3, 21),
-                date(2026, 3, 22),
-            ),
-        ):
-            result = generate_holiday_schedule_dates(schedule, 2026)
-
-        assert result == [(date(2026, 3, 20), date(2026, 3, 22))]
-
     def test_generate_holiday_schedule_dates_applies_offsets(self):
         """Test holiday offsets extend the resolved date range."""
         schedule = {
@@ -534,77 +402,50 @@ class TestHolidayScheduleResolution:
         assert result == [(date(2026, 4, 2), date(2026, 4, 5))]
 
 
-class TestCalculateOccurrenceEdgeCases:
-    """Test additional edge cases for occurrence calculation."""
+@pytest.mark.parametrize(
+    ("end_offset", "resolved", "expected"),
+    [
+        pytest.param(
+            0,
+            (date(2026, 3, 20), date(2026, 3, 21), date(2026, 3, 22)),
+            [(date(2026, 3, 20), date(2026, 3, 22))],
+            id="contiguous-dates",
+        ),
+        # Regression: a holiday on two non-contiguous dates with end_offset=2
+        # produced the overlapping ranges (25th-27th) and (27th-29th).
+        pytest.param(
+            2,
+            (date(2026, 7, 25), date(2026, 7, 27)),
+            [(date(2026, 7, 25), date(2026, 7, 29))],
+            id="offsets-bridge-disjoint-dates",
+        ),
+    ],
+)
+def test_generate_holiday_schedule_dates_merges_into_one_range(
+    end_offset, resolved, expected
+):
+    """Contiguous or offset-bridged holiday dates collapse into a single range."""
+    schedule = {
+        "schedule_type": "holiday",
+        "country_code": "US",
+        "category": "public",
+        "holiday_name": "Test Holiday",
+        "name_lookup": "iexact",
+        "start_offset": 0,
+        "end_offset": end_offset,
+    }
 
-    def test_calculate_occurrence_invalid_date(self):
-        """Test occurrence calculation with invalid inputs."""
-        # Test with date that could cause calculation errors
-        result = calculate_occurrence(date(2024, 2, 29))  # Leap year
-        assert result in [0, 1, 2, 3, 4]  # Should return valid occurrence
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+        return_value=resolved,
+    ):
+        result = generate_holiday_schedule_dates(schedule, 2026)
 
-    def test_calculate_occurrence_first_day_of_month(self):
-        """Test occurrence when date is first day of month."""
-        # First Thursday of February 2024 (Feb 1)
-        result = calculate_occurrence(date(2024, 2, 1))
-        assert result == 0
-
-    def test_calculate_occurrence_last_day_of_month(self):
-        """Test occurrence when date is last day of month."""
-        # Last day that's the fifth occurrence check
-        result = calculate_occurrence(date(2024, 3, 31))  # Sunday
-        # Should be 4 (last) if next Sunday is in April
-        assert result == 4
-
-    def test_calculate_occurrence_fifth_occurrence(self):
-        """Test when a month actually has five occurrences of a weekday."""
-        # March 2024 has 5 Fridays: 1, 8, 15, 22, 29
-        result = calculate_occurrence(date(2024, 3, 29))  # Fifth Friday
-        # Should be 4 (last) because next Friday is in April
-        assert result == 4
-
-    def test_calculate_occurrence_error_handling(self):
-        """Test that error handling works correctly."""
-        # Mock date operations to cause errors
-        with patch("custom_components.ha_scheduler.holiday_importer.date") as mock_date:
-            # Make date operations raise ValueError
-            mock_date.side_effect = ValueError("Invalid date operation")
-
-            # Should return None on error, not crash
-            # Note: This test verifies the structure but may need adjustment
-            # based on actual implementation
-            result = calculate_occurrence(date(2024, 1, 15))
-            # Should still work with actual date object
-            assert result in [0, 1, 2, 3, 4, None]
+    assert result == expected
 
 
 class TestOffsetRangeMerging:
     """Offsets must never produce self-overlapping ranges for one schedule."""
-
-    def test_generate_holiday_schedule_dates_merges_offset_overlap(self):
-        """Test that offsets which bridge disjoint occurrences are merged.
-
-        Regression test: a holiday occurring on two non-contiguous dates
-        (e.g. July 25 and 27) with end_offset=2 produced the overlapping
-        ranges (25th-27th) and (27th-29th) for the same schedule.
-        """
-        schedule = {
-            "schedule_type": "holiday",
-            "country_code": "CU",
-            "category": "public",
-            "holiday_name": "Commemoration Day",
-            "name_lookup": "iexact",
-            "start_offset": 0,
-            "end_offset": 2,
-        }
-
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
-            return_value=(date(2026, 7, 25), date(2026, 7, 27)),
-        ):
-            result = generate_holiday_schedule_dates(schedule, 2026)
-
-        assert result == [(date(2026, 7, 25), date(2026, 7, 29))]
 
     def test_generate_holiday_schedule_dates_keeps_disjoint_ranges(self):
         """Test that genuinely disjoint occurrences stay separate ranges."""
@@ -634,13 +475,6 @@ class TestOffsetRangeMerging:
 class TestFormatDateLocalizedBabelFallback:
     """Test the strftime fallback paths in format_date_localized."""
 
-    def test_babel_import_missing_falls_back_to_strftime(self):
-        """Test that a missing babel dependency falls back to strftime."""
-        test_date = date(2024, 7, 4)
-        with patch.dict(sys.modules, {"babel": None}):
-            result = format_date_localized(test_date, "en")
-        assert result == test_date.strftime("%B %d")
-
     def test_invalid_locale_falls_back_to_strftime(self):
         """Test that an unparsable locale code falls back to strftime."""
         test_date = date(2024, 7, 4)
@@ -650,32 +484,6 @@ class TestFormatDateLocalizedBabelFallback:
 
 class TestGetLocalizedCountryNameFallbacks:
     """Test the fallback branches of get_localized_country_name."""
-
-    @pytest.mark.parametrize(
-        ("code", "fallback", "expected"),
-        [
-            pytest.param(
-                "US",
-                "United States",
-                "United States",
-                id="returns_fallback_name",
-            ),
-            pytest.param(
-                "us",
-                None,
-                "Us",
-                id="without_fallback_title_cases_code",
-            ),
-        ],
-    )
-    def test_babel_import_missing(self, code, fallback, expected):
-        """Test a missing babel dependency falls back to the fallback name.
-
-        Falls back to a title-cased country code when no fallback is given.
-        """
-        with patch.dict(sys.modules, {"babel": None}):
-            result = get_localized_country_name(code, fallback)
-        assert result == expected
 
     def test_parse_and_territory_lookup_both_fail_uses_final_fallback(self, caplog):
         """Test that failures in both babel lookups fall through to the final return."""
@@ -707,40 +515,24 @@ class TestGetLocalizedCountryNameFallbacks:
 class TestHolidaysModuleUnavailable:
     """Test behavior when the holidays library cannot be imported."""
 
-    def test_get_holidays_module_returns_none_on_import_error(self):
-        """Test _get_holidays_module returns None when the import fails."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.importlib.import_module",
-            side_effect=ImportError("no holidays"),
-        ):
-            holiday_importer._get_holidays_module.cache_clear()
-            result = holiday_importer._get_holidays_module()
+    def test_get_holidays_module_returns_none_on_import_error(self, caplog):
+        """Test _get_holidays_module returns None and warns once on ImportError."""
+        with _holidays_import_fails():
+            with caplog.at_level(logging.WARNING):
+                result = holiday_importer._get_holidays_module()
+                holiday_importer._get_holidays_module()
 
         assert result is None
-
-    def test_holidays_available_logs_one_time_warning(self, caplog):
-        """Test _holidays_available returns False and logs a warning once."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.importlib.import_module",
-            side_effect=ImportError("no holidays"),
-        ):
-            holiday_importer._get_holidays_module.cache_clear()
-            with caplog.at_level(logging.WARNING):
-                result = holiday_importer._holidays_available()
-
-        assert result is False
         assert (
-            "holidays library not available - holiday import feature disabled"
-            in caplog.text
+            caplog.text.count(
+                "holidays library not available - holiday import feature disabled"
+            )
+            == 1
         )
 
     def test_get_holidays_library_version_returns_none_when_unavailable(self):
         """Test get_holidays_library_version returns None without the library."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.importlib.import_module",
-            side_effect=ImportError("no holidays"),
-        ):
-            holiday_importer._get_holidays_module.cache_clear()
+        with _holidays_import_fails():
             result = get_holidays_library_version()
 
         assert result is None
@@ -748,14 +540,6 @@ class TestHolidaysModuleUnavailable:
 
 class TestGetCountryHolidaysSyncGuards:
     """Test the availability guards in _get_country_holidays_sync."""
-
-    def test_returns_none_when_holidays_unavailable(self):
-        """Test the function short-circuits when HOLIDAYS_AVAILABLE is False."""
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer.HOLIDAYS_AVAILABLE", False
-        ):
-            result = _get_country_holidays_sync("US", "public", 2026)
-        assert result is None
 
     def test_returns_none_when_module_missing(self):
         """Test the function returns None when the holidays module can't load."""
@@ -766,18 +550,6 @@ class TestGetCountryHolidaysSyncGuards:
 
 class TestBuildHolidayCacheRequestsEdges:
     """Test edge cases in _build_holiday_cache_requests."""
-
-    def test_empty_years_returns_empty_tuple(self):
-        """Test that an empty years collection short-circuits to an empty tuple."""
-        schedules = [
-            {
-                "schedule_type": "holiday",
-                "country_code": "US",
-                "holiday_name": "Independence Day",
-            }
-        ]
-        result = _build_holiday_cache_requests(schedules, [])
-        assert result == ()
 
     def test_schedule_missing_country_code_is_skipped(self):
         """Test a holiday schedule missing country_code is skipped, others kept."""
@@ -811,31 +583,19 @@ class TestPrimeHolidayCacheSyncFailure:
         assert "Could not prime holiday cache" in caplog.text
 
 
-class TestNamedHolidayDatesProviderWithoutGetNamed:
-    """Test the casefold item-scan fallback used when get_named is absent."""
+class TestNamedHolidayDatesProviderErrors:
+    """Test a provider whose lookup raises."""
 
-    def test_provider_without_get_named_resolves_by_casefold_scan(self):
-        """Test a dict-like provider without get_named is scanned by name."""
-        provider = {date(2026, 4, 3): "Test Holiday"}
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
-            return_value=provider,
-        ):
-            result = _get_named_holiday_dates_sync(
-                "US", "public", "TEST HOLIDAY", "iexact", 2026
-            )
-        assert result == (date(2026, 4, 3),)
+    def test_provider_get_named_raises_returns_empty_tuple(self, caplog):
+        """Test a provider whose get_named() raises returns an empty tuple, logged."""
 
-    def test_provider_items_raises_returns_empty_tuple(self, caplog):
-        """Test a provider whose items() raises returns an empty tuple, logged."""
-
-        class RaisingItemsProvider:
-            def items(self):
-                raise RuntimeError("items boom")
+        class RaisingProvider:
+            def get_named(self, holiday_name, lookup):
+                raise RuntimeError("get_named boom")
 
         with patch(
             "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
-            return_value=RaisingItemsProvider(),
+            return_value=RaisingProvider(),
         ):
             with caplog.at_level(
                 logging.DEBUG,
@@ -858,8 +618,7 @@ class TestNamedHolidayDatesLanguageRetry:
         The initial (default-language) lookup returns nothing, exposing
         ``supported_languages=("de", "en")`` and ``default_language="de"``.
         The "de" retry raises (covering the continue path) and the "en" retry
-        succeeds via the casefold item-scan (no get_named on that provider),
-        covering the match branch. A non-public category exercises the
+        succeeds, covering the match branch. A non-public category exercises the
         ``categories`` kwarg branch in the retry call.
 
         The mock records what it was called with instead of asserting inline:
@@ -873,12 +632,12 @@ class TestNamedHolidayDatesLanguageRetry:
             supported_languages = ("de", "en")
             default_language = "de"
 
-            def items(self):
-                return {}.items()
+            def get_named(self, holiday_name, lookup):
+                return []
 
         class EnglishRetryProvider:
-            def items(self):
-                return {date(2026, 1, 1): "Neujahr En"}.items()
+            def get_named(self, holiday_name, lookup):
+                return [date(2026, 1, 1)]
 
         calls = []
         captured_kwargs = {}
@@ -917,54 +676,6 @@ class TestGetSupportedCountriesSyncAdditionalFallbacks:
             result = _get_supported_countries_sync()
         assert result == {}
 
-    @pytest.mark.parametrize(
-        ("entity_loader_raises", "expected_result"),
-        [
-            pytest.param(
-                False,
-                {"ZZ": "Zetaland"},
-                id="country_attribute_matches_code",
-            ),
-            pytest.param(
-                True,
-                {"ZZ": "ZZ"},
-                id="exception_is_swallowed",
-            ),
-        ],
-    )
-    def test_entity_loader_fallback(self, entity_loader_raises, expected_result):
-        """Test the EntityLoader fallback: successful lookup vs swallowed error.
-
-        When the loader succeeds, its .country attribute is used as the
-        localized name. When it raises, the lookup is swallowed and the
-        holidays_name stays "ZZ" (the raised lookup never overwrote it).
-        """
-        fake_module = MagicMock()
-        fake_module.list_supported_countries.return_value = ["ZZ"]
-        country_obj = MagicMock()
-        country_obj.country = "ZZ"
-        fake_module.country_holidays.return_value = country_obj
-
-        entity_loader = MagicMock()
-        if entity_loader_raises:
-            entity_loader.get.side_effect = KeyError("unknown entity")
-        else:
-            country_class = MagicMock()
-            country_class.country = "Zetaland"
-            entity_loader.get.return_value = country_class
-        fake_module.registry.EntityLoader = entity_loader
-
-        with _patched_holidays_module(fake_module):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer"
-                ".get_localized_country_name",
-                side_effect=lambda code, fallback: fallback,
-            ):
-                result = _get_supported_countries_sync()
-
-        assert result == expected_result
-        entity_loader.get.assert_called_once_with("ZZ")
-
 
 class TestGetAvailableCategoriesSyncAdditionalFallbacks:
     """Additional fallback branches for _get_available_categories_sync."""
@@ -974,37 +685,6 @@ class TestGetAvailableCategoriesSyncAdditionalFallbacks:
         with _patched_holidays_module(None):
             result = _get_available_categories_sync("US")
         assert result == {"public": "Public Holidays"}
-
-    def test_probe_loop_builds_dict_and_skips_failing_category(self, caplog):
-        """Test the probe loop finds working categories and skips failures."""
-
-        class Empty:
-            def __len__(self):
-                return 0
-
-        class NonEmpty:
-            def __len__(self):
-                return 1
-
-        def fake_country_holidays(country_code, categories=None, years=None):
-            if categories == "bank":
-                raise RuntimeError("bank not supported")
-            if categories == "public":
-                return NonEmpty()
-            return Empty()
-
-        fake_module = MagicMock()
-        fake_module.country_holidays.side_effect = fake_country_holidays
-
-        with _patched_holidays_module(fake_module):
-            with caplog.at_level(
-                logging.DEBUG,
-                logger="custom_components.ha_scheduler.holiday_importer",
-            ):
-                result = _get_available_categories_sync("US")
-
-        assert result == {"public": "Public"}
-        assert "Category bank not supported for US" in caplog.text
 
 
 class TestGetHolidaysForCountrySyncExceptHandlers:
@@ -1074,12 +754,139 @@ class TestGetHolidaysForCountryAsyncWrapper:
         mock_sync.assert_called_once_with("US", None, None)
 
 
-class TestPatternAnalysisEdgeCases:
-    """Test edge cases in holiday pattern analysis helpers."""
+class TestPatternAnalysis:
+    """Test holiday pattern analysis and its helpers."""
 
     def test_analyze_holiday_pattern_empty_list_returns_none(self):
         """Test analyze_holiday_pattern returns None for an empty input."""
         assert analyze_holiday_pattern([]) is None
+
+    def test_analyze_nth_day_pattern(self):
+        """Last Monday of May across years is an nth-day pattern with occurrence 4."""
+        dates = [
+            date(2023, 5, 29),  # Last Monday of May 2023
+            date(2024, 5, 27),  # Last Monday of May 2024
+            date(2025, 5, 26),  # Last Monday of May 2025
+        ]
+
+        pattern = analyze_holiday_pattern(dates)
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["month"] == 5
+        assert pattern["occurrence"] == 4  # Last (4)
+        assert pattern["day_of_week"] == 0  # Monday
+        assert "Last Monday of May" in pattern["description"]
+
+    def test_analyze_nth_day_occurrence_validated_across_years(self):
+        """Occurrence detection must agree with every analyzed year.
+
+        Regression test: the occurrence used to be computed from the first
+        year alone. April 2023's 4th Friday is also its last Friday, so a
+        genuine "4th Friday" holiday was misdetected as "Last Friday" and
+        generated the wrong date in five-Friday years like 2027.
+        """
+        dates = [
+            date(2023, 4, 28),  # 4th Friday (April 2023 has only 4 Fridays)
+            date(2024, 4, 26),
+            date(2025, 4, 25),
+            date(2026, 4, 24),
+            date(2027, 4, 23),  # 4th Friday; last Friday is April 30
+        ]
+
+        pattern = analyze_holiday_pattern(list(dates))
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["occurrence"] == 3  # Fourth, not last
+        for expected in dates:
+            assert generate_schedule_dates(pattern, expected.year) == [
+                (expected, expected)
+            ]
+
+    def test_analyze_multi_day_span_generates_input_dates(self):
+        """The detected pattern must regenerate the analyzed dates.
+
+        Regression test: the former week-based pattern stored weekday
+        occurrences as calendar-week numbers, so a first-Monday/Tuesday
+        holiday generated events only in years where the month started on
+        a Monday (one in seven) — including none of the analyzed years.
+        """
+        dates = []
+        for year in range(2023, 2030):
+            # First Monday of November plus the following Tuesday
+            first_monday = next(
+                date(year, 11, day)
+                for day in range(1, 8)
+                if date(year, 11, day).weekday() == 0
+            )
+            dates.extend([first_monday, first_monday + timedelta(days=1)])
+
+        pattern = analyze_holiday_pattern(list(dates))
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["month"] == 11
+        assert pattern["occurrence"] == 0
+        assert pattern["day_of_week"] == 0
+        assert pattern["end_offset"] == 1
+
+        # Every analyzed year must be covered by the generated ranges.
+        for year in range(2023, 2030):
+            ranges = generate_schedule_dates(pattern, year)
+            assert len(ranges) == 1, f"no range generated for {year}"
+            start, end = ranges[0]
+            year_dates = [d for d in dates if d.year == year]
+            assert start == year_dates[0]
+            assert end == year_dates[-1]
+
+    def test_analyze_multi_day_span_inconsistent(self):
+        """Test that inconsistent patterns return None (variable date)."""
+        # Dates that don't follow a consistent pattern across years
+        dates = [
+            date(2023, 3, 6),  # Monday, first week of March 2023
+            date(2023, 3, 7),  # Tuesday
+            date(2024, 3, 15),  # Different week in 2024
+            date(2024, 3, 16),  # Different week in 2024
+        ]
+
+        pattern = analyze_holiday_pattern(dates)
+        assert pattern is not None
+        assert pattern["schedule_type"] == "date"
+        assert pattern.get("variable_date") is True
+
+    def test_analyze_multi_day_span_single_year_falls_back(self):
+        """A single year of multi-day data cannot establish a recurrence."""
+        dates = [date(2023, 3, 6), date(2023, 3, 7)]
+        pattern = analyze_holiday_pattern(dates)
+        assert pattern is not None
+        assert pattern["schedule_type"] == "date"
+        assert pattern.get("variable_date") is True
+
+    def test_analyze_holiday_pattern_repeated_july_fourth_is_fixed_date(self):
+        """July 4 across several years yields the fixed-date dict."""
+        dates = [date(2025, 7, 4), date(2023, 7, 4), date(2024, 7, 4)]
+        assert analyze_holiday_pattern(dates) == {
+            "schedule_type": "date",
+            "start_month": 7,
+            "start_day": 4,
+            "end_month": 7,
+            "end_day": 4,
+            "description": "Fixed date: July 4",
+        }
+
+    def test_analyze_holiday_pattern_unrecognised_dates_are_variable_date(self):
+        """Dates without a recurrence keep variable_date and the first-year description."""
+        dates = [date(2024, 5, 22), date(2023, 3, 15), date(2025, 8, 10)]
+        assert analyze_holiday_pattern(dates) == {
+            "schedule_type": "date",
+            "start_month": 3,
+            "start_day": 15,
+            "end_month": 3,
+            "end_day": 15,
+            "variable_date": True,
+            "description": "Variable date (using 2023 date: March 15)",
+        }
 
     def test_build_nth_weekday_pattern_no_shared_occurrence_returns_none(self):
         """Test anchors that don't share a single occurrence return None."""
@@ -1104,23 +911,9 @@ class TestPatternAnalysisEdgeCases:
         }
         assert _analyze_multi_day_pattern(dates_by_year) is None
 
-    def test_calculate_occurrence_overflow_near_date_max_returns_four(self, caplog):
-        """Test dates within reach of date.max hit the OverflowError path."""
-        with caplog.at_level(
-            logging.DEBUG, logger="custom_components.ha_scheduler.holiday_importer"
-        ):
-            result = calculate_occurrence(date.max)
-
-        assert result == 4
-        assert "Could not calculate next occurrence" in caplog.text
-
 
 class TestMiscSmallReturns:
     """Test miscellaneous small early-return branches."""
-
-    def test_merge_contiguous_dates_empty_input_returns_empty_list(self):
-        """Test _merge_contiguous_dates([]) returns an empty list."""
-        assert _merge_contiguous_dates([]) == []
 
     def test_generate_holiday_schedule_dates_missing_country_code_returns_empty(self):
         """Test a schedule missing country_code returns an empty list."""
@@ -1135,7 +928,3 @@ class TestMiscSmallReturns:
             "start_offset": "abc",
         }
         assert generate_holiday_schedule_dates(schedule, 2026) == []
-
-    def test_should_use_holiday_schedule_pattern_none_returns_false(self):
-        """Test _should_use_holiday_schedule_pattern(None) returns False."""
-        assert _should_use_holiday_schedule_pattern(None) is False

@@ -8,12 +8,16 @@ existing config entry. The calendar must keep serving the remaining schedules.
 
 import re
 from datetime import date, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.ha_scheduler.holiday_importer import _clear_holiday_caches
+from custom_components.ha_scheduler.holiday_importer import (
+    _get_country_holidays_sync,
+    _get_named_holiday_dates_sync,
+)
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -25,9 +29,11 @@ def clear_holiday_caches():
     The resolver warns once per cached lookup; without a reset, a lookup cached
     by an earlier test would suppress the warning a later test asserts on.
     """
-    _clear_holiday_caches()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
     yield
-    _clear_holiday_caches()
+    _get_country_holidays_sync.cache_clear()
+    _get_named_holiday_dates_sync.cache_clear()
 
 
 BROKEN_HOLIDAY_SCHEDULES = {
@@ -191,54 +197,6 @@ def test_no_unintended_base_class_overrides() -> None:
         f"SchedulerCalendar unintentionally overrides CalendarEntity members: "
         f"{sorted(shadowed)}"
     )
-
-
-async def test_legacy_options_layout_still_lists_events(
-    hass: HomeAssistant,
-) -> None:
-    """An entry with the pre-services options layout still serves its events.
-
-    The setup path builds a default service for legacy options, but event
-    listing reads live options — it must fall back to the legacy keys instead
-    of returning an empty calendar.
-    """
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
-
-    from custom_components.ha_scheduler.const import DOMAIN
-
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Test Scheduler",
-        data={"scheduler_name": "Test Scheduler"},
-        options={
-            "schedules": {
-                "date-schedule": {
-                    "name": "Summer Schedule",
-                    "schedule_type": "date",
-                    "start_month": 6,
-                    "start_day": 1,
-                    "end_month": 8,
-                    "end_day": 31,
-                    "uid": "date-schedule",
-                }
-            },
-            "configuration": {},
-        },
-        version=2,
-        minor_version=1,
-    )
-    entry.add_to_hass(hass)
-
-    assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-
-    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
-    start = datetime(2024, 5, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    end = datetime(2024, 9, 30, tzinfo=dt_util.DEFAULT_TIME_ZONE)
-    events = await calendar.async_get_events(hass, start, end)
-
-    assert len(events) == 1
-    assert events[0].summary == "Summer Schedule"
 
 
 async def test_unresolvable_holiday_logs_warning(
@@ -447,8 +405,18 @@ async def test_daily_refresh_repopulates_cached_state(
     assert stale_state.attributes.get("message") == "Morning Schedule"
 
     # Invoke the registered midnight listener directly.
-    await calendar._async_daily_refresh(dt_util.now())
+    with patch(
+        "custom_components.ha_scheduler.calendar.async_prime_holiday_cache",
+        new=AsyncMock(),
+    ) as mock_prime:
+        await calendar._async_daily_refresh(dt_util.now())
     await hass.async_block_till_done()
+
+    # Re-primed for the schedules now stored, over the lookaround window.
+    mock_prime.assert_awaited_once_with(
+        [entry.options["services"]["default"]["schedules"]["afternoon"]],
+        range(2023, 2030),
+    )
 
     refreshed_state = hass.states.get("calendar.test_scheduler")
     assert refreshed_state is not None

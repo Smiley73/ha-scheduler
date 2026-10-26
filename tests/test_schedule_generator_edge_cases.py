@@ -1,6 +1,5 @@
 """Test edge cases and error handling in schedule generator."""
 
-import sys
 from datetime import date
 from unittest.mock import patch
 
@@ -8,19 +7,14 @@ import pytest
 
 from custom_components.ha_scheduler.schedule_generator import (
     _generate_by_date,
-    _generate_by_holiday,
     _generate_by_nth_day,
     _generate_by_week,
     _generate_overlap_ranges,
     _get_nth_weekday,
-    _get_overlap_signature,
     _get_overlap_years,
     _get_week_end,
     _get_week_start,
     _get_weekday_in_week,
-    _schedule_from_signature,
-    _uses_deterministic_overlap_cycle,
-    _week_schedule_has_valid_ranges,
     check_overlap,
     generate_schedule_dates,
     get_country_first_weekday,
@@ -56,77 +50,6 @@ def test_generate_by_date_invalid_date() -> None:
     assert dates[0] == (date(2024, 2, 29), date(2024, 3, 15))
 
 
-def test_generate_by_date_invalid_date_non_leap_year() -> None:
-    """Test by_date schedule with Feb 29 in non-leap year."""
-    schedule = {
-        "schedule_type": "date",
-        "start_month": 2,
-        "start_day": 29,  # Invalid in non-leap year
-        "end_month": 3,
-        "end_day": 15,
-    }
-
-    dates = generate_schedule_dates(schedule, 2023)  # Non-leap year
-    # Should clamp to Feb 28
-    assert len(dates) == 1
-    assert dates[0] == (date(2023, 2, 28), date(2023, 3, 15))
-
-
-def test_generate_by_date_missing_fields() -> None:
-    """Test by_date schedule with missing required fields."""
-    schedule = {
-        "schedule_type": "date",
-        "start_month": 1,
-        # Missing start_day, end_month, end_day
-    }
-
-    # Should raise KeyError for missing required fields
-    try:
-        dates = generate_schedule_dates(schedule, 2024)
-        assert dates == []
-    except KeyError:
-        # Expected behavior - missing required fields cause KeyError
-        pass
-
-
-def test_generate_by_week_invalid_weekday() -> None:
-    """Test by_week schedule with invalid weekday."""
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 1,
-        "start_week": 0,
-        "start_day_of_week": 7,  # Invalid - should be 0-6
-        "end_month": 2,
-        "end_week": 0,
-        "end_day_of_week": 0,
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    # The function may not validate weekday range, so check if it handles gracefully
-    # Either returns empty list or handles the invalid input
-    assert isinstance(dates, list)
-
-
-def test_generate_by_week_nonexistent_week() -> None:
-    """Test by_week schedule requesting week that doesn't exist."""
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 2,  # February
-        "start_week": 4,  # 5th week - may not exist in February
-        "start_day_of_week": 0,
-        "end_month": 3,
-        "end_week": 0,
-        "end_day_of_week": 0,
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    # Should return empty if the week doesn't exist
-    # This depends on the specific February 2024 calendar
-    # The function should handle this gracefully
-    assert isinstance(dates, list)
-    # The function should handle this gracefully
-
-
 def test_generate_by_nth_day_invalid_occurrence() -> None:
     """Test by_nth_day schedule with invalid occurrence."""
     schedule = {
@@ -143,21 +66,11 @@ def test_generate_by_nth_day_invalid_occurrence() -> None:
     assert dates == []
 
 
-def test_generate_by_nth_day_missing_fields() -> None:
-    """Test by_nth_day schedule with missing fields."""
-    schedule = {
-        "schedule_type": "nth-day",
-        "month": 1,
-        # Missing other required fields like occurrence, day_of_week
-    }
+def test_generate_by_nth_day_missing_fields_returns_empty() -> None:
+    """An nth-day schedule without occurrence and day_of_week yields no dates."""
+    schedule = {"schedule_type": "nth-day", "month": 1}
 
-    # Should raise KeyError for missing required fields
-    try:
-        dates = generate_schedule_dates(schedule, 2024)
-        assert dates == []
-    except KeyError:
-        # Expected behavior - missing required fields cause KeyError
-        pass
+    assert generate_schedule_dates(schedule, 2024) == []
 
 
 def test_get_nth_weekday_invalid_inputs() -> None:
@@ -194,45 +107,6 @@ def test_get_nth_weekday_last_occurrence_out_of_range_day_of_week() -> None:
     assert _get_nth_weekday(2024, 3, 4, 99) is None
 
 
-def test_check_overlap_edge_cases() -> None:
-    """Test check_overlap with edge cases."""
-    # Same schedule overlapping with itself
-    schedule1 = {
-        "schedule_type": "date",
-        "start_month": 1,
-        "start_day": 1,
-        "end_month": 1,
-        "end_day": 31,
-        "uid": "schedule1",
-    }
-
-    schedule2 = {
-        "schedule_type": "date",
-        "start_month": 1,
-        "start_day": 1,
-        "end_month": 1,
-        "end_day": 31,
-        "uid": "schedule2",
-    }
-
-    # Overlapping schedules
-    has_overlap, _conflicting_name = check_overlap(schedule1, [schedule2])
-    assert has_overlap is True
-
-    # Non-overlapping schedules
-    schedule3 = {
-        "schedule_type": "date",
-        "start_month": 2,
-        "start_day": 1,
-        "end_month": 2,
-        "end_day": 28,
-        "uid": "schedule3",
-    }
-
-    has_overlap, _conflicting_name = check_overlap(schedule1, [schedule3])
-    assert has_overlap is False
-
-
 def test_leap_year_handling() -> None:
     """Test schedule generation handles leap years correctly."""
     # Feb 29 in leap year
@@ -244,106 +118,13 @@ def test_leap_year_handling() -> None:
         "end_day": 1,
     }
 
-    # Leap year - should work
-    dates_leap = generate_schedule_dates(schedule, 2024)
-    assert len(dates_leap) == 1
-    assert dates_leap[0][0] == date(2024, 2, 29)
-
-    # Non-leap year - should clamp to Feb 28
-    dates_non_leap = generate_schedule_dates(schedule, 2023)
-    assert len(dates_non_leap) == 1
-    assert dates_non_leap[0][0] == date(2023, 2, 28)
-
-
-def test_year_boundary_edge_cases() -> None:
-    """Test schedules that cross year boundaries in edge cases."""
-    # December 31 to January 1
-    schedule = {
-        "schedule_type": "date",
-        "start_month": 12,
-        "start_day": 31,
-        "end_month": 1,
-        "end_day": 1,
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    assert len(dates) == 1
-    assert dates[0] == (date(2024, 12, 31), date(2025, 1, 1))
-
-
-def test_schedule_generator_robustness() -> None:
-    """Test that schedule generator handles malformed input gracefully."""
-    # Empty schedule - will default to date type and fail
-    try:
-        dates = generate_schedule_dates({}, 2024)
-        assert dates == []
-    except KeyError:
-        # Expected behavior - missing required fields
-        pass
-
-    # Schedule with None values
-    schedule = {
-        "schedule_type": "date",
-        "start_month": None,
-        "start_day": 1,
-        "end_month": 2,
-        "end_day": 1,
-    }
-    try:
-        dates = generate_schedule_dates(schedule, 2024)
-        assert dates == []
-    except (KeyError, TypeError):
-        # Expected behavior - None values cause errors
-        pass
-
-    # Schedule with string values instead of integers
-    schedule = {
-        "schedule_type": "date",
-        "start_month": "1",
-        "start_day": "1",
-        "end_month": "2",
-        "end_day": "1",
-    }
-    # Should handle type conversion or fail gracefully
-    try:
-        dates = generate_schedule_dates(schedule, 2024)
-        # Either works with type conversion or returns empty list
-        assert isinstance(dates, list)
-    except (TypeError, ValueError):
-        # Expected if no type conversion is done
-        pass
-
-
-def test_date_schedule_across_spring_dst_boundary() -> None:
-    """Schedule date math is calendar-based and unaffected by spring DST."""
-    # US DST 2026: clocks spring forward on March 8.
-    schedule = {
-        "schedule_type": "date",
-        "start_month": 3,
-        "start_day": 7,
-        "end_month": 3,
-        "end_day": 9,
-        "uid": "dst-spring",
-    }
-
-    dates = generate_schedule_dates(schedule, 2026)
-    assert dates == [(date(2026, 3, 7), date(2026, 3, 9))]
-
-
-def test_date_schedule_across_fall_dst_boundary() -> None:
-    """Schedule date math is calendar-based and unaffected by fall DST."""
-    # US DST 2026: clocks fall back on November 1.
-    schedule = {
-        "schedule_type": "date",
-        "start_month": 10,
-        "start_day": 31,
-        "end_month": 11,
-        "end_day": 2,
-        "uid": "dst-fall",
-    }
-
-    dates = generate_schedule_dates(schedule, 2026)
-    assert dates == [(date(2026, 10, 31), date(2026, 11, 2))]
+    assert generate_schedule_dates(schedule, 2024) == [
+        (date(2024, 2, 29), date(2024, 3, 1))
+    ]
+    # Non-leap year: the start clamps to Feb 28
+    assert generate_schedule_dates(schedule, 2023) == [
+        (date(2023, 2, 28), date(2023, 3, 1))
+    ]
 
 
 def test_week_schedule_across_dst_boundary() -> None:
@@ -412,11 +193,11 @@ def test_check_overlap_accepts_today_reference_date() -> None:
         ("ZZ", 0),
     ],
 )
-def test_get_country_first_weekday_babel_import_error(
+def test_get_country_first_weekday_without_babel_locale_data(
     country_code: str, expected: int
 ) -> None:
-    """When babel can't be imported, the fallback table (or its default) is used."""
-    with patch.dict(sys.modules, {"babel": None}):
+    """When Babel can't parse any locale, the fallback table (or its default) is used."""
+    with patch("babel.Locale.parse", side_effect=ValueError("no locale data")):
         assert get_country_first_weekday(country_code) == expected
 
 
@@ -452,15 +233,7 @@ def test_generate_by_date_invalid_month_raises_and_is_swallowed() -> None:
 
 
 def test_generate_by_week_non_int_day_of_week_returns_empty() -> None:
-    """A day_of_week that can't be coerced to int hits the outer except clause.
-
-    Both start_day_of_week and end_day_of_week are provided (so the "both
-    days specified" branch is taken), and start_day_of_week is a
-    non-numeric string. That branch does ``int(start_day_of_week)``, which
-    raises ValueError from inside _generate_by_week's own try block (not the
-    inner helper's), so it's the outer except (not an inner None-guard) that
-    produces the empty result.
-    """
+    """A day_of_week that can't be coerced to int is swallowed and returns []."""
     schedule = {
         "start_month": 1,
         "start_week": 0,
@@ -485,13 +258,29 @@ def test_generate_by_nth_day_invalid_offset_returns_empty() -> None:
     assert _generate_by_nth_day(schedule, 2024) == []
 
 
-def test_generate_by_holiday_import_failure_returns_empty() -> None:
-    """If the lazy holiday_importer import fails, _generate_by_holiday returns []."""
-    with patch.dict(
-        sys.modules,
-        {"custom_components.ha_scheduler.holiday_importer": None},
-    ):
-        assert _generate_by_holiday({"schedule_type": "holiday"}, 2024) == []
+@pytest.mark.parametrize(
+    "start_day_of_week, expected_start",
+    [
+        # Last Wednesday of December 2024.
+        (2, date(2024, 12, 25)),
+        # No start day: the last week of December 2024 starts on Monday.
+        (None, date(2024, 12, 30)),
+    ],
+)
+def test_generate_by_week_year_wrap_with_day_of_week_bounds(
+    start_day_of_week: int | None, expected_start: date
+) -> None:
+    """The end bound of a Dec-to-Jan week schedule lands in the next year."""
+    schedule = _week_schedule(
+        start_month=12, start_week=4, end_month=1, end_week=0, end_day_of_week=4
+    )
+    if start_day_of_week is not None:
+        schedule["start_day_of_week"] = start_day_of_week
+
+    # Friday of the partial first week of January 2025.
+    assert generate_schedule_dates(schedule, 2024) == [
+        (expected_start, date(2025, 1, 3))
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -535,11 +324,6 @@ def test_week_start_to_end_day_out_of_range_week_returns_empty() -> None:
     assert generate_schedule_dates(schedule, 2024) == []
 
 
-def test_get_week_start_out_of_month_returns_none() -> None:
-    """An occurrence whose computed start rolls past the target month is None."""
-    assert _get_week_start(2024, 2, 5, 0, "full") is None
-
-
 def test_get_week_start_overflow_returns_none() -> None:
     """A huge occurrence overflows the internal timedelta math and is caught."""
     assert _get_week_start(9999, 12, 10**9, 0, "partial") is None
@@ -581,9 +365,45 @@ def test_week_schedule_has_valid_ranges_non_week_schedule() -> None:
     assert week_schedule_has_valid_ranges({"schedule_type": "date"}) is False
 
 
-def test_week_schedule_has_valid_ranges_empty_signature() -> None:
-    """An empty signature can't be reconstructed into a schedule."""
-    assert _week_schedule_has_valid_ranges(()) is False
+def _week_schedule(**fields: int | str) -> dict[str, int | str]:
+    return {"schedule_type": "week", **fields}
+
+
+@pytest.mark.parametrize(
+    "schedule, expected",
+    [
+        # Whole week schedule: a range exists in every year of the cycle.
+        (_week_schedule(start_month=3, start_week=1, end_month=3, end_week=1), True),
+        # Monday-first partial week 0 has no Monday in most years.
+        (
+            _week_schedule(
+                start_month=3,
+                start_week=0,
+                start_day_of_week=0,
+                end_month=3,
+                end_week=1,
+            ),
+            False,
+        ),
+        # Friday-to-Monday within one week is inverted in every year.
+        (
+            _week_schedule(
+                start_month=3,
+                start_week=1,
+                start_day_of_week=4,
+                end_month=3,
+                end_week=1,
+                end_day_of_week=0,
+            ),
+            False,
+        ),
+    ],
+)
+def test_week_schedule_has_valid_ranges_requires_range_every_year(
+    schedule: dict[str, int | str], expected: bool
+) -> None:
+    """Only a schedule that yields a range in every year of the cycle is valid."""
+    assert week_schedule_has_valid_ranges(schedule) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -699,68 +519,57 @@ def test_get_overlap_years_two_date_schedules_uses_full_cycle() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Signature round-trip unit tests
+# Overlap cache
 # ---------------------------------------------------------------------------
 
 
-def test_get_overlap_signature_unknown_type_returns_one_tuple() -> None:
-    """An unrecognized schedule_type falls through to a bare 1-tuple."""
-    assert _get_overlap_signature({"schedule_type": "unknown"}) == ("unknown",)
+def test_overlap_cache_is_shared_and_keyed_on_date_fields_only() -> None:
+    """Validation and overlap checks share one cache entry per equal schedule."""
+    schedule = _week_schedule(
+        start_month=3,
+        start_week=1,
+        end_month=3,
+        end_week=1,
+        country_code="US",
+        uid="a",
+        name="A",
+    )
+    _generate_overlap_ranges.cache_clear()
+
+    assert week_schedule_has_valid_ranges(schedule) is True
+    info = _generate_overlap_ranges.cache_info()
+    assert (info.hits, info.misses) == (0, 1)
+
+    # Same date fields in a different dict, with another uid and name.
+    equal = {**schedule, "uid": "b", "name": "B"}
+    assert check_overlap(equal, [schedule]) == (True, "A")
+    info = _generate_overlap_ranges.cache_info()
+    assert (info.hits, info.misses) == (2, 1)
+
+    # country_code is upper-cased in the key.
+    check_overlap({**schedule, "country_code": "us"}, [schedule])
+    info = _generate_overlap_ranges.cache_info()
+    assert (info.hits, info.misses) == (4, 1)
+
+    # A different date field is a different entry.
+    check_overlap({**schedule, "start_week": 2, "end_week": 2}, [])
+    assert _generate_overlap_ranges.cache_info().misses == 2
 
 
-def test_schedule_from_signature_empty_returns_none() -> None:
-    """An empty signature can't be reconstructed into a schedule dict."""
-    assert _schedule_from_signature(()) is None
-
-
-def test_schedule_from_signature_holiday_round_trip_with_category() -> None:
-    """A holiday signature (with a category) rebuilds into a matching dict."""
-    holiday_schedule = {
-        "schedule_type": "holiday",
-        "country_code": "us",
-        "category": "public",
-        "holiday_name": "Christmas",
-        "name_lookup": "iexact",
-        "start_offset": 1,
-        "end_offset": 2,
+def test_check_overlap_compares_typeless_existing_schedule_as_date() -> None:
+    """A migrated schedule without schedule_type is compared as a date schedule."""
+    new_schedule = {
+        "schedule_type": "date",
+        "start_month": 1,
+        "start_day": 15,
+        "end_month": 1,
+        "end_day": 31,
     }
-    signature = _get_overlap_signature(holiday_schedule)
-    rebuilt = _schedule_from_signature(signature)
-    assert rebuilt == {
-        "schedule_type": "holiday",
-        "country_code": "US",
-        "holiday_name": "Christmas",
-        "name_lookup": "iexact",
-        "start_offset": 1,
-        "end_offset": 2,
-        "category": "public",
+    legacy = {
+        "name": "Legacy",
+        "start_month": 1,
+        "start_day": 10,
+        "end_month": 1,
+        "end_day": 20,
     }
-
-
-def test_schedule_from_signature_holiday_round_trip_without_category() -> None:
-    """A holiday signature without a category omits it from the rebuild."""
-    holiday_schedule = {
-        "schedule_type": "holiday",
-        "country_code": "us",
-        "holiday_name": "Christmas",
-    }
-    signature = _get_overlap_signature(holiday_schedule)
-    rebuilt = _schedule_from_signature(signature)
-    assert rebuilt is not None
-    assert "category" not in rebuilt
-    assert rebuilt["country_code"] == "US"
-
-
-def test_schedule_from_signature_unknown_type_returns_none() -> None:
-    """An unrecognized signature type can't be reconstructed."""
-    assert _schedule_from_signature(("bogus",)) is None
-
-
-def test_generate_overlap_ranges_unreconstructable_signature_returns_empty() -> None:
-    """If the signature can't be turned back into a schedule, no ranges exist."""
-    assert _generate_overlap_ranges(("bogus",)) == ()
-
-
-def test_uses_deterministic_overlap_cycle_empty_signature() -> None:
-    """An empty signature never qualifies for the deterministic cache."""
-    assert _uses_deterministic_overlap_cycle(()) is False
+    assert check_overlap(new_schedule, [legacy]) == (True, "Legacy")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -12,6 +13,21 @@ _LOGGER = logging.getLogger(__name__)
 # Current version - increment when adding new migrations
 CURRENT_VERSION = 2
 CURRENT_MINOR_VERSION = 1
+
+
+def backfill_schedule_uids(schedules: dict[str, Any]) -> dict[str, Any]:
+    """Return ``schedules`` with each missing ``uid`` set to its storage key.
+
+    Overlap validation excludes the schedule being edited by uid, and a
+    missing uid made every edit conflict with itself. Schedules migrated
+    from v1 are stored without one.
+    """
+    return {
+        schedule_id: (
+            schedule if "uid" in schedule else {**schedule, "uid": schedule_id}
+        )
+        for schedule_id, schedule in schedules.items()
+    }
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -27,7 +43,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CURRENT_MINOR_VERSION,
     )
 
-    # Migration from version 1 to 2 (helper to service transformation)
     if version == 1:
         if not await async_migrate_v1_to_v2(hass, entry):
             return False
@@ -40,7 +55,6 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if version == CURRENT_VERSION and minor_version < CURRENT_MINOR_VERSION:
         minor_version = CURRENT_MINOR_VERSION
 
-    # Update version numbers
     if version != entry.version or minor_version != entry.minor_version:
         hass.config_entries.async_update_entry(
             entry,
@@ -63,7 +77,6 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
     _LOGGER.info("Migrating scheduler from helper to service model")
 
     try:
-        # Get existing data
         existing_schedules = entry.options.get("schedules", {})
         existing_config = entry.options.get("configuration", {})
 
@@ -75,7 +88,6 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
 
         new_options = {
             "services": {
-                # Create default service with existing schedules
                 # Note: The calendar entity will use entry.entry_id as unique_id for backward compatibility
                 "default": {
                     "name": entry.title,
@@ -85,7 +97,6 @@ async def async_migrate_v1_to_v2(hass: HomeAssistant, entry: ConfigEntry) -> boo
             }
         }
 
-        # Update the config entry
         hass.config_entries.async_update_entry(
             entry,
             data=new_data,

@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    DAY_NAMES,
+    DAY_NAMES_DISPLAY,
     SCHEDULE_TYPE_DATE,
     SCHEDULE_TYPE_HOLIDAY,
     SCHEDULE_TYPE_NTH_DAY,
@@ -38,39 +38,39 @@ _REDACT_KEYS = frozenset(
 
 _LOGGER = logging.getLogger(__name__)
 
+# Years of future dates (starting with the current year) reported per schedule.
+_FUTURE_YEARS = 3
+
 
 def _get_day_name(day_of_week: int | None) -> str | None:
-    """Convert day of week number to day name.
-
-    Args:
-        day_of_week: Day number (0=Monday, 1=Tuesday, ..., 6=Sunday)
-
-    Returns:
-        Day name or None if invalid
-    """
+    """Return the display name for a day number (0=Monday), or None if invalid."""
     if day_of_week is None or not (0 <= day_of_week <= 6):
         return None
-    return DAY_NAMES[day_of_week].capitalize()
+    return DAY_NAMES_DISPLAY[day_of_week]
+
+
+def _week_type_display(week_type: str) -> str:
+    return (
+        "First full week (entirely within month)"
+        if week_type == "full"
+        else "First week (may start in previous month)"
+    )
+
+
+def _error_year(error: str) -> dict[str, Any]:
+    return {
+        "error": error,
+        "start_date": None,
+        "end_date": None,
+        "duration_days": None,
+    }
 
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    # Handle both new service-based structure and legacy structure
     services = entry.options.get("services", {})
-
-    if not services:
-        # Legacy structure - create a default service
-        legacy_schedules = entry.options.get("schedules", {})
-        legacy_config = entry.options.get("configuration", {})
-        services = {
-            "default": {
-                "name": entry.title,
-                "schedules": legacy_schedules,
-                "configuration": legacy_config,
-            }
-        }
 
     current_year = dt_util.now().date().year
     all_schedules = [
@@ -79,10 +79,9 @@ async def async_get_config_entry_diagnostics(
         for schedule in service_data.get("schedules", {}).values()
     ]
     await async_prime_holiday_cache(
-        all_schedules, range(current_year, current_year + 3)
+        all_schedules, range(current_year, current_year + _FUTURE_YEARS)
     )
 
-    # Collect diagnostics for all services
     services_diagnostics = {}
     total_schedules = 0
 
@@ -91,7 +90,6 @@ async def async_get_config_entry_diagnostics(
         service_config = service_data.get("configuration", {})
         total_schedules += len(schedules)
 
-        # Build schedule summary for this service
         schedule_summary = []
         for schedule_id, schedule_data in schedules.items():
             schedule_info = _build_schedule_info(schedule_data, schedule_id, schedules)
@@ -134,14 +132,14 @@ def _build_schedule_info(
     schedule_data: dict[str, Any], schedule_id: str, all_schedules: dict[str, Any]
 ) -> dict[str, Any]:
     """Build diagnostic information for a single schedule."""
+    schedule_type = schedule_data.get("schedule_type")
     schedule_info = {
         "id": schedule_id,
         "name": schedule_data.get("name"),
-        "type": schedule_data.get("schedule_type"),
+        "type": schedule_type,
     }
 
-    # Add type-specific fields
-    if schedule_data.get("schedule_type") == SCHEDULE_TYPE_DATE:
+    if schedule_type == SCHEDULE_TYPE_DATE:
         schedule_info.update(
             {
                 "start_month": schedule_data.get("start_month"),
@@ -150,25 +148,18 @@ def _build_schedule_info(
                 "end_day": schedule_data.get("end_day"),
             }
         )
-    elif schedule_data.get("schedule_type") == SCHEDULE_TYPE_WEEK:
+    elif schedule_type == SCHEDULE_TYPE_WEEK:
         start_day_of_week = schedule_data.get("start_day_of_week")
         end_day_of_week = schedule_data.get("end_day_of_week")
         start_week_type = schedule_data.get("start_week_type", "partial")
         end_week_type = schedule_data.get("end_week_type", "partial")
-
-        def _get_week_type_display(week_type: str) -> str:
-            return (
-                "First full week (entirely within month)"
-                if week_type == "full"
-                else "First week (may start in previous month)"
-            )
 
         schedule_info.update(
             {
                 "start_month": schedule_data.get("start_month"),
                 "start_week": schedule_data.get("start_week"),
                 "start_week_type": start_week_type,
-                "start_week_type_display": _get_week_type_display(start_week_type),
+                "start_week_type_display": _week_type_display(start_week_type),
                 "start_day_of_week": start_day_of_week,
                 "start_day_name": _get_day_name(start_day_of_week)
                 if start_day_of_week is not None
@@ -176,7 +167,7 @@ def _build_schedule_info(
                 "end_month": schedule_data.get("end_month"),
                 "end_week": schedule_data.get("end_week"),
                 "end_week_type": end_week_type,
-                "end_week_type_display": _get_week_type_display(end_week_type),
+                "end_week_type_display": _week_type_display(end_week_type),
                 "end_day_of_week": end_day_of_week,
                 "end_day_name": _get_day_name(end_day_of_week)
                 if end_day_of_week is not None
@@ -184,7 +175,7 @@ def _build_schedule_info(
                 "country_code": schedule_data.get("country_code"),
             }
         )
-    elif schedule_data.get("schedule_type") == SCHEDULE_TYPE_NTH_DAY:
+    elif schedule_type == SCHEDULE_TYPE_NTH_DAY:
         day_of_week = schedule_data.get("day_of_week")
         schedule_info.update(
             {
@@ -196,7 +187,7 @@ def _build_schedule_info(
                 "end_offset": schedule_data.get("end_offset"),
             }
         )
-    elif schedule_data.get("schedule_type") == SCHEDULE_TYPE_HOLIDAY:
+    elif schedule_type == SCHEDULE_TYPE_HOLIDAY:
         schedule_info.update(
             {
                 "country_code": schedule_data.get("country_code"),
@@ -208,7 +199,6 @@ def _build_schedule_info(
             }
         )
 
-    # Include configuration if present (redact sensitive keys)
     if "configuration" in schedule_data:
         schedule_info["has_configuration"] = True
         schedule_info["configuration"] = async_redact_data(
@@ -217,7 +207,6 @@ def _build_schedule_info(
     else:
         schedule_info["has_configuration"] = False
 
-    # Add schedule dates and durations for next 3 years
     schedule_info["future_dates"] = _calculate_future_dates(
         schedule_data, all_schedules, schedule_id
     )
@@ -230,74 +219,42 @@ def _calculate_future_dates(
     all_schedules: dict[str, Any],
     current_schedule_id: str,
 ) -> dict[str, Any]:
-    """Calculate schedule dates and durations for the next 3 years.
-
-    Also checks for overlaps with other schedules for each year.
-
-    Args:
-        schedule_data: The current schedule data
-        all_schedules: All schedules in the config entry
-        current_schedule_id: ID of the current schedule to exclude from overlap checks
-
-    Returns:
-        Dictionary with yearly data, overlap information, and any computation warnings.
-    """
+    """Calculate dates, durations and overlaps for the next few years."""
     current_year = dt_util.now().date().year
-    future_data: dict[str, Any] = {"years": {}, "warnings": []}
+    years: dict[str, Any] = {}
+    warnings: list[str] = []
 
-    for year in range(current_year, current_year + 3):
+    for year in range(current_year, current_year + _FUTURE_YEARS):
         year_key = str(year)
         try:
             date_ranges = generate_schedule_dates(schedule_data, year)
 
             if not date_ranges:
-                warnings_list: list[str] = future_data["warnings"]
-                warnings_list.append(f"No valid dates generated for year {year}")
-                years_dict: dict[str, Any] = future_data["years"]
-                years_dict[year_key] = {
-                    "error": "No valid dates generated",
-                    "start_date": None,
-                    "end_date": None,
-                    "duration_days": None,
-                }
+                warnings.append(f"No valid dates generated for year {year}")
+                years[year_key] = _error_year("No valid dates generated")
                 continue
 
             # Take the first date range (most schedules have only one per year)
             start_date, end_date = date_ranges[0]
 
-            # Calculate duration in days
-            duration = (
-                end_date - start_date
-            ).days + 1  # +1 to include both start and end days
-
-            # Check for overlaps with other schedules in this specific year
-            overlaps = _check_year_overlaps(
-                schedule_data, all_schedules, current_schedule_id, year
-            )
-
-            years_dict_main: dict[str, Any] = future_data["years"]
-            years_dict_main[year_key] = {
+            years[year_key] = {
                 "start_date": start_date.isoformat(),
                 "end_date": end_date.isoformat(),
-                "duration_days": duration,
-                "overlaps": overlaps,
+                # +1 to include both start and end days
+                "duration_days": (end_date - start_date).days + 1,
+                "overlaps": _check_year_overlaps(
+                    schedule_data, all_schedules, current_schedule_id, year
+                ),
             }
 
         except Exception as e:  # noqa: BLE001 - diagnostics must never fail; error is recorded in output
             _LOGGER.warning(
                 "Failed to calculate schedule dates for year %s: %s", year, str(e)
             )
-            warnings_list_err: list[str] = future_data["warnings"]
-            warnings_list_err.append(f"Failed to compute dates for year {year}: {e!s}")
-            years_dict_err: dict[str, Any] = future_data["years"]
-            years_dict_err[year_key] = {
-                "error": str(e),
-                "start_date": None,
-                "end_date": None,
-                "duration_days": None,
-            }
+            warnings.append(f"Failed to compute dates for year {year}: {e!s}")
+            years[year_key] = _error_year(str(e))
 
-    return future_data
+    return {"years": years, "warnings": warnings}
 
 
 def _check_year_overlaps(
@@ -306,19 +263,8 @@ def _check_year_overlaps(
     current_schedule_id: str,
     year: int,
 ) -> dict[str, Any]:
-    """Check for overlaps with other schedules in a specific year.
-
-    Args:
-        schedule_data: The current schedule data
-        all_schedules: All schedules in the config entry
-        current_schedule_id: ID of the current schedule to exclude
-        year: The year to check overlaps for
-
-    Returns:
-        Dictionary with overlap status and conflicting schedule details
-    """
+    """Check for overlaps with other schedules in a specific year."""
     try:
-        # Get date ranges for current schedule in this year
         current_ranges = generate_schedule_dates(schedule_data, year)
         if not current_ranges:
             return {"status": "no_dates", "conflicting_schedules": []}
@@ -326,10 +272,9 @@ def _check_year_overlaps(
         current_start, current_end = current_ranges[0]
         conflicting_schedules = []
 
-        # Check against all other schedules
         for other_id, other_schedule in all_schedules.items():
             if other_id == current_schedule_id:
-                continue  # Skip self
+                continue
 
             try:
                 other_ranges = generate_schedule_dates(other_schedule, year)
@@ -338,7 +283,6 @@ def _check_year_overlaps(
 
                 other_start, other_end = other_ranges[0]
 
-                # Check if ranges overlap
                 if current_start <= other_end and current_end >= other_start:
                     conflicting_schedules.append(
                         {
@@ -361,18 +305,11 @@ def _check_year_overlaps(
                     str(e),
                 )
 
-        if conflicting_schedules:
-            return {
-                "status": "conflicts_found",
-                "conflicting_schedules": conflicting_schedules,
-                "conflict_count": len(conflicting_schedules),
-            }
-        else:
-            return {
-                "status": "no_conflicts",
-                "conflicting_schedules": [],
-                "conflict_count": 0,
-            }
+        return {
+            "status": "conflicts_found" if conflicting_schedules else "no_conflicts",
+            "conflicting_schedules": conflicting_schedules,
+            "conflict_count": len(conflicting_schedules),
+        }
 
     except Exception as e:  # noqa: BLE001 - diagnostics must never fail; error is recorded in output
         _LOGGER.warning("Failed to check overlaps for year %s: %s", year, str(e))
