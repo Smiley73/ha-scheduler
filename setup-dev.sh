@@ -45,11 +45,4 @@ pytest tests/ -q
 
 echo ""
 echo "✨ Setup complete! Pre-commit hooks are now active."
-echo ""
-echo "📝 Available commands:"
-echo "  - Run linting:        python -m ruff check custom_components/ha_scheduler/ tests/"
-echo "  - Auto-fix linting:   python -m ruff check --fix custom_components/ha_scheduler/ tests/"
-echo "  - Format code:        python -m ruff format custom_components/ha_scheduler/ tests/"
-echo "  - Run tests:          pytest tests/"
-echo "  - Run pre-commit:     pre-commit run --all-files"
-echo ""
+echo "Commands and workflow: see DEVELOPMENT.md"
