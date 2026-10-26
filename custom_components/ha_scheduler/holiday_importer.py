@@ -92,15 +92,20 @@ def get_holidays_library_version() -> str | None:
     return getattr(holidays_module, "__version__", None)
 
 
+def _holiday_category_key(schedule: dict[str, Any]) -> str:
+    """Return the canonical cache category for a schedule's stored category."""
+    return str(schedule.get("category") or "public")
+
+
 def _build_holiday_cache_requests(
     schedules: Iterable[dict[str, Any]], years: Iterable[int]
-) -> tuple[tuple[str, str | None, str, str, int], ...]:
+) -> tuple[tuple[str, str, str, str, int], ...]:
     """Build unique holiday lookup requests for the supplied schedules."""
     unique_years = tuple(sorted({int(year) for year in years}))
     if not unique_years:
         return ()
 
-    requests: set[tuple[str, str | None, str, str, int]] = set()
+    requests: set[tuple[str, str, str, str, int]] = set()
 
     for schedule in schedules:
         if schedule.get("schedule_type") != SCHEDULE_TYPE_HOLIDAY:
@@ -112,8 +117,7 @@ def _build_holiday_cache_requests(
         except (KeyError, TypeError, ValueError):
             continue
 
-        category_value = schedule.get("category")
-        category = str(category_value) if category_value is not None else None
+        category = _holiday_category_key(schedule)
         lookup = str(schedule.get("name_lookup", "iexact"))
 
         for year in unique_years:
@@ -122,13 +126,13 @@ def _build_holiday_cache_requests(
     return tuple(
         sorted(
             requests,
-            key=lambda item: (item[0], item[1] or "", item[2], item[3], item[4]),
+            key=lambda item: (item[0], item[1], item[2], item[3], item[4]),
         )
     )
 
 
 def _prime_holiday_cache_sync(
-    requests: tuple[tuple[str, str | None, str, str, int], ...],
+    requests: tuple[tuple[str, str, str, str, int], ...],
 ) -> None:
     """Warm the holiday lookup cache for a set of named holiday requests."""
     for country_code, category, holiday_name, lookup, year in requests:
@@ -338,7 +342,7 @@ def generate_holiday_schedule_dates(
 
     try:
         country_code = str(schedule["country_code"]).upper()
-        category = str(schedule.get("category", "public"))
+        category = _holiday_category_key(schedule)
         holiday_name = str(schedule["holiday_name"])
         lookup = str(schedule.get("name_lookup", "iexact"))
         start_offset = int(schedule.get("start_offset", 0))

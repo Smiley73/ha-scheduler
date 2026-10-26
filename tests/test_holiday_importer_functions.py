@@ -567,6 +567,88 @@ class TestBuildHolidayCacheRequestsEdges:
         assert result == (("DE", "public", "Good Friday", "iexact", 2026),)
 
 
+def _good_friday_schedule(**category):
+    return {
+        "schedule_type": "holiday",
+        "country_code": "DE",
+        "holiday_name": "Good Friday",
+        "name_lookup": "iexact",
+        **category,
+    }
+
+
+async def _prime_then_generate(schedule):
+    """Prime 2026, then return (result, new hits, new misses) of the generate call."""
+    await async_prime_holiday_cache([schedule], [2026])
+    before = _get_named_holiday_dates_sync.cache_info()
+    result = generate_holiday_schedule_dates(schedule, 2026)
+    after = _get_named_holiday_dates_sync.cache_info()
+    return result, after.hits - before.hits, after.misses - before.misses
+
+
+class TestHolidayCategoryKeyParity:
+    """Priming and generation resolve a schedule's category to the same key."""
+
+    @pytest.mark.parametrize(
+        "category",
+        [{}, {"category": None}, {"category": ""}, {"category": "public"}],
+        ids=["missing", "none", "empty", "public"],
+    )
+    async def test_public_spellings_hit_primed_cache(self, category):
+        """Test every public spelling is a cache hit after priming, with public dates."""
+        result, hits, misses = await _prime_then_generate(
+            _good_friday_schedule(**category)
+        )
+
+        assert misses == 0
+        assert hits >= 1
+        assert result == [(date(2026, 4, 3), date(2026, 4, 3))]
+
+    async def test_non_public_category_hits_primed_cache_and_reaches_provider(self):
+        """Test a non-public category is primed under its own key, passed unchanged."""
+        received = []
+
+        class StubProvider:
+            def get_named(self, holiday_name, lookup):
+                return [date(2026, 5, 1)]
+
+        def fake_country_holidays(country_code, category, year):
+            received.append(category)
+            return StubProvider()
+
+        with patch(
+            "custom_components.ha_scheduler.holiday_importer._get_country_holidays_sync",
+            side_effect=fake_country_holidays,
+        ):
+            result, hits, misses = await _prime_then_generate(
+                _good_friday_schedule(category="bank")
+            )
+
+        assert misses == 0
+        assert hits >= 1
+        assert result == [(date(2026, 5, 1), date(2026, 5, 1))]
+        assert received == ["bank"]
+
+    def test_public_spellings_share_one_request_per_year(self):
+        """Test missing, None, empty and public categories build one public request."""
+        schedules = [
+            _good_friday_schedule(**category)
+            for category in (
+                {},
+                {"category": None},
+                {"category": ""},
+                {"category": "public"},
+            )
+        ]
+
+        result = _build_holiday_cache_requests(schedules, [2026, 2027])
+
+        assert result == (
+            ("DE", "public", "Good Friday", "iexact", 2026),
+            ("DE", "public", "Good Friday", "iexact", 2027),
+        )
+
+
 class TestPrimeHolidayCacheSyncFailure:
     """Test that priming failures are logged, not raised."""
 
