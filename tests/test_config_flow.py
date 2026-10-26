@@ -1950,8 +1950,24 @@ async def test_import_holidays_stale_selection_not_found(
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    async with _import_holidays_select(hass, entry, _HOLIDAY_A_JULY_4) as form:
-        flow = hass.config_entries.options._progress[form["flow_id"]]
+    # Only get_holidays_for_country is patched, so the real async
+    # get_supported_countries / get_available_categories wrappers (and their
+    # executor hops) run on the way to the selection form.
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer.get_holidays_for_country",
+        new=AsyncMock(return_value=_HOLIDAY_A_JULY_4),
+    ):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        for user_input in (
+            {"next_step_id": "import_holidays"},
+            {"country": "US"},
+            {"categories": ["public"]},
+        ):
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], user_input
+            )
+        assert result["step_id"] == "import_holidays_select"
+        flow = hass.config_entries.options._progress[result["flow_id"]]
         result = await flow._import_selected_holidays(
             ["Missing Holiday"],
             overwrite_existing=False,
