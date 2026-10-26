@@ -14,7 +14,6 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.ha_scheduler.const import CALENDAR_YEAR_LOOKAROUND
 from custom_components.ha_scheduler.holiday_importer import (
     _get_country_holidays_sync,
     _get_named_holiday_dates_sync,
@@ -416,7 +415,7 @@ async def test_daily_refresh_repopulates_cached_state(
     # Re-primed for the schedules now stored, over the lookaround window.
     mock_prime.assert_awaited_once_with(
         [entry.options["services"]["default"]["schedules"]["afternoon"]],
-        range(2026 - CALENDAR_YEAR_LOOKAROUND, 2026 + CALENDAR_YEAR_LOOKAROUND + 1),
+        range(2023, 2030),
     )
 
     refreshed_state = hass.states.get("calendar.test_scheduler")

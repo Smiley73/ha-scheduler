@@ -329,13 +329,9 @@ async def test_diagnostics_includes_future_dates(
 
     # Each year should have the expected structure
     for year_data in future_dates["years"].values():
-        if "error" not in year_data:
-            assert "start_date" in year_data
-            assert "end_date" in year_data
-            assert "duration_days" in year_data
-
-            # For this date schedule, duration should be 92 days (June 1 - Aug 31)
-            assert year_data["duration_days"] == 92
+        assert "error" not in year_data
+        # June 1 - Aug 31
+        assert year_data["duration_days"] == 92
 
 
 async def test_diagnostics_day_names_week_schedule(

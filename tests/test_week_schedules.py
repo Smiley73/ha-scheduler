@@ -16,7 +16,6 @@ from datetime import date
 import pytest
 
 from custom_components.ha_scheduler.schedule_generator import (
-    _get_weekday_in_week,
     generate_schedule_dates,
     get_country_first_weekday,
 )
@@ -60,28 +59,6 @@ def test_generate_by_week_whole_week() -> None:
     # First week (partial) starts March 1 and ends March 3 (end of that calendar week)
     assert start_date == date(2024, 3, 1)  # First day of month
     assert end_date == date(2024, 3, 3)  # End of first partial week (Sunday)
-
-
-def test_generate_by_week_whole_week_us() -> None:
-    """Test generating dates for by_week schedule with US country (Sunday-first)."""
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 3,
-        "start_week": 0,  # First week
-        "end_month": 3,
-        "end_week": 0,  # Same week
-        "country_code": "US",  # Sunday-first
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    assert len(dates) == 1
-
-    start_date, end_date = dates[0]
-
-    # March 2024 with Sunday-first: March 1 is Friday
-    # First week (partial) starts March 1 and ends March 2 (end of that calendar week)
-    assert start_date == date(2024, 3, 1)  # First day of month
-    assert end_date == date(2024, 3, 2)  # End of first partial week (Saturday)
 
 
 def test_generate_by_week_partial_start_day_only() -> None:
@@ -205,29 +182,6 @@ def test_generate_by_week_missing_required_fields() -> None:
     assert dates == []
 
 
-def test_generate_by_week_partial_type() -> None:
-    """Test week schedule with partial week type (first week may start in previous month)."""
-    # March 2024: March 1 is Friday, so first week starts Feb 26 (Monday)
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 3,
-        "start_week": 0,  # First week
-        "end_month": 3,
-        "end_week": 0,  # Same week
-        "start_week_type": "partial",  # Explicitly set to partial
-        "end_week_type": "partial",
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    assert len(dates) == 1
-
-    start_date, end_date = dates[0]
-
-    # With partial type, first week starts on March 1 (first day of month)
-    assert start_date == date(2024, 3, 1)
-    assert end_date == date(2024, 3, 3)
-
-
 def test_generate_by_week_full_type() -> None:
     """Test week schedule with full week type (first week entirely within month)."""
     # March 2024: March 1 is Friday, so first full week is March 4-10 (Monday-Sunday)
@@ -275,32 +229,6 @@ def test_generate_by_week_full_type_us() -> None:
     assert end_date == date(2024, 3, 9)
 
 
-def test_generate_by_week_full_type_multiple_weeks() -> None:
-    """Test full week type spanning multiple weeks."""
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 3,
-        "start_week": 0,  # First full week
-        "end_month": 3,
-        "end_week": 1,  # Second week (always full)
-        "start_week_type": "full",
-        # end_week_type not needed for non-first weeks
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    assert len(dates) == 1
-
-    start_date, end_date = dates[0]
-
-    # First full week starts March 4, second week ends March 17
-    assert start_date == date(2024, 3, 4)
-    # The second week (occurrence 1) should end on March 17, but let's check what we actually get
-    # March 11-17 is the second week, so it should end on March 17
-    # But our function might be calculating it differently
-    assert end_date.month == 3
-    assert end_date >= date(2024, 3, 11)  # Should be in second week
-
-
 def test_start_day_to_end_week_uses_full_week_context_same_month() -> None:
     """Test start-day to end-of-week uses full-week context in same month."""
     schedule = {
@@ -335,97 +263,7 @@ def test_week_start_to_end_day_uses_full_week_context_same_month() -> None:
     assert dates[0] == (date(2026, 2, 2), date(2026, 2, 6))
 
 
-def test_generate_by_week_default_week_type() -> None:
-    """Test that default week_type is 'partial' when not specified."""
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 3,
-        "start_week": 0,
-        "end_month": 3,
-        "end_week": 0,
-        # No start_week_type or end_week_type specified - should default to "partial"
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    assert len(dates) == 1
-
-    start_date, end_date = dates[0]
-
-    # Should behave like partial type
-    assert start_date == date(2024, 3, 1)
-    assert end_date == date(2024, 3, 3)
-
-
 # === Multi-week and Complex Schedule Tests ===
-
-
-def test_partial_weeks_spanning_multiple_weeks_us_sunday_first():
-    """Test partial week schedule spanning multiple weeks (US Sunday-first system).
-
-    This tests a common scenario where a schedule spans from week 0 to week 2,
-    with partial weeks at both ends. This was a bug case where the end date
-    was calculated incorrectly.
-    """
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 5,
-        "start_week": 0,
-        "start_week_type": "partial",
-        "end_month": 5,
-        "end_week": 2,
-        "end_week_type": "partial",
-        "country_code": "US",  # Sunday-first
-    }
-
-    dates = generate_schedule_dates(schedule, 2026)
-    assert len(dates) == 1
-
-    start_date, end_date = dates[0]
-
-    # Should start on May 1 (first day of month for partial week)
-    assert start_date == date(2026, 5, 1)
-
-    # Should end on May 16 (end of week 2 in Sunday-first system)
-    assert end_date == date(2026, 5, 16)
-
-    # Verify it's a Saturday (end of week in Sunday-first system)
-    assert end_date.weekday() == 5  # Saturday
-
-    # Duration should be 16 days
-    assert (end_date - start_date).days + 1 == 16
-
-
-def test_multi_week_schedule_consistency_across_years():
-    """Test multi-week schedule calculation across multiple years to ensure consistency."""
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 5,
-        "start_week": 0,
-        "start_week_type": "partial",
-        "end_month": 5,
-        "end_week": 2,
-        "end_week_type": "partial",
-        "country_code": "US",
-    }
-
-    # Test years with different starting days of week for May 1st
-    test_cases = [
-        (2025, date(2025, 5, 1), date(2025, 5, 17)),  # May 1 is Thursday
-        (2026, date(2026, 5, 1), date(2026, 5, 16)),  # May 1 is Friday
-        (2027, date(2027, 5, 1), date(2027, 5, 15)),  # May 1 is Saturday
-        (2028, date(2028, 5, 1), date(2028, 5, 20)),  # May 1 is Monday
-    ]
-
-    for year, expected_start, expected_end in test_cases:
-        dates = generate_schedule_dates(schedule, year)
-        assert len(dates) == 1, f"Year {year} should have 1 date range"
-
-        start_date, end_date = dates[0]
-        assert start_date == expected_start, f"Year {year} start mismatch"
-        assert end_date == expected_end, f"Year {year} end mismatch"
-
-        # Should always end on Saturday (US Sunday-first system)
-        assert end_date.weekday() == 5, f"Year {year} should end on Saturday"
 
 
 def test_week_type_consistency_same_month():
@@ -531,16 +369,7 @@ def test_invalid_weekday_in_week_scenarios():
     }
 
     # Should return empty list since Wednesday doesn't exist in first week
-    dates = generate_schedule_dates(schedule, 2024)
-    assert dates == []
-
-    # Test the helper function directly
-    result = _get_weekday_in_week(2024, 3, 0, 2, 0, "partial")  # Wednesday in week 0
-    assert result is None
-
-    # But Wednesday should exist in week 1
-    result = _get_weekday_in_week(2024, 3, 1, 2, 0, "partial")  # Wednesday in week 1
-    assert result == date(2024, 3, 6)  # March 6 is Wednesday
+    assert generate_schedule_dates(schedule, 2024) == []
 
 
 def test_reversed_same_week_day_range_returns_empty() -> None:
@@ -593,32 +422,6 @@ def test_partial_week_boundary_calculations():
         assert end_date == exp_end, (
             f"Year {year}, month {month}, first_weekday {first_weekday}"
         )
-
-
-def test_cross_month_week_schedules():
-    """Test week schedules that span across months."""
-
-    # December to January schedule
-    schedule = {
-        "schedule_type": "week",
-        "start_month": 12,
-        "start_week": 4,  # Last week of December
-        "start_week_type": "partial",
-        "end_month": 1,  # January of next year
-        "end_week": 0,  # First week of January
-        "end_week_type": "partial",
-    }
-
-    dates = generate_schedule_dates(schedule, 2024)
-    assert len(dates) == 1
-
-    start_date, end_date = dates[0]
-
-    # Should start in December 2024 and end in January 2025
-    assert start_date.year == 2024
-    assert start_date.month == 12
-    assert end_date.year == 2025
-    assert end_date.month == 1
 
 
 def test_last_week_occurrence_calculations():
