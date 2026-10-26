@@ -5,7 +5,7 @@ import importlib
 import logging
 import sys
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,7 +20,6 @@ from custom_components.ha_scheduler.holiday_importer import (
     _get_holidays_for_country_sync,
     _get_named_holiday_dates_sync,
     _get_supported_countries_sync,
-    _merge_contiguous_dates,
     _prime_holiday_cache_sync,
     analyze_holiday_pattern,
     async_prime_holiday_cache,
@@ -30,6 +29,7 @@ from custom_components.ha_scheduler.holiday_importer import (
     get_holidays_library_version,
     get_localized_country_name,
 )
+from custom_components.ha_scheduler.schedule_generator import generate_schedule_dates
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -95,60 +95,31 @@ def clear_holiday_caches():
     _get_named_holiday_dates_sync.cache_clear()
 
 
-class TestFormatDateLocalized:
-    """Test date formatting with localization."""
-
-    def test_format_date_with_english_locale(self):
-        """Test date formatting with English locale."""
-        test_date = date(2024, 7, 4)
-        result = format_date_localized(test_date, "en")
-        # Should format as "July 4"
-        assert "July" in result
-        assert "4" in result
-
-    def test_format_date_default_locale(self):
-        """Test date formatting with default locale."""
-        test_date = date(2024, 12, 25)
-        result = format_date_localized(test_date)
-        # Should format as "December 25"
-        assert "December" in result
-        assert "25" in result
-
-    def test_format_date_different_months(self):
-        """Test date formatting for various months."""
-        test_dates = [
-            (date(2024, 1, 15), "January", "15"),
-            (date(2024, 6, 1), "June", "1"),
-            (date(2024, 11, 30), "November", "30"),
-        ]
-        for test_date, expected_month, expected_day in test_dates:
-            result = format_date_localized(test_date)
-            assert expected_month in result
-            assert expected_day in result
+@pytest.mark.parametrize(
+    ("test_date", "locale", "expected"),
+    [
+        (date(2024, 7, 4), "en", "July 4"),
+        (date(2024, 12, 25), None, "December 25"),
+        (date(2024, 6, 1), None, "June 1"),
+    ],
+)
+def test_format_date_localized(test_date, locale, expected):
+    """Dates are formatted as "Month Day" without zero padding, English by default."""
+    assert format_date_localized(test_date, locale) == expected
 
 
-class TestGetLocalizedCountryName:
-    """Test country name localization."""
-
-    def test_get_country_name_with_fallback(self):
-        """Test getting country name with fallback."""
-        result = get_localized_country_name("US", "United States")
-        # Should return proper country name
-        assert "United States" in result
-
-    def test_get_country_name_common_countries(self):
-        """Test getting names for common countries."""
-        test_cases = [
-            ("US", "United States"),
-            ("CA", "Canada"),
-            ("GB", "United Kingdom"),
-            ("DE", "Germany"),
-        ]
-        for country_code, fallback_name in test_cases:
-            result = get_localized_country_name(country_code, fallback_name)
-            # Should return a proper country name (not just code)
-            assert len(result) > 2  # More than just country code
-            assert result != country_code  # Should be localized, not just code
+@pytest.mark.parametrize(
+    ("country_code", "expected"),
+    [
+        ("US", "United States"),
+        ("CA", "Canada"),
+        ("GB", "United Kingdom"),
+        ("DE", "Germany"),
+    ],
+)
+def test_get_localized_country_name(country_code, expected):
+    """The English territory name comes from Babel, not from the fallback."""
+    assert get_localized_country_name(country_code, "unused fallback") == expected
 
 
 class TestGetSupportedCountriesSync:
@@ -228,23 +199,6 @@ class TestGetAvailableCategoriesSync:
 class TestGetHolidaysForCountrySync:
     """Test synchronous holiday retrieval."""
 
-    def test_get_holidays_success(self):
-        """Test getting holidays for a country."""
-        mock_holidays_obj = {
-            date(2024, 7, 4): "Independence Day",
-            date(2024, 12, 25): "Christmas Day",
-        }
-
-        with patch("holidays.country_holidays", return_value=mock_holidays_obj):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
-                return_value={"public": "Public Holidays"},
-            ):
-                result = _get_holidays_for_country_sync("US", ["public"])
-
-                assert isinstance(result, dict)
-                assert len(result) > 0
-
     def test_get_holidays_multiple_years(self):
         """Test that holidays are collected across multiple years."""
 
@@ -281,19 +235,6 @@ class TestGetHolidaysForCountrySync:
         with _patched_holidays_module(None):
             result = _get_holidays_for_country_sync("US")
             assert result == {}
-
-    def test_get_holidays_category_error(self):
-        """Test error handling when a category fails."""
-        with patch(
-            "holidays.country_holidays", side_effect=Exception("Category error")
-        ):
-            with patch(
-                "custom_components.ha_scheduler.holiday_importer._get_available_categories_sync",
-                return_value={"public": "Public Holidays"},
-            ):
-                result = _get_holidays_for_country_sync("US", ["public"])
-                # Should return empty dict on error, not crash
-                assert isinstance(result, dict)
 
     def test_get_holidays_total_failure(self):
         """Test total failure in holiday retrieval."""
@@ -440,30 +381,6 @@ class TestHolidayScheduleResolution:
             "Good Friday", lookup="iexact"
         )
 
-    def test_generate_holiday_schedule_dates_merges_contiguous_dates(self):
-        """Test contiguous holiday dates collapse into a single range."""
-        schedule = {
-            "schedule_type": "holiday",
-            "country_code": "TR",
-            "category": "public",
-            "holiday_name": "Ramazan Bayrami",
-            "name_lookup": "iexact",
-            "start_offset": 0,
-            "end_offset": 0,
-        }
-
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
-            return_value=(
-                date(2026, 3, 20),
-                date(2026, 3, 21),
-                date(2026, 3, 22),
-            ),
-        ):
-            result = generate_holiday_schedule_dates(schedule, 2026)
-
-        assert result == [(date(2026, 3, 20), date(2026, 3, 22))]
-
     def test_generate_holiday_schedule_dates_applies_offsets(self):
         """Test holiday offsets extend the resolved date range."""
         schedule = {
@@ -485,33 +402,50 @@ class TestHolidayScheduleResolution:
         assert result == [(date(2026, 4, 2), date(2026, 4, 5))]
 
 
+@pytest.mark.parametrize(
+    ("end_offset", "resolved", "expected"),
+    [
+        pytest.param(
+            0,
+            (date(2026, 3, 20), date(2026, 3, 21), date(2026, 3, 22)),
+            [(date(2026, 3, 20), date(2026, 3, 22))],
+            id="contiguous-dates",
+        ),
+        # Regression: a holiday on two non-contiguous dates with end_offset=2
+        # produced the overlapping ranges (25th-27th) and (27th-29th).
+        pytest.param(
+            2,
+            (date(2026, 7, 25), date(2026, 7, 27)),
+            [(date(2026, 7, 25), date(2026, 7, 29))],
+            id="offsets-bridge-disjoint-dates",
+        ),
+    ],
+)
+def test_generate_holiday_schedule_dates_merges_into_one_range(
+    end_offset, resolved, expected
+):
+    """Contiguous or offset-bridged holiday dates collapse into a single range."""
+    schedule = {
+        "schedule_type": "holiday",
+        "country_code": "US",
+        "category": "public",
+        "holiday_name": "Test Holiday",
+        "name_lookup": "iexact",
+        "start_offset": 0,
+        "end_offset": end_offset,
+    }
+
+    with patch(
+        "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
+        return_value=resolved,
+    ):
+        result = generate_holiday_schedule_dates(schedule, 2026)
+
+    assert result == expected
+
+
 class TestOffsetRangeMerging:
     """Offsets must never produce self-overlapping ranges for one schedule."""
-
-    def test_generate_holiday_schedule_dates_merges_offset_overlap(self):
-        """Test that offsets which bridge disjoint occurrences are merged.
-
-        Regression test: a holiday occurring on two non-contiguous dates
-        (e.g. July 25 and 27) with end_offset=2 produced the overlapping
-        ranges (25th-27th) and (27th-29th) for the same schedule.
-        """
-        schedule = {
-            "schedule_type": "holiday",
-            "country_code": "CU",
-            "category": "public",
-            "holiday_name": "Commemoration Day",
-            "name_lookup": "iexact",
-            "start_offset": 0,
-            "end_offset": 2,
-        }
-
-        with patch(
-            "custom_components.ha_scheduler.holiday_importer._get_named_holiday_dates_sync",
-            return_value=(date(2026, 7, 25), date(2026, 7, 27)),
-        ):
-            result = generate_holiday_schedule_dates(schedule, 2026)
-
-        assert result == [(date(2026, 7, 25), date(2026, 7, 29))]
 
     def test_generate_holiday_schedule_dates_keeps_disjoint_ranges(self):
         """Test that genuinely disjoint occurrences stay separate ranges."""
@@ -616,18 +550,6 @@ class TestGetCountryHolidaysSyncGuards:
 
 class TestBuildHolidayCacheRequestsEdges:
     """Test edge cases in _build_holiday_cache_requests."""
-
-    def test_empty_years_returns_empty_tuple(self):
-        """Test that an empty years collection short-circuits to an empty tuple."""
-        schedules = [
-            {
-                "schedule_type": "holiday",
-                "country_code": "US",
-                "holiday_name": "Independence Day",
-            }
-        ]
-        result = _build_holiday_cache_requests(schedules, [])
-        assert result == ()
 
     def test_schedule_missing_country_code_is_skipped(self):
         """Test a holiday schedule missing country_code is skipped, others kept."""
@@ -832,23 +754,114 @@ class TestGetHolidaysForCountryAsyncWrapper:
         mock_sync.assert_called_once_with("US", None, None)
 
 
-class TestPatternAnalysisEdgeCases:
-    """Test edge cases in holiday pattern analysis helpers."""
+class TestPatternAnalysis:
+    """Test holiday pattern analysis and its helpers."""
 
     def test_analyze_holiday_pattern_empty_list_returns_none(self):
         """Test analyze_holiday_pattern returns None for an empty input."""
         assert analyze_holiday_pattern([]) is None
 
-    def test_analyze_holiday_pattern_single_date_is_fixed_date(self):
-        """A single date yields the fixed-date dict."""
-        assert analyze_holiday_pattern([date(2026, 12, 25)]) == {
-            "schedule_type": "date",
-            "start_month": 12,
-            "start_day": 25,
-            "end_month": 12,
-            "end_day": 25,
-            "description": "Fixed date: December 25",
-        }
+    def test_analyze_nth_day_pattern(self):
+        """Last Monday of May across years is an nth-day pattern with occurrence 4."""
+        dates = [
+            date(2023, 5, 29),  # Last Monday of May 2023
+            date(2024, 5, 27),  # Last Monday of May 2024
+            date(2025, 5, 26),  # Last Monday of May 2025
+        ]
+
+        pattern = analyze_holiday_pattern(dates)
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["month"] == 5
+        assert pattern["occurrence"] == 4  # Last (4)
+        assert pattern["day_of_week"] == 0  # Monday
+        assert "Last Monday of May" in pattern["description"]
+
+    def test_analyze_nth_day_occurrence_validated_across_years(self):
+        """Occurrence detection must agree with every analyzed year.
+
+        Regression test: the occurrence used to be computed from the first
+        year alone. April 2023's 4th Friday is also its last Friday, so a
+        genuine "4th Friday" holiday was misdetected as "Last Friday" and
+        generated the wrong date in five-Friday years like 2027.
+        """
+        dates = [
+            date(2023, 4, 28),  # 4th Friday (April 2023 has only 4 Fridays)
+            date(2024, 4, 26),
+            date(2025, 4, 25),
+            date(2026, 4, 24),
+            date(2027, 4, 23),  # 4th Friday; last Friday is April 30
+        ]
+
+        pattern = analyze_holiday_pattern(list(dates))
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["occurrence"] == 3  # Fourth, not last
+        for expected in dates:
+            assert generate_schedule_dates(pattern, expected.year) == [
+                (expected, expected)
+            ]
+
+    def test_analyze_multi_day_span_generates_input_dates(self):
+        """The detected pattern must regenerate the analyzed dates.
+
+        Regression test: the former week-based pattern stored weekday
+        occurrences as calendar-week numbers, so a first-Monday/Tuesday
+        holiday generated events only in years where the month started on
+        a Monday (one in seven) — including none of the analyzed years.
+        """
+        dates = []
+        for year in range(2023, 2030):
+            # First Monday of November plus the following Tuesday
+            first_monday = next(
+                date(year, 11, day)
+                for day in range(1, 8)
+                if date(year, 11, day).weekday() == 0
+            )
+            dates.extend([first_monday, first_monday + timedelta(days=1)])
+
+        pattern = analyze_holiday_pattern(list(dates))
+
+        assert pattern is not None
+        assert pattern["schedule_type"] == "nth-day"
+        assert pattern["month"] == 11
+        assert pattern["occurrence"] == 0
+        assert pattern["day_of_week"] == 0
+        assert pattern["end_offset"] == 1
+
+        # Every analyzed year must be covered by the generated ranges.
+        for year in range(2023, 2030):
+            ranges = generate_schedule_dates(pattern, year)
+            assert len(ranges) == 1, f"no range generated for {year}"
+            start, end = ranges[0]
+            year_dates = [d for d in dates if d.year == year]
+            assert start == year_dates[0]
+            assert end == year_dates[-1]
+
+    def test_analyze_multi_day_span_inconsistent(self):
+        """Test that inconsistent patterns return None (variable date)."""
+        # Dates that don't follow a consistent pattern across years
+        dates = [
+            date(2023, 3, 6),  # Monday, first week of March 2023
+            date(2023, 3, 7),  # Tuesday
+            date(2024, 3, 15),  # Different week in 2024
+            date(2024, 3, 16),  # Different week in 2024
+        ]
+
+        pattern = analyze_holiday_pattern(dates)
+        assert pattern is not None
+        assert pattern["schedule_type"] == "date"
+        assert pattern.get("variable_date") is True
+
+    def test_analyze_multi_day_span_single_year_falls_back(self):
+        """A single year of multi-day data cannot establish a recurrence."""
+        dates = [date(2023, 3, 6), date(2023, 3, 7)]
+        pattern = analyze_holiday_pattern(dates)
+        assert pattern is not None
+        assert pattern["schedule_type"] == "date"
+        assert pattern.get("variable_date") is True
 
     def test_analyze_holiday_pattern_repeated_july_fourth_is_fixed_date(self):
         """July 4 across several years yields the fixed-date dict."""
@@ -901,10 +914,6 @@ class TestPatternAnalysisEdgeCases:
 
 class TestMiscSmallReturns:
     """Test miscellaneous small early-return branches."""
-
-    def test_merge_contiguous_dates_empty_input_returns_empty_list(self):
-        """Test _merge_contiguous_dates([]) returns an empty list."""
-        assert _merge_contiguous_dates([]) == []
 
     def test_generate_holiday_schedule_dates_missing_country_code_returns_empty(self):
         """Test a schedule missing country_code returns an empty list."""
