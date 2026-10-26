@@ -619,6 +619,10 @@ async def test_calendar_updates_when_schedule_added(
 
     events = await calendar.async_get_events(hass, start, end)
     assert [e.summary for e in events] == ["Summer Schedule"]
+    # The options listener also rewrites entity state, not just the live read.
+    assert hass.states.get("calendar.test_scheduler").attributes["name"] == (
+        "Summer Schedule"
+    )
 
 
 async def test_calendar_no_schedules(hass: HomeAssistant, create_service_entry) -> None:
