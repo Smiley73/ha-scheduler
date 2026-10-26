@@ -1958,14 +1958,19 @@ async def test_import_holidays_stale_selection_not_found(
         new=AsyncMock(return_value=_HOLIDAY_A_JULY_4),
     ):
         result = await hass.config_entries.options.async_init(entry.entry_id)
-        for user_input in (
-            {"next_step_id": "import_holidays"},
-            {"country": "US"},
-            {"categories": ["public"]},
-        ):
-            result = await hass.config_entries.options.async_configure(
-                result["flow_id"], user_input
-            )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "import_holidays"}
+        )
+        assert result["step_id"] == "import_holidays"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"country": "US"}
+        )
+        assert result["step_id"] == "import_holidays_categories"
+        category_options = result["data_schema"].schema["categories"].config["options"]
+        assert "public" in {option["value"] for option in category_options}
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"categories": ["public"]}
+        )
         assert result["step_id"] == "import_holidays_select"
         flow = hass.config_entries.options._progress[result["flow_id"]]
         result = await flow._import_selected_holidays(
