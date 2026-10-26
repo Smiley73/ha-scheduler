@@ -308,6 +308,22 @@ def test_whole_week_schedule_out_of_range_week_returns_empty() -> None:
     assert generate_schedule_dates(schedule, 2024) == []
 
 
+def test_week_start_to_end_day_out_of_range_week_returns_empty() -> None:
+    """A start-of-week-to-specific-end-day schedule with an invalid start
+    week returns [].
+    """
+    schedule = {
+        "schedule_type": "week",
+        "start_month": 2,
+        "start_week": 5,
+        "start_week_type": "full",
+        "end_month": 2,
+        "end_week": 0,
+        "end_day_of_week": 2,
+    }
+    assert generate_schedule_dates(schedule, 2024) == []
+
+
 def test_get_week_start_overflow_returns_none() -> None:
     """A huge occurrence overflows the internal timedelta math and is caught."""
     assert _get_week_start(9999, 12, 10**9, 0, "partial") is None

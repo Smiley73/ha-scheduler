@@ -424,6 +424,27 @@ def test_partial_week_boundary_calculations():
         )
 
 
+def test_cross_month_week_schedules():
+    """Test week schedules that span across months."""
+
+    # December to January schedule
+    schedule = {
+        "schedule_type": "week",
+        "start_month": 12,
+        "start_week": 4,  # Last week of December
+        "start_week_type": "partial",
+        "end_month": 1,  # January of next year
+        "end_week": 0,  # First week of January
+        "end_week_type": "partial",
+    }
+
+    # Last week of December 2024 starts Monday Dec 30; the partial first week
+    # of January 2025 ends Sunday Jan 5.
+    assert generate_schedule_dates(schedule, 2024) == [
+        (date(2024, 12, 30), date(2025, 1, 5))
+    ]
+
+
 def test_last_week_occurrence_calculations():
     """Test schedules using the last week (occurrence 4) of a month."""
 
