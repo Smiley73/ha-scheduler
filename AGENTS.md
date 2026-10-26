@@ -40,7 +40,7 @@ one calendar entity. Four schedule types, all stored in
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 ./setup-dev.sh                 # installs requirements_test.txt + pre-commit
-pytest tests/ -q               # full suite (fast, ~2s)
+pytest tests/ -q               # full suite
 ruff check custom_components/ tests/ && ruff format --check custom_components/ tests/
 ```
 

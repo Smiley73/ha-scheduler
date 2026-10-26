@@ -164,7 +164,7 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 - Date varies based on weekday occurrence in month
 - Creates "Nth-Day" type schedules  
 - Pattern description: "Third Monday of January", "Fourth Thursday of November"
-- **Occurrence Calculation**: Uses `calculate_occurrence()` to determine if holiday is 1st, 2nd, 3rd, 4th, or last occurrence of weekday
+- **Occurrence Calculation**: Picks the occurrence (1st-4th, or last) that regenerates every observed date through `_get_nth_weekday`
 
 **Holiday-Backed Movable Holidays** (e.g., Good Friday, Easter Monday):
 - Holidays that cannot be safely represented as Date, Week, or Nth-Day rules
@@ -180,8 +180,7 @@ The system automatically analyzes holidays across multiple years (dynamic range:
   1. Groups dates by year for consistency analysis
   2. Checks for consecutive days within same month (1-6 day spans)
   3. Validates pattern consistency across multiple years
-  4. Calculates start/end week occurrences using `calculate_occurrence()`
-  5. Determines appropriate week types (partial/full) based on holiday characteristics
+  4. Determines appropriate week types (partial/full) based on holiday characteristics
 
 **Single Occurrence Holidays**:
 - Holidays with only one date in dataset
@@ -205,13 +204,6 @@ The system automatically analyzes holidays across multiple years (dynamic range:
 - **Cross-Year Consistency**: Validates pattern holds across multiple years
 - **Week Type Assignment**: Defaults to "partial" type for holiday compatibility
 - **Pattern Description Generation**: Creates human-readable pattern descriptions
-
-**`calculate_occurrence(target_date: date) -> int | None`**
-- Calculates which occurrence of weekday in month (0-4, where 4=last)
-- **First Occurrence Calculation**: Finds first occurrence of target weekday in month
-- **Occurrence Counting**: Counts weeks from first occurrence to target date
-- **Last Occurrence Detection**: Checks if next occurrence would be in following month
-- **Robust Error Handling**: Returns None for invalid dates or calculation errors
 
 **`format_date_localized(date_obj: date, locale_code: str | None = None) -> str`**
 - Formats dates using Babel's locale-aware formatting when available
@@ -247,7 +239,7 @@ All holiday import functions follow async patterns:
 
 **`get_available_categories(country_code: str) -> dict[str, str]`**
 - Async wrapper around `_get_available_categories_sync(country_code)`
-- Tests category support by attempting to create holidays with each category
+- Reads the country's `supported_categories` from the holidays library
 - Returns dict of category_code: category_name pairs
 
 **`get_holidays_for_country(country_code: str, categories: list[str]) -> dict[str, dict[str, Any]]`**
