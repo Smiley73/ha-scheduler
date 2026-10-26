@@ -16,7 +16,6 @@ from custom_components.ha_scheduler.config_flow import (
     _get_holiday_options,
     _parse_optional_yaml,
     _validate_yaml_config,
-    backfill_schedule_uids,
 )
 from custom_components.ha_scheduler.const import (
     DOMAIN,
@@ -25,6 +24,7 @@ from custom_components.ha_scheduler.const import (
     SCHEDULE_TYPE_NTH_DAY,
     SCHEDULE_TYPE_WEEK,
 )
+from custom_components.ha_scheduler.migrations import backfill_schedule_uids
 from tests.conftest import get_schedules_from_entry
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")

@@ -2,7 +2,6 @@
 
 DOMAIN = "ha_scheduler"
 
-# Schedule type identifiers (stored values in config entry options)
 SCHEDULE_TYPE_DATE = "date"
 SCHEDULE_TYPE_WEEK = "week"
 SCHEDULE_TYPE_NTH_DAY = "nth-day"
@@ -11,7 +10,6 @@ SCHEDULE_TYPE_HOLIDAY = "holiday"
 # How many years before/after today to include when generating calendar events
 CALENDAR_YEAR_LOOKAROUND = 3
 
-# Month names for display
 MONTH_NAMES = [
     "january",
     "february",
@@ -27,7 +25,7 @@ MONTH_NAMES = [
     "december",
 ]
 
-# Day of week names for display (Monday = 0, Sunday = 6)
+# Monday = 0, Sunday = 6
 DAY_NAMES = [
     "monday",
     "tuesday",
@@ -38,7 +36,7 @@ DAY_NAMES = [
     "sunday",
 ]
 
-# Occurrence names for display (0-4 = first-fifth, but 4 displays as "Last")
+# Occurrence 4 means "last", not "fifth"
 OCCURRENCE_NAMES = [
     "first",
     "second",
@@ -54,14 +52,13 @@ OCCURRENCE_NAMES_DISPLAY = [name.capitalize() for name in OCCURRENCE_NAMES]
 DAY_NAMES_DISPLAY = [name.capitalize() for name in DAY_NAMES]
 MONTH_NAMES_DISPLAY = [""] + [name.capitalize() for name in MONTH_NAMES]
 
-# Week occurrence options with type support
 # Format: "occurrence_type" where occurrence is 0-4 and type is "partial" or "full"
 # For occurrences 1-4 (second, third, fourth, last), type doesn't matter as they're always full weeks
 WEEK_OCCURRENCE_OPTIONS = [
-    ("0_partial", "first"),  # First week (may start in previous month)
-    ("0_full", "first_full"),  # First full week (entirely within month)
-    ("1", "second"),  # Second week
-    ("2", "third"),  # Third week
-    ("3", "fourth"),  # Fourth week
-    ("4", "last"),  # Last week
+    ("0_partial", "first"),
+    ("0_full", "first_full"),
+    ("1", "second"),
+    ("2", "third"),
+    ("3", "fourth"),
+    ("4", "last"),
 ]

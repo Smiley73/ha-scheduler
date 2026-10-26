@@ -8,11 +8,13 @@ existing config entry. The calendar must keep serving the remaining schedules.
 
 import re
 from datetime import date, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from custom_components.ha_scheduler.const import CALENDAR_YEAR_LOOKAROUND
 from custom_components.ha_scheduler.holiday_importer import (
     _get_country_holidays_sync,
     _get_named_holiday_dates_sync,
@@ -404,8 +406,18 @@ async def test_daily_refresh_repopulates_cached_state(
     assert stale_state.attributes.get("message") == "Morning Schedule"
 
     # Invoke the registered midnight listener directly.
-    await calendar._async_daily_refresh(dt_util.now())
+    with patch(
+        "custom_components.ha_scheduler.calendar.async_prime_holiday_cache",
+        new=AsyncMock(),
+    ) as mock_prime:
+        await calendar._async_daily_refresh(dt_util.now())
     await hass.async_block_till_done()
+
+    # Re-primed for the schedules now stored, over the lookaround window.
+    mock_prime.assert_awaited_once_with(
+        [entry.options["services"]["default"]["schedules"]["afternoon"]],
+        range(2026 - CALENDAR_YEAR_LOOKAROUND, 2026 + CALENDAR_YEAR_LOOKAROUND + 1),
+    )
 
     refreshed_state = hass.states.get("calendar.test_scheduler")
     assert refreshed_state is not None

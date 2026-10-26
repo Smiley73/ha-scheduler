@@ -176,6 +176,40 @@ async def test_calendar_with_holiday_schedule(
     assert events[0].end == date(2026, 4, 4)
 
 
+async def test_calendar_schedule_without_uid_uses_storage_key(
+    hass: HomeAssistant, create_service_entry, freezer
+) -> None:
+    """A schedule stored without a uid gets its storage key as uid."""
+    freezer.move_to("2024-06-15 12:00:00")
+    schedules = {
+        "legacy-key": {
+            "name": "Summer Schedule",
+            "schedule_type": "date",
+            "start_month": 6,
+            "start_day": 1,
+            "end_month": 8,
+            "end_day": 31,
+        }
+    }
+    entry = create_service_entry(schedules=schedules)
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    assert calendar.event.uid == "legacy-key_2024-06-01"
+    assert calendar.extra_state_attributes["schedule_uid"] == "legacy-key"
+
+    events = await calendar.async_get_events(
+        hass,
+        datetime(2024, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+        datetime(2025, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
+    )
+    assert [e.uid for e in events] == ["legacy-key_2024-06-01"]
+    assert "uid" not in entry.options["services"]["default"]["schedules"]["legacy-key"]
+
+
 async def test_calendar_setup_primes_holiday_cache(
     hass: HomeAssistant, create_service_entry
 ) -> None:
