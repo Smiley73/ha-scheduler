@@ -14,30 +14,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.14"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.2
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements_test.txt
+        run: uv sync --locked
 
       - name: Run ruff check
-        run: ruff check custom_components/ tests/
+        run: uv run --locked ruff check custom_components/ tests/
 
       - name: Run ruff format check
-        run: ruff format --check custom_components/ tests/
+        run: uv run --locked ruff format --check custom_components/ tests/
 
       - name: Run mypy (strict typing)
-        run: mypy custom_components/ha_scheduler/
+        run: uv run --locked mypy custom_components/ha_scheduler/
 
       - name: Cache pre-commit hook environments
         uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
-          key: pre-commit-${{ runner.os }}-py3.14-${{ hashFiles('.pre-commit-config.yaml') }}
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.python-version', '.pre-commit-config.yaml') }}
 
       # ruff, mypy and pytest already run as their own steps here and in the
       # Test workflow, so they are skipped rather than run twice. What is left
@@ -47,4 +43,4 @@ jobs:
       - name: Run repo hygiene hooks
         env:
           SKIP: ruff-check,ruff-format,mypy,pytest-check
-        run: pre-commit run --all-files --show-diff-on-failure
+        run: uv run --locked pre-commit run --all-files --show-diff-on-failure
