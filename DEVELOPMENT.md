@@ -75,13 +75,15 @@ Debug logging is described under
 
 ## Continuous integration
 
-GitHub Actions, all on Python 3.14 and installing with `uv sync --locked`. They
-run on push, pull request and manual dispatch, with no scheduled run:
+GitHub Actions:
 
-- **Test**: pytest with the 95% coverage gate
-- **Lint**: ruff, mypy and the repo hygiene pre-commit hooks
-- **Validate**: HACS and hassfest
-- **CodeQL**: security analysis
+- **Test**: pytest with the 95% coverage gate. Installs with `uv sync --locked`
+  and runs on push, pull request and manual dispatch, with no scheduled run.
+- **Lint**: ruff, mypy and the repo hygiene pre-commit hooks. Installs with
+  `uv sync --locked` and runs on push and pull request, with no scheduled run.
+- **Validate**: HACS and hassfest. Runs on push, pull request, manual dispatch
+  and daily.
+- **CodeQL**: security analysis. Runs on push, pull request and weekly.
 
 ## Code style
 
