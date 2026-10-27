@@ -3,46 +3,36 @@
 
 set -e
 
+if ! command -v uv > /dev/null; then
+    echo "❌ uv not found. Install it first: https://docs.astral.sh/uv/getting-started/installation/"
+    exit 1
+fi
+
 echo "🔧 Setting up development environment..."
 
-# Check if we're in a virtual environment
-if [ -z "$VIRTUAL_ENV" ]; then
-    echo "⚠️  Warning: Not in a virtual environment!"
-    echo "   It's recommended to activate your virtual environment first:"
-    echo "   source .venv/bin/activate"
-    echo ""
-    read -p "Continue anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
+# Install exactly what uv.lock says (includes pre-commit)
+echo "📚 Installing development dependencies from uv.lock..."
+uv sync --locked
+
+# The git hook is shared by all worktrees and hardcodes the interpreter that
+# installed it, so only the main checkout installs it.
+if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
+    echo "🪝 Linked worktree: leaving the shared pre-commit hook alone."
+    if [ ! -e "$(git rev-parse --git-path hooks/pre-commit)" ]; then
+        echo "   No hook is installed yet; run this script once in the main checkout."
     fi
+else
+    echo "🪝 Installing pre-commit hooks..."
+    uv run --locked pre-commit install
 fi
-
-# Warn when the local Python lags CI (CI runs 3.14)
-PY_MINOR=$(python -c 'import sys; print(sys.version_info.minor)')
-if [ "$PY_MINOR" -lt 14 ]; then
-    echo "⚠️  Python 3.$PY_MINOR detected; CI runs 3.14. Consider rebuilding"
-    echo "   the venv on 3.14 to keep local results representative."
-fi
-
-# Install development dependencies (includes pre-commit).
-# --upgrade matters: runtime requirements are unpinned floors, and a stale venv
-# can mask bugs that only occur with the holidays/homeassistant versions users
-# actually run.
-echo "📚 Installing development dependencies (latest versions)..."
-pip install --upgrade -r requirements_test.txt
-
-# Install pre-commit hooks
-echo "🪝 Installing pre-commit hooks..."
-pre-commit install
 
 # Run initial checks
 echo "✅ Running initial linting checks..."
-python -m ruff check custom_components/ha_scheduler/ tests/
+uv run --locked python -m ruff check custom_components/ha_scheduler/ tests/
 
 echo "🧪 Running tests..."
-pytest tests/ -q
+uv run --locked pytest tests/ -q
 
 echo ""
-echo "✨ Setup complete! Pre-commit hooks are now active."
+echo "✨ Setup complete!"
 echo "Commands and workflow: see DEVELOPMENT.md"
