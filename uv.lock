@@ -1071,10 +1071,8 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aiodns" },
     { name = "mypy" },
     { name = "pre-commit" },
-    { name = "pycares" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-homeassistant-custom-component" },
@@ -1091,10 +1089,8 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aiodns", specifier = ">=3.6.1" },
     { name = "mypy", specifier = ">=2.4.0,<3" },
     { name = "pre-commit", specifier = ">=4.7.0" },
-    { name = "pycares", specifier = ">=4.11.0" },
     { name = "pytest", specifier = ">=9.0.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytest-homeassistant-custom-component", specifier = ">=0.13.373" },
