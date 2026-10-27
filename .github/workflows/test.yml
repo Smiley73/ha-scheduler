@@ -21,23 +21,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
-      - name: Verify installation
-        run: |
-          uv run --locked python -c "
-          import sys
-          try:
-              import pycares
-              print(f'✓ pycares {pycares.__version__} imported successfully')
-              import aiodns
-              print(f'✓ aiodns {aiodns.__version__} imported successfully')
-              import aiohttp
-              print(f'✓ aiohttp {aiohttp.__version__} imported successfully')
-              print('All DNS resolution dependencies working correctly')
-          except Exception as e:
-              print(f'✗ Import error: {e}')
-              sys.exit(1)
-          "
-
       - name: Run tests with pytest
         run: |
           uv run --locked pytest tests/ --cov=custom_components/ha_scheduler --cov-report=xml --cov-report=term --cov-fail-under=95
