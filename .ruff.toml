@@ -1,3 +1,8 @@
+# Pinned: inferring 3.14 from requires-python makes the formatter drop the
+# parentheses around multi-exception `except` clauses. 3.12 is the lowest
+# target that accepts the `type` statement in schedule_generator.py.
+target-version = "py312"
+
 [lint]
 select = [
     "E",   # pycodestyle
