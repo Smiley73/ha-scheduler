@@ -4,7 +4,7 @@
 version: 2
 updates:
   # Monitor Python dependencies
-  - package-ecosystem: "pip"
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -44,21 +44,24 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
-      # Prevent pycares upgrades to 5.0.0+ (incompatible with current aiodns)
+      # pycares and aiodns come only from homeassistant's exact aiodns pin, so
+      # they must not move apart from homeassistant/phacc. Kept as a guard in
+      # case direct entries for them return.
       - dependency-name: "pycares"
         versions: [">=5.0.0"]
-      # aiodns 4.0.0 requires pycares>=5.0.0 — block until pycares upgrade is vetted
       - dependency-name: "aiodns"
         versions: [">=4.0.0"]
-      # homeassistant is pinned intentionally — frozen at current version
+      # The floor in pyproject.toml is the oldest Home Assistant release the
+      # integration supports (it matches hacs.json). The tested version comes
+      # from phacc's exact pin, and raising the floor would silently drop
+      # supported releases.
       - dependency-name: "homeassistant"
         versions: [">=0.0.0"]
       # pytest is dictated by pytest-homeassistant-custom-component, which pins
-      # it exactly (pytest==9.0.3 as of phacc 0.13.362) rather than by a floor.
-      # Any bump here is unresolvable: pip fails with ResolutionImpossible
-      # before a single test runs (see #65). phacc bumps pytest for us, so the
-      # floor below it is decorative. Drop this rule if phacc ever loosens the
-      # pin to a range we would need to raise ourselves.
+      # it exactly rather than by a floor. Any bump here is unresolvable: `uv
+      # lock` fails before a single test runs (see #65). phacc bumps pytest for
+      # us, so the floor below it is decorative. Drop this rule if phacc ever
+      # loosens the pin to a range we would need to raise ourselves.
       - dependency-name: "pytest"
         versions: [">=0.0.0"]
 

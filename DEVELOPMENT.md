@@ -5,35 +5,34 @@ see the [README](README.md); agents also read [AGENTS.md](AGENTS.md).
 
 ## Setup
 
-Requires Python 3.14 (what CI runs) and Git.
+Requires [uv](https://docs.astral.sh/uv/getting-started/installation/) and Git.
+uv fetches the Python version pinned in `.python-version` (3.14) itself.
 
 ```bash
 git clone https://github.com/Smiley73/ha-scheduler.git
 cd ha-scheduler
-python3 -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+uv sync --locked
 ./setup-dev.sh
 ```
 
-The script installs `requirements_test.txt`, installs the pre-commit hooks and
-runs ruff and the tests once. To do it by hand:
-
-```bash
-pip install --upgrade -r requirements_test.txt
-pip install -r requirements.txt  # pytest-homeassistant-custom-component pins homeassistant
-pre-commit install
-```
+`uv sync --locked` creates `.venv` with exactly the versions in `uv.lock`. The
+script syncs the same way, installs the pre-commit hooks (from the main
+checkout only) and runs ruff and the tests once. The hooks are shared by every
+worktree, so a new worktree needs only `uv sync --locked`.
 
 ## Tests and lint
 
+`uv run` re-syncs `.venv` before running, so no activation is needed.
+
 ```bash
-pytest tests/ -q                 # add a path or ::test_name to narrow it
-pytest tests/ --cov=custom_components/ha_scheduler --cov-report=term-missing --cov-fail-under=95
-ruff check custom_components/ tests/ && ruff format --check custom_components/ tests/
-mypy custom_components/ha_scheduler/
-pre-commit run --all-files
+uv run pytest tests/ -q          # add a path or ::test_name to narrow it
+uv run pytest tests/ --cov=custom_components/ha_scheduler --cov-report=term-missing --cov-fail-under=95
+uv run ruff check custom_components/ tests/ && uv run ruff format --check custom_components/ tests/
+uv run mypy custom_components/ha_scheduler/
+uv run pre-commit run --all-files
 ```
 
-The coverage command mirrors the CI gate. Use `pytest tests/ -s` with
+The coverage command mirrors the CI gate. Use `uv run pytest tests/ -s` with
 `breakpoint()` to debug a test.
 
 ## Pre-commit
@@ -43,13 +42,14 @@ Every commit runs the hooks in `.pre-commit-config.yaml`: ruff check (with
 YAML, large-file and merge-conflict checks. Hooks fix what they can; stage the
 fixes and commit again. `git commit --no-verify` skips them, but CI will not.
 
-Pre-commit runs in the environment where it was installed, so activate the
-venv before committing.
+The ruff, mypy and pytest hooks run through `uv run --locked` against
+`uv.lock` from any checkout or worktree, with no venv to activate. They fail
+if `pyproject.toml` and `uv.lock` disagree.
 
-`pre-commit autoupdate` does not manage ruff, mypy or pytest: they run as local
-`system` hooks against the versions from `requirements_test.txt`. Bump them
-there (dependabot opens those PRs) and re-run `pip install -r
-requirements_test.txt`.
+`pre-commit autoupdate` does not manage ruff, mypy or pytest; their versions
+come from `uv.lock`. To change a dependency, edit `pyproject.toml` (or use
+`uv add` / `uv lock --upgrade-package <name>`), run `uv lock`, and commit both
+files. Dependabot opens PRs that refresh `uv.lock`.
 
 ## Running Home Assistant locally
 
@@ -58,8 +58,8 @@ and symlink the integration into its config directory:
 
 ```bash
 mkdir -p ~/ha-dev/config/custom_components && cd ~/ha-dev
-python3 -m venv .venv && source .venv/bin/activate
-pip install homeassistant
+uv venv && source .venv/bin/activate
+uv pip install homeassistant
 ln -s /path/to/ha-scheduler/custom_components/ha_scheduler config/custom_components/ha_scheduler
 hass -c config --debug
 ```
@@ -75,12 +75,15 @@ Debug logging is described under
 
 ## Continuous integration
 
-GitHub Actions, all on Python 3.14:
+GitHub Actions:
 
-- **Test**: pytest with the 95% coverage gate
-- **Lint**: ruff, mypy and the repo hygiene pre-commit hooks
-- **Validate**: HACS and hassfest
-- **CodeQL**: security analysis
+- **Test**: pytest with the 95% coverage gate. Installs with `uv sync --locked`
+  and runs on push, pull request and manual dispatch, with no scheduled run.
+- **Lint**: ruff, mypy and the repo hygiene pre-commit hooks. Installs with
+  `uv sync --locked` and runs on push and pull request, with no scheduled run.
+- **Validate**: HACS and hassfest. Runs on push, pull request, manual dispatch
+  and daily.
+- **CodeQL**: security analysis. Runs on push, pull request and weekly.
 
 ## Code style
 

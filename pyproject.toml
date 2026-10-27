@@ -1,0 +1,34 @@
+[project]
+name = "ha-scheduler"
+# Placeholder: uv requires a version. The integration's real version lives in
+# custom_components/ha_scheduler/manifest.json.
+version = "0"
+# homeassistant 2026.10.x requires >=3.14.2; the upper bound states 3.14 only.
+requires-python = ">=3.14.2,<3.15"
+dependencies = [
+    # Floor determined by the APIs in use: ConfigFlowResult (2024.4) and the
+    # options-flow config_entry property without explicit injection (2024.11/12).
+    "homeassistant>=2024.12.0",
+    "holidays>=0.107",
+    "babel>=2.18.0",
+]
+
+[dependency-groups]
+dev = [
+    # pytest's version is set by pytest-homeassistant-custom-component, which
+    # pins it exactly. This floor only documents the minimum the suite was
+    # written against — raising it above phacc's pin makes `uv lock`
+    # unresolvable.
+    "pytest>=9.0.0",
+    "pytest-homeassistant-custom-component>=0.13.373",
+    "pytest-cov>=7.1.0",
+    # Lint tooling is bounded to a minor series: ruff 0.x minors add and change
+    # rules, so an open-ended floor lets a new release turn CI red with no commit.
+    # Dependabot's lint-tooling group moves the bound. The series must keep
+    # treating `logging.<level>(..., exc_info=True)` as a handled blind except
+    # (see the broad catches in calendar.py).
+    "ruff>=0.17.2,<0.18",
+    "mypy>=2.4.0,<3",
+    "types-PyYAML>=6.0.12.20260906",
+    "pre-commit>=4.7.0",
+]

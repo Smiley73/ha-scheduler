@@ -4,17 +4,19 @@ default_stages: [pre-commit]
 repos:
   - repo: local
     hooks:
-      # Local system hook: ruff's version comes from requirements_test.txt
-      # alone (dependabot does not watch the pre-commit ecosystem).
+      # Local system hook: ruff's version comes from the dev group in
+      # pyproject.toml, pinned by uv.lock (dependabot does not watch the
+      # pre-commit ecosystem). `uv run --locked` fails on a stale lock instead
+      # of re-locking it.
       - id: ruff-check
         name: ruff check
-        entry: python -m ruff check --fix custom_components/ tests/
+        entry: uv run --locked python -m ruff check --fix custom_components/ tests/
         language: system
         pass_filenames: false
         always_run: true
       - id: ruff-format
         name: ruff format
-        entry: python -m ruff format custom_components/ tests/
+        entry: uv run --locked python -m ruff format custom_components/ tests/
         language: system
         pass_filenames: false
         always_run: true
@@ -30,6 +32,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-added-large-files
+        exclude: ^uv\.lock$
       - id: check-merge-conflict
 
   - repo: local
@@ -37,13 +40,13 @@ repos:
       # Local so mypy resolves against the installed Home Assistant deps.
       - id: mypy
         name: mypy
-        entry: mypy
+        entry: uv run --locked mypy
         language: system
         pass_filenames: false
         always_run: true
       - id: pytest-check
         name: pytest-check
-        entry: python -m pytest tests/ -q
+        entry: uv run --locked python -m pytest tests/ -q
         language: system
         pass_filenames: false
         always_run: true
