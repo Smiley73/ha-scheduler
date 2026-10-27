@@ -31,6 +31,7 @@ one calendar entity. Four schedule types, all stored in
     imports, cache priming helpers
   - `calendar.py` — the `SchedulerCalendar` entity
   - `migrations.py` — config entry v1 (helper) → v2 (service) migration
+- `pyproject.toml`, `uv.lock` — dependencies and their locked versions
 - `tests/` — pytest with `pytest-homeassistant-custom-component` (real
   `hass` fixture); shared fixtures in `tests/conftest.py`
   (`create_service_entry` builds a v2 entry)
@@ -38,18 +39,21 @@ one calendar entity. Four schedule types, all stored in
 ## Dev setup and commands
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-./setup-dev.sh                 # installs requirements_test.txt + pre-commit
-pytest tests/ -q               # full suite
-ruff check custom_components/ tests/ && ruff format --check custom_components/ tests/
+uv sync --locked               # fresh clone or new worktree
+./setup-dev.sh                 # once per clone: pre-commit hooks + smoke check
+uv run pytest tests/ -q        # full suite
+uv run ruff check custom_components/ tests/ && uv run ruff format --check custom_components/ tests/
+uv run mypy custom_components/ha_scheduler/
 ```
 
 CI runs tests on Python 3.14 with a 95% coverage gate, ruff over
 `custom_components/` and `tests/`, hassfest + HACS validation, and CodeQL.
-Runtime dependencies are unpinned floors; a weekly scheduled test run catches
-upstream `holidays`/`babel`/`homeassistant` changes. Lint tooling (`ruff`,
-`mypy`) is bounded to a minor series instead, so a new rule cannot turn CI red
-without a commit; pre-commit runs ruff from that same install.
+Dependencies are declared in `pyproject.toml` and `uv.lock` is committed. CI,
+local setup and the pre-commit hooks all install the lock exactly, so a red
+run means the commit or the environment changed. Upstream releases arrive as
+Dependabot PRs that refresh `uv.lock` and are tested by CI before merge;
+nothing tests newer releases between those PRs. Pre-commit runs from that same
+locked environment.
 
 ## Conventions and gotchas
 
