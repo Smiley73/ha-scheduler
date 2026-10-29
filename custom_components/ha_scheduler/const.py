@@ -10,6 +10,12 @@ SCHEDULE_TYPE_HOLIDAY = "holiday"
 # How many years before/after today to include when generating calendar events
 CALENDAR_YEAR_LOOKAROUND = 3
 
+# Widest window, in calendar years, that one async_get_events request may span.
+# The window is caller-supplied through the calendar REST, websocket and
+# service APIs, and every year in it costs holiday-library work, so wider
+# requests are rejected instead of iterated.
+CALENDAR_MAX_EVENT_SPAN_YEARS = 20
+
 MONTH_NAMES = [
     "january",
     "february",

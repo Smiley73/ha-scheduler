@@ -511,6 +511,7 @@ Present menu with five options:
 ### Event Generation
 - Generate events for requested date range
 - Include previous year to catch year-wrapping schedules
+- Reject requests covering more than `CALENDAR_MAX_EVENT_SPAN_YEARS` (20) calendar years with a translated `ServiceValidationError` (`exceptions.event_window_too_wide`) before any cache priming or generation; the exclusive end bound does not count a year it only touches at midnight: the window is caller-supplied (calendar REST, websocket and service APIs) and every year in it costs holiday-library work
 - Each event has unique UID: `{schedule_uid}_{year}`
 - All events are all-day events
 - End date is exclusive (add 1 day for calendar display)
@@ -683,6 +684,8 @@ DOMAIN = "ha_scheduler"
 
 # Calendar event window: generate events ±CALENDAR_YEAR_LOOKAROUND years from today
 CALENDAR_YEAR_LOOKAROUND = 3  # used in calendar.py and holiday_importer.py
+# Widest async_get_events window, in calendar years; wider requests are rejected
+CALENDAR_MAX_EVENT_SPAN_YEARS = 20
 
 # Internal keys (lowercase, used for option values and data storage)
 MONTH_NAMES = ["january", "february", "march", ...]  # 12 items
@@ -1057,7 +1060,7 @@ Include `data_description` for configuration fields:
 ### Test Coverage Areas
 1. **Config flow tests**: All flow paths (add, edit, remove, import holidays, default config)
 2. **Schedule generator tests**: All schedule types, edge cases, overlap detection
-3. **Calendar tests**: Event generation, year wrapping, configuration handling, entity ID validation, `CALENDAR_YEAR_LOOKAROUND` constant value, 7-year event window
+3. **Calendar tests**: Event generation, year wrapping, configuration handling, entity ID validation, `CALENDAR_YEAR_LOOKAROUND` constant value, 7-year event window, `CALENDAR_MAX_EVENT_SPAN_YEARS` request-window limit
 4. **Integration tests**: Full setup/unload/reload cycle
 5. **Persistence tests**: Verify schedules are properly saved and loaded
 6. **Diagnostics tests**: All schedule types, configuration handling, service-based data structure
@@ -1085,6 +1088,7 @@ Include `data_description` for configuration fields:
 - **Entity ID continuity**: Verify no duplicate entities are created during migration
 - **Unique ID preservation**: Confirm default service maintains original unique ID format
 - **`CALENDAR_YEAR_LOOKAROUND` constant**: Verify value is 3; verify `async_get_events` returns exactly `2 * CALENDAR_YEAR_LOOKAROUND + 1` annual occurrences over the full ±lookaround window
+- **`CALENDAR_MAX_EVENT_SPAN_YEARS` constant**: Verify value is 20; verify `async_get_events` rejects a window covering more calendar years than the limit with `ServiceValidationError` before priming or generating anything, and still serves a half-open window covering exactly the limit
 - **Integration lifecycle**: Verify `async_setup_entry` → `async_unload_entry` → `async_setup_entry` (reload) leaves entity state intact
 - **Multi-service config entries**: Both calendars created, each shows only its own schedules, unique IDs assigned correctly, `default_configuration` is per-service
 - **Holiday import error truncation**: When >3 holidays fail to import, error message ends with `" (and N more)"`

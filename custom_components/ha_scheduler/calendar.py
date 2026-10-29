@@ -10,11 +10,17 @@ import homeassistant.util.dt as dt_util
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_change
 
-from .const import CALENDAR_YEAR_LOOKAROUND, DOMAIN, SCHEDULE_TYPE_WEEK
+from .const import (
+    CALENDAR_MAX_EVENT_SPAN_YEARS,
+    CALENDAR_YEAR_LOOKAROUND,
+    DOMAIN,
+    SCHEDULE_TYPE_WEEK,
+)
 from .holiday_importer import async_prime_holiday_cache
 from .migrations import backfill_schedule_uids
 from .schedule_generator import generate_schedule_dates, get_country_first_weekday
@@ -294,6 +300,21 @@ class SchedulerCalendar(CalendarEntity):
 
         start_year = start_date.date().year
         end_year = end_date.date().year
+
+        # Refuse wide windows before priming or generating. end_date is
+        # exclusive, so a window ending at midnight on Jan 1 does not cover
+        # that year.
+        last_covered_year = (end_date - timedelta(microseconds=1)).date().year
+        if last_covered_year - start_year + 1 > CALENDAR_MAX_EVENT_SPAN_YEARS:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="event_window_too_wide",
+                translation_placeholders={
+                    "start": start_date.date().isoformat(),
+                    "end": end_date.date().isoformat(),
+                    "limit": str(CALENDAR_MAX_EVENT_SPAN_YEARS),
+                },
+            )
 
         await async_prime_holiday_cache(schedules, range(start_year - 1, end_year + 1))
 
