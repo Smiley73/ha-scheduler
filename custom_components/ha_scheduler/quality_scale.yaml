@@ -99,9 +99,7 @@ rules:
     status: exempt
     comment: The single calendar entity is the integration's purpose.
   entity-translations: done
-  exception-translations:
-    status: exempt
-    comment: No custom actions; flow errors use translated error keys.
+  exception-translations: done
   icon-translations:
     status: exempt
     comment: Calendar entity uses the standard calendar icon.

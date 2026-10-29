@@ -1,11 +1,15 @@
 """Test the Scheduler calendar."""
 
 from datetime import date, datetime
+from http import HTTPStatus
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util import dt as dt_util
+
+from custom_components.ha_scheduler.const import CALENDAR_MAX_EVENT_SPAN_YEARS
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
@@ -951,3 +955,109 @@ async def test_get_events_end_bound_is_exclusive(
         datetime(2026, 9, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE),
     )
     assert events == []
+
+
+def _holiday_schedule() -> dict[str, dict[str, object]]:
+    """One holiday schedule: the schedule type whose generation hits the holidays library."""
+    return {
+        "good-friday": {
+            "uid": "good-friday",
+            "name": "Good Friday",
+            "schedule_type": "holiday",
+            "country_code": "DE",
+            "category": "public",
+            "holiday_name": "Good Friday",
+            "name_lookup": "iexact",
+            "start_offset": 0,
+            "end_offset": 0,
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("span_years", "accepted"),
+    [
+        (CALENDAR_MAX_EVENT_SPAN_YEARS, True),
+        (CALENDAR_MAX_EVENT_SPAN_YEARS + 1, False),
+    ],
+)
+async def test_get_events_span_limit_is_inclusive(
+    hass: HomeAssistant, create_service_entry, span_years: int, accepted: bool
+) -> None:
+    """A window spanning exactly the limit is served; one more year is not.
+
+    The end bound is exclusive per the calendar contract, so a window ending
+    at midnight on Jan 1 does not count that year towards the span.
+    """
+    entry = create_service_entry(
+        schedules={
+            "annual": {
+                "uid": "annual",
+                "name": "Annual Schedule",
+                "schedule_type": "date",
+                "start_month": 6,
+                "start_day": 1,
+                "end_month": 6,
+                "end_day": 30,
+            }
+        }
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    calendar = hass.data["calendar"].get_entity("calendar.test_scheduler")
+
+    # Half-open window [Jan 1 of the first year, Jan 1 after the last year):
+    # exactly span_years calendar years are covered.
+    start = datetime(2020, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    end = datetime(2020 + span_years, 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+
+    if accepted:
+        events = await calendar.async_get_events(hass, start, end)
+        assert [e.start.year for e in events] == list(range(2020, 2020 + span_years))
+    else:
+        with (
+            patch(
+                "custom_components.ha_scheduler.calendar.async_prime_holiday_cache",
+                new=AsyncMock(),
+            ) as mock_prime,
+            patch(
+                "custom_components.ha_scheduler.calendar.generate_schedule_dates"
+            ) as mock_generate,
+            pytest.raises(ServiceValidationError, match="spans more than"),
+        ):
+            await calendar.async_get_events(hass, start, end)
+        mock_prime.assert_not_awaited()
+        mock_generate.assert_not_called()
+
+
+async def test_rest_api_wide_window_is_rejected_without_generating(
+    hass: HomeAssistant, create_service_entry, hass_client
+) -> None:
+    """The calendar REST view turns the rejection into an error response."""
+    entry = create_service_entry(schedules=_holiday_schedule())
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    client = await hass_client()
+
+    with (
+        patch(
+            "custom_components.ha_scheduler.calendar.async_prime_holiday_cache",
+            new=AsyncMock(),
+        ) as mock_prime,
+        patch(
+            "custom_components.ha_scheduler.calendar.generate_schedule_dates"
+        ) as mock_generate,
+    ):
+        response = await client.get(
+            "/api/calendars/calendar.test_scheduler"
+            "?start=0001-06-01T00:00:00Z&end=9999-06-01T00:00:00Z"
+        )
+
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert "spans more than" in (await response.json())["message"]
+    mock_prime.assert_not_awaited()
+    mock_generate.assert_not_called()

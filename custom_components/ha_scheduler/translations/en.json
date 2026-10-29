@@ -254,5 +254,10 @@
         "4": "Last"
       }
     }
+  },
+  "exceptions": {
+    "event_window_too_wide": {
+      "message": "Requested window {start} to {end} spans more than {limit} calendar years"
+    }
   }
 }
